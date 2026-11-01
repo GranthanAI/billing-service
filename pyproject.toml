@@ -21,6 +21,7 @@ dependencies = [
     "prometheus-client>=0.20",
     "sentry-sdk>=2.0",
     "opentelemetry-sdk>=1.25",
+    "tzdata>=2024.1",
 ]
 
 [dependency-groups]
@@ -45,6 +46,7 @@ packages = ["src/billing"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["src", "."]
 
