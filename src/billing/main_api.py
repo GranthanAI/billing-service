@@ -7,8 +7,10 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog
 from billing.adapters.db.engine import make_engine
 from billing.adapters.db.migrations import schema_problem
+from billing.api.rest.public import router as public_router
 from billing.observability import configure_logging, metrics_payload
 from billing.settings import get_settings
 
@@ -27,12 +29,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             owned = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
             app.state.engine = owned
+            app.state.payg_enabled = settings.payg_enabled
+            try:
+                app.state.catalog_version = load_catalog(settings.plans_file).catalog_version
+            except CatalogError:
+                app.state.catalog_version = ""
     yield
     if owned is not None:
         await owned.dispose()
 
 
 app = FastAPI(title="billing-api", lifespan=lifespan)
+app.include_router(public_router)
 
 
 @app.middleware("http")
