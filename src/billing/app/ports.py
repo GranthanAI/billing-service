@@ -12,11 +12,14 @@ from types import TracebackType
 from typing import Any, Protocol, Self
 from uuid import UUID
 
+from billing.app.events import OutboxEvent
 from billing.app.records import (
     Begin,
     BillingAccount,
     InvoiceLineRecord,
     InvoiceRecord,
+    Job,
+    JobStatus,
     OverrideRecord,
     PaymentRecord,
     PlanVersionRecord,
@@ -346,14 +349,7 @@ class LedgerRepo(Protocol):
 
 
 class Publisher(Protocol):
-    async def enqueue(
-        self,
-        topic: str,
-        key: str,
-        event_type: str,
-        payload: bytes,
-        headers: Mapping[str, str] | None = None,
-    ) -> None:
+    async def enqueue(self, event: OutboxEvent) -> None:
         """Write to the outbox inside the current unit of work."""
         ...
 
@@ -380,6 +376,20 @@ class JobRepo(Protocol):
     async def enqueue(
         self, kind: str, payload: Mapping[str, Any], run_at: datetime, dedupe_key: str | None
     ) -> bool: ...
+
+    async def claim(self, limit: int, lock_seconds: int, now: datetime) -> list[Job]:
+        """Queued jobs due at `now` become running and locked (FOR UPDATE SKIP LOCKED)."""
+        ...
+
+    async def complete(self, job_id: int) -> None: ...
+
+    async def fail(self, job_id: int, error: str, now: datetime) -> JobStatus:
+        """Requeue with run_at = now + min(2**attempts, 3600) s, or `dead` at max_attempts."""
+        ...
+
+    async def reap(self, now: datetime) -> int:
+        """Requeue running jobs whose lock expired; returns how many."""
+        ...
 
 
 class AuditRepo(Protocol):

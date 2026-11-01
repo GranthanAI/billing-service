@@ -14,7 +14,10 @@ class Settings(BaseSettings):
     billing_migration_database_url: str = Field(...)
     db_pool_size: int = 10
     billing_valkey_url: str = Field(...)
-    kafka_bootstrap_servers: str = Field(...)
+    kafka_bootstrap_servers: str = Field(..., min_length=1)
+    kafka_client_id: str = "billing-service"
+    job_concurrency: int = Field(4, ge=1)
+    outbox_batch_size: int = Field(500, ge=1)
     razorpay_key_id: str = Field(...)
     razorpay_key_secret: str = Field(...)
     razorpay_webhook_secret: str = Field(...)

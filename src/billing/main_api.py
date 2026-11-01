@@ -11,6 +11,7 @@ from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog
 from billing.adapters.db.engine import make_engine
 from billing.adapters.db.migrations import schema_problem
 from billing.api.rest.public import router as public_router
+from billing.app.context import correlation_id_var
 from billing.observability import configure_logging, metrics_payload
 from billing.settings import get_settings
 
@@ -50,6 +51,7 @@ async def correlation_id(
     cid = request.headers.get("X-Correlation-ID") or f"c-{uuid.uuid4().hex[:12]}"
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(correlation_id=cid)
+    correlation_id_var.set(cid)
     response = await call_next(request)
     response.headers["X-Correlation-ID"] = cid
     return response

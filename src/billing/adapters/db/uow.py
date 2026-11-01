@@ -14,6 +14,7 @@ from typing import Self
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncTransaction
 
+from billing.adapters.clock import SystemClock
 from billing.adapters.db.repos.accounts import SqlAccountRepo
 from billing.adapters.db.repos.invoices import SqlInvoiceRepo
 from billing.adapters.db.repos.ledger import SqlLedgerRepo
@@ -31,13 +32,15 @@ from billing.adapters.db.repos.plumbing import (
 from billing.adapters.db.repos.pricing import SqlPricingRepo
 from billing.adapters.db.repos.subscriptions import SqlSubscriptionRepo
 from billing.adapters.db.repos.usage import SqlUsageRepo
-from billing.app.ports import IdGenerator
+from billing.adapters.kafka.codec import EventCodec
+from billing.app.ports import Clock, IdGenerator
 
 
 class SqlUnitOfWork:
-    def __init__(self, engine: AsyncEngine, ids: IdGenerator) -> None:
+    def __init__(self, engine: AsyncEngine, ids: IdGenerator, clock: Clock | None = None) -> None:
         self._engine = engine
         self._ids = ids
+        self._clock = clock or SystemClock()
         self._conn: AsyncConnection | None = None
         self._trans: AsyncTransaction | None = None
 
@@ -57,7 +60,7 @@ class SqlUnitOfWork:
         self.payments = SqlPaymentRepo(conn)
         self.invoices = SqlInvoiceRepo(conn)
         self.ledger = SqlLedgerRepo(conn, ids)
-        self.publisher = SqlOutbox(conn)
+        self.publisher = SqlOutbox(conn, EventCodec(ids, self._clock))
         self.processed = SqlProcessedEvents(conn)
         self.idempotency = SqlIdempotency(conn)
         self.inbox = SqlWebhookInbox(conn)

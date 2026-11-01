@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -169,3 +170,19 @@ class InProgress:
 
 
 Begin = New | Replay | Mismatch | InProgress
+
+
+class JobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    DEAD = "dead"
+
+
+@dataclass(frozen=True, slots=True)
+class Job:
+    id: int
+    kind: str
+    payload: dict[str, Any]
+    attempts: int
+    max_attempts: int
