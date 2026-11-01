@@ -49,6 +49,18 @@ class GatewayPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class GatewayPlanSpec:
+    """What ensure_plan needs. `notes` carries plan_code, version, interval and checksum."""
+
+    name: str
+    period: str  # monthly | yearly
+    interval: int
+    amount: Paise
+    currency: str
+    notes: Mapping[str, str]
+
+
+@dataclass(frozen=True, slots=True)
 class GatewaySubscription:
     id: str
     status: str
@@ -86,7 +98,14 @@ class GatewayRefund:
     status: str
 
 
-class PaymentGateway(Protocol):
+class PlanGateway(Protocol):
+    async def ensure_plan(self, spec: GatewayPlanSpec) -> str:
+        """Idempotent: returns the id of an existing plan with the same notes.checksum and
+        notes.interval, and creates one only when there is none."""
+        ...
+
+
+class PaymentGateway(PlanGateway, Protocol):
     async def create_plan(
         self, *, name: str, amount: Paise, interval: str, notes: Mapping[str, str]
     ) -> GatewayPlan: ...
@@ -260,6 +279,11 @@ class SubscriptionRepo(Protocol):
 
     async def live_for_account(self, billing_account_id: UUID) -> SubscriptionRecord | None: ...
 
+    async def count_live_for_plan(self, plan_code: str) -> int:
+        """Subscriptions on any version of the plan that are active, past_due, suspended or
+        cancelling."""
+        ...
+
     async def insert(self, record: SubscriptionRecord) -> None: ...
 
     async def save(self, record: SubscriptionRecord) -> SubscriptionRecord:
@@ -372,21 +396,50 @@ class AuditRepo(Protocol):
 
 
 class UnitOfWork(Protocol):
-    accounts: AccountRepo
-    plans: PlanRepo
-    pricing: PricingRepo
-    subscriptions: SubscriptionRepo
-    overrides: OverrideRepo
-    usage: UsageRepo
-    payments: PaymentRepo
-    invoices: InvoiceRepo
-    ledger: LedgerRepo
-    publisher: Publisher
-    processed: ProcessedEventRepo
-    idempotency: IdempotencyRepo
-    inbox: WebhookInboxRepo
-    jobs: JobRepo
-    audit: AuditRepo
+    @property
+    def accounts(self) -> AccountRepo: ...
+
+    @property
+    def plans(self) -> PlanRepo: ...
+
+    @property
+    def pricing(self) -> PricingRepo: ...
+
+    @property
+    def subscriptions(self) -> SubscriptionRepo: ...
+
+    @property
+    def overrides(self) -> OverrideRepo: ...
+
+    @property
+    def usage(self) -> UsageRepo: ...
+
+    @property
+    def payments(self) -> PaymentRepo: ...
+
+    @property
+    def invoices(self) -> InvoiceRepo: ...
+
+    @property
+    def ledger(self) -> LedgerRepo: ...
+
+    @property
+    def publisher(self) -> Publisher: ...
+
+    @property
+    def processed(self) -> ProcessedEventRepo: ...
+
+    @property
+    def idempotency(self) -> IdempotencyRepo: ...
+
+    @property
+    def inbox(self) -> WebhookInboxRepo: ...
+
+    @property
+    def jobs(self) -> JobRepo: ...
+
+    @property
+    def audit(self) -> AuditRepo: ...
 
     async def __aenter__(self) -> Self: ...
 

@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +25,9 @@ class Settings(BaseSettings):
     invoice_sac_code: str = "998319"
     invoice_series: str = "GA"
     credit_note_series: str = "CN"
+    environment: str = "development"
+    payment_gateway: Literal["razorpay", "fake"] = "razorpay"
+    payg_enabled: bool = False
     plans_file: str = "/app/config/plans.yaml"
     grace_days: int = 3
     hold_ttl_seconds: int = 600
@@ -34,3 +38,9 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()  # type: ignore[call-arg]
+
+
+def check_gateway_allowed(payment_gateway: str, environment: str) -> None:
+    """The in-memory fake gateway must never run in production."""
+    if payment_gateway == "fake" and environment == "production":
+        raise ValueError("PAYMENT_GATEWAY=fake is refused when ENVIRONMENT=production")

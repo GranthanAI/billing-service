@@ -32,7 +32,8 @@ migrate:
 	uv run alembic upgrade head
 
 catalog-sync:
-	@echo "catalog sync arrives in Phase 3"
+	uv run python -m billing.cli pricing seed
+	PAYMENT_GATEWAY=fake uv run python -m billing.cli catalog sync
 
 run-api:
 	uv run uvicorn billing.main_api:app --port 8080 --reload

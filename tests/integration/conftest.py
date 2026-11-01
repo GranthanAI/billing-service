@@ -144,3 +144,40 @@ async def seeded_plans(make_migrator_uow: Callable[[], SqlUnitOfWork]) -> None:
 async def account(make_uow: Callable[[], SqlUnitOfWork]) -> BillingAccount:
     async with make_uow() as uow:
         return await uow.accounts.get_or_create(OwnerType.USER, uuid4(), "user@example.com")
+
+
+@dataclass
+class FreshDb:
+    """A throwaway migrated database, so catalog tests start from an empty plan_versions."""
+
+    urls: Urls
+    name: str
+    migrator_engine: AsyncEngine
+    app_engine: AsyncEngine
+
+    def migrator_uow(self) -> SqlUnitOfWork:
+        return SqlUnitOfWork(self.migrator_engine, _IDS)
+
+    def app_uow(self) -> SqlUnitOfWork:
+        return SqlUnitOfWork(self.app_engine, _IDS)
+
+
+_IDS = Uuid7Generator()
+
+
+@pytest_asyncio.fixture
+async def fresh_db(urls: Urls) -> AsyncIterator[FreshDb]:
+    name = f"cat_{uuid4().hex[:10]}"
+    conn = await asyncpg.connect(
+        host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"
+    )
+    try:
+        await conn.execute(f'CREATE DATABASE "{name}" OWNER billing_migrator')
+    finally:
+        await conn.close()
+    await asyncio.to_thread(command.upgrade, alembic_config(urls.migrator_for(name)), "head")
+    migrator = make_engine(urls.migrator_for(name), pool_size=5)
+    app = make_engine(urls._url("billing_app", "billing_app", name), pool_size=5)
+    yield FreshDb(urls, name, migrator, app)
+    await migrator.dispose()
+    await app.dispose()

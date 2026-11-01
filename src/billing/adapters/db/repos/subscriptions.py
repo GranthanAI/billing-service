@@ -5,7 +5,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from billing.adapters.db.tables import subscription_history
+from billing.adapters.db.tables import plan_versions, subscription_history
 from billing.adapters.db.tables import subscriptions as t
 from billing.app.records import StaleRecord, SubscriptionHistoryEntry, SubscriptionRecord
 from billing.domain.catalog import Interval
@@ -91,6 +91,14 @@ class SqlSubscriptionRepo:
     async def live_for_account(self, billing_account_id: UUID) -> SubscriptionRecord | None:
         q = sa.select(t).where(t.c.billing_account_id == billing_account_id, t.c.status.in_(LIVE))
         return await self._one(q)
+
+    async def count_live_for_plan(self, plan_code: str) -> int:
+        q = (
+            sa.select(sa.func.count())
+            .select_from(t.join(plan_versions, plan_versions.c.id == t.c.plan_version_id))
+            .where(plan_versions.c.plan_code == plan_code, t.c.status.in_(LIVE))
+        )
+        return int((await self._c.execute(q)).scalar_one())
 
     async def insert(self, record: SubscriptionRecord) -> None:
         await self._c.execute(
