@@ -1,14 +1,38 @@
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncEngine
 
+from billing.adapters.db.engine import make_engine
+from billing.adapters.db.migrations import schema_problem
 from billing.observability import configure_logging, metrics_payload
+from billing.settings import get_settings
 
 configure_logging()
 
-app = FastAPI(title="billing-api")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Tests (and Phase 5 wiring) may pre-set app.state.engine; otherwise build it from settings.
+    owned: AsyncEngine | None = None
+    if getattr(app.state, "engine", None) is None:
+        try:
+            settings = get_settings()
+        except Exception:
+            app.state.engine = None  # /readyz reports 503 until the service is configured
+        else:
+            owned = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
+            app.state.engine = owned
+    yield
+    if owned is not None:
+        await owned.dispose()
+
+
+app = FastAPI(title="billing-api", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -29,9 +53,15 @@ async def healthz() -> dict[str, str]:
 
 
 @app.get("/readyz")
-async def readyz() -> dict[str, str]:
-    # Phase 0 stub: Postgres, Valkey, Lua scripts and catalog checks arrive with their phases.
-    return {"status": "ready"}
+async def readyz(request: Request) -> Response:
+    engine: AsyncEngine | None = getattr(request.app.state, "engine", None)
+    if engine is None:
+        return JSONResponse({"status": "not_ready", "reason": "database not configured"}, 503)
+    # Valkey, Lua scripts and the catalog checksum are added in later phases.
+    problem = await schema_problem(engine)
+    if problem:
+        return JSONResponse({"status": "not_ready", "reason": problem}, 503)
+    return JSONResponse({"status": "ready"})
 
 
 @app.get("/metrics")

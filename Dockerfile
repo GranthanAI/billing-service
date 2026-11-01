@@ -5,6 +5,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 COPY config ./config
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 ENV PATH="/app/.venv/bin:$PATH" PYTHONPATH=/app/src
 # api:    uvicorn billing.main_api:app --host 0.0.0.0 --port 8080
 # worker: python -m billing.main_worker

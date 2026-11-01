@@ -1,3 +1,5 @@
+export BILLING_MIGRATION_DATABASE_URL ?= postgresql+asyncpg://billing_migrator:billing_migrator@localhost:5433/billing_db
+
 .PHONY: sync up down db-create test lint fmt migrate catalog-sync run-api
 
 sync:
