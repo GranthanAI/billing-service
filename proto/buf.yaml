@@ -1,0 +1,14 @@
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+  except:
+    # The LLD names the service BillingInternal and returns Entitlements from GetEntitlements;
+    # callers already depend on those names, so they stay as designed.
+    - SERVICE_SUFFIX
+    - RPC_RESPONSE_STANDARD_NAME
+breaking:
+  use:
+    - FILE

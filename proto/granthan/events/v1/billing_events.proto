@@ -1,0 +1,50 @@
+syntax = "proto3";
+package granthan.events.v1;
+import "google/protobuf/timestamp.proto";
+import "granthan/events/v1/envelope.proto";
+
+// Events billing-service produces.
+
+message SubscriptionChanged {
+  Envelope envelope = 1;
+  string billing_account_id = 2;
+  string owner_type = 3;
+  string owner_id = 4;
+  string subscription_id = 5;
+  string plan_code = 6;
+  string status = 7;
+  string previous_plan_code = 8;
+  string previous_status = 9;
+  google.protobuf.Timestamp current_period_end = 10;
+}
+
+message UsageThresholdReached {
+  Envelope envelope = 1;
+  string user_id = 2;
+  string billing_account_id = 3;
+  string limit = 4;                       // messages_per_day, best_per_day, spend_cap, youtube_per_month
+  int32 percent = 5;                      // 80 or 100
+  int64 used = 6;
+  int64 allowed = 7;
+  google.protobuf.Timestamp resets_at = 8;
+}
+
+message PaymentFailed {
+  Envelope envelope = 1;
+  string billing_account_id = 2;
+  string subscription_id = 3;
+  string gateway_payment_id = 4;
+  int64 amount_paise = 5;
+  string reason = 6;
+  google.protobuf.Timestamp next_retry_at = 7;
+}
+
+message InvoiceIssued {
+  Envelope envelope = 1;
+  string billing_account_id = 2;
+  string invoice_id = 3;
+  string number = 4;
+  string kind = 5;                        // tax_invoice | credit_note
+  int64 total_paise = 6;
+  string pdf_object_key = 7;
+}

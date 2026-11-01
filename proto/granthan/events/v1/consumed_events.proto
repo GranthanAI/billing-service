@@ -1,0 +1,49 @@
+syntax = "proto3";
+package granthan.events.v1;
+import "granthan/events/v1/envelope.proto";
+
+// Events billing-service consumes. Their owning services (llm-service, file-service and
+// auth-service) will move these definitions to a shared granthan-contracts repo; until then
+// billing keeps its own copy so it can decode what they publish.
+
+message LlmCall {
+  string provider = 1;                    // groq, gemini, anthropic, openai, nvidia
+  string model = 2;
+  string purpose = 3;                     // answer, request_analysis, memory, manim_plan
+  int64 input_tokens = 4;                 // as reported by the provider, not counted chunks
+  int64 cached_input_tokens = 5;
+  int64 output_tokens = 6;
+}
+
+message ChatResponseGenerated {          // already published by llm-service; fields added
+  Envelope envelope = 1;
+  string user_id = 2;
+  string request_message_id = 3;
+  string conversation_id = 4;
+  string hold_id = 5;
+  string model_group = 6;
+  repeated LlmCall calls = 7;             // the answer plus its helper calls
+  bool succeeded = 8;
+}
+
+message ArtifactManimRendered {
+  Envelope envelope = 1;
+  string user_id = 2;
+  string request_message_id = 3;
+  string artifact_id = 4;
+  string hold_id = 5;
+  bool succeeded = 6;
+}
+
+message FileYoutubeIngested {
+  Envelope envelope = 1;
+  string user_id = 2;
+  string source_id = 3;
+  string hold_id = 4;
+  bool succeeded = 5;
+}
+
+message UserDeleted {
+  Envelope envelope = 1;
+  string user_id = 2;
+}

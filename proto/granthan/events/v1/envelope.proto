@@ -1,0 +1,12 @@
+syntax = "proto3";
+package granthan.events.v1;
+import "google/protobuf/timestamp.proto";
+
+message Envelope {
+  string event_id = 1;                    // UUIDv7, unique per event
+  string event_type = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+  string correlation_id = 4;
+  string producer = 5;
+  int32 schema_version = 6;
+}

@@ -5,9 +5,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v3
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
       - run: uv sync
+      - name: Buf lint
+        run: buf lint proto
+      - name: Buf breaking (skipped until main has a proto/ directory)
+        run: |
+          if git ls-tree -d --name-only origin/main proto >/dev/null 2>&1 && [ -n "$(git ls-tree -d --name-only origin/main proto)" ]; then
+            buf breaking proto --against '.git#branch=main,subdir=proto'
+          else
+            echo "proto/ is not on main yet; nothing to compare against"
+          fi
+      - name: Generated code is current
+        run: |
+          make proto
+          git diff --exit-code src/billing/gen
       - run: make lint
-      - run: make test
+      - run: make test # integration tests need Docker (Testcontainers: Postgres 17, Kafka 3.8)
       - run: docker build -t billing-service .
-

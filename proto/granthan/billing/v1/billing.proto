@@ -1,0 +1,78 @@
+syntax = "proto3";
+package granthan.billing.v1;
+
+service BillingInternal {
+  // Called before any action that costs money. Idempotent on idempotency_key.
+  rpc CheckAndReserve(CheckAndReserveRequest) returns (CheckAndReserveResponse);
+  // Gives a reserved unit back when the action failed. Idempotent on hold_id.
+  rpc Release(ReleaseRequest) returns (ReleaseResponse);
+  // Full limits for services that enforce counts themselves.
+  rpc GetEntitlements(GetEntitlementsRequest) returns (Entitlements);
+}
+
+enum ModelGroup {
+  MODEL_GROUP_UNSPECIFIED = 0;
+  MODEL_GROUP_FAST = 1;
+  MODEL_GROUP_SMART = 2;
+  MODEL_GROUP_BEST = 3;
+  MODEL_GROUP_ULTRA = 4;
+}
+
+enum ReserveKind {
+  RESERVE_KIND_UNSPECIFIED = 0;
+  RESERVE_KIND_MESSAGE = 1;
+  RESERVE_KIND_YOUTUBE_VIDEO = 2;
+  RESERVE_KIND_MANIM_VIDEO = 3;
+}
+
+enum DenyReason {
+  DENY_REASON_UNSPECIFIED = 0;
+  DENY_REASON_DAILY_LIMIT = 1;
+  DENY_REASON_MONTHLY_LIMIT = 2;
+  DENY_REASON_MODEL_NOT_IN_PLAN = 3;
+  DENY_REASON_NO_CREDIT = 4;
+  DENY_REASON_SPEND_CAP = 5;
+  DENY_REASON_ACCOUNT_BLOCKED = 6;
+}
+
+message CheckAndReserveRequest {
+  string user_id = 1;
+  string idempotency_key = 2;       // request_message_id, or the video id
+  ReserveKind kind = 3;
+  ModelGroup requested_group = 4;   // messages only
+  string requested_model = 5;       // optional; empty lets the router pick
+}
+
+message CheckAndReserveResponse {
+  bool allowed = 1;
+  DenyReason deny_reason = 2;
+  string hold_id = 3;
+  ModelGroup granted_group = 4;
+  bool downgraded = 5;              // Max user past 12 Best messages today
+  int32 max_context_tokens = 6;     // 16k / 64k / 128k reading cap
+  string billing_account_id = 7;
+  string message_key = 8;           // frontend copy key from the Limit Behaviour sheet
+  int64 hold_expires_at_unix = 9;
+  int32 remaining_today = 10;       // -1 = unlimited
+  string funded_by = 11;            // plan | credits
+}
+
+message ReleaseRequest {
+  string user_id = 1;
+  string hold_id = 2;
+  string reason = 3;                // provider_error, cancelled, timeout
+}
+message ReleaseResponse { bool released = 1; }
+
+message GetEntitlementsRequest { string user_id = 1; }
+
+message Entitlements {
+  string user_id = 1;
+  string billing_account_id = 2;
+  string source = 3;                // override | org | subscription | free
+  string plan_code = 4;
+  int32 plan_version = 5;
+  repeated string allowed_models = 6;
+  map<string, int64> limits = 7;    // keys as in plans.yaml; -1 = unlimited
+  string version_hash = 8;          // changes whenever any field changes
+}
