@@ -1,6 +1,6 @@
 export BILLING_MIGRATION_DATABASE_URL ?= postgresql+asyncpg://billing_migrator:billing_migrator@localhost:5433/billing_db
 
-.PHONY: topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
+.PHONY: loadtest topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
 
 sync:
 	uv sync
@@ -47,3 +47,6 @@ run-api:
 
 proto:
 	uv run python scripts/gen_proto.py
+
+loadtest:
+	uv run python loadtest/run.py

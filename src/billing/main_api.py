@@ -1,5 +1,7 @@
 import asyncio
 import contextlib
+import gc
+import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -24,12 +26,20 @@ from billing.api.rest.public import router as public_router
 from billing.app.context import correlation_id_var
 from billing.app.entitlements import EntitlementService, ModelCatalog
 from billing.app.reserve import ReserveService
-from billing.observability import HOLDS_OPEN, configure_logging, metrics_payload
+from billing.observability import HOLDS_OPEN, LOOP_LAG, configure_logging, metrics_payload
 from billing.settings import Settings, get_settings
 
 configure_logging()
 log = structlog.get_logger()
 HOLDS_SAMPLE_SECONDS = 15
+
+
+async def _watch_loop_lag() -> None:
+    interval = 0.05
+    while True:
+        started = time.perf_counter()
+        await asyncio.sleep(interval)
+        LOOP_LAG.observe(max(0.0, time.perf_counter() - started - interval))
 
 
 async def _sample_holds(counters: ValkeyCounters) -> None:
@@ -45,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     owned_engine: AsyncEngine | None = None
     grpc_server: grpc.aio.Server | None = None
     sampler: asyncio.Task[None] | None = None
+    lag_watch: asyncio.Task[None] | None = None
     settings: Settings | None = None
     if getattr(app.state, "engine", None) is None:
         try:
@@ -72,7 +83,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             return SqlUnitOfWork(owned_engine, ids, clock)
 
         reserve = ReserveService(
-            EntitlementService(uow_factory, ValkeyEntitlementCache(client), clock),
+            EntitlementService(
+                uow_factory,
+                ValkeyEntitlementCache(client),
+                clock,
+                l1_ttl_seconds=settings.entitlement_l1_ttl_seconds,
+            ),
             ModelCatalog(uow_factory, clock),
             counters,
             clock,
@@ -87,10 +103,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             reserve, tokens, settings.grpc_port, production=settings.environment == "production"
         )
         sampler = asyncio.create_task(_sample_holds(counters))
+        lag_watch = asyncio.create_task(_watch_loop_lag())
+        # Long-lived objects are built; keep the cyclic GC from scanning them and from pausing
+        # requests (a gen-2 pause shows up directly in the reserve p99).
+        gc.collect()
+        gc.freeze()
+        gc.set_threshold(50_000, 20, 20)
         log.info("billing_api_started", grpc_port=settings.grpc_port)
     yield
-    if sampler is not None:
-        sampler.cancel()
+    for task in (sampler, lag_watch):
+        if task is not None:
+            task.cancel()
     if grpc_server is not None:
         await grpc_server.stop(5)  # 5 s grace for in-flight calls
     if settings is not None:

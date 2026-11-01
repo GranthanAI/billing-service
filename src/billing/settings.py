@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     day_counter_ttl_seconds: int = 172_800
     month_counter_ttl_seconds: int = 40 * 86_400
     grpc_port: int = 50051
+    entitlement_l1_ttl_seconds: float = 5.0
     daily_ai_budget_inr: int = 3000
     timezone_business: str = "Asia/Kolkata"
 

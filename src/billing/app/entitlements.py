@@ -10,6 +10,7 @@ from billing.domain.entitlements import Entitlement, Grant, GrantSource, pick
 from billing.domain.subscription import GRANTS_PLAN
 
 ENTITLEMENT_TTL_SECONDS = 600
+L1_MAX_ENTRIES = 50_000
 
 
 class EntitlementService:
@@ -19,22 +20,39 @@ class EntitlementService:
         cache: EntitlementCache,
         clock: Clock,
         ttl_seconds: int = ENTITLEMENT_TTL_SECONDS,
+        l1_ttl_seconds: float = 5.0,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._uow = uow_factory
         self._cache = cache
         self._clock = clock
         self._ttl = ttl_seconds
+        # A few seconds of in-process memory in front of Valkey saves a round trip and a JSON
+        # decode on almost every call. Another replica sees an invalidation after at most this
+        # long; this process sees it at once. 0 turns it off.
+        self._l1_ttl = l1_ttl_seconds
+        self._monotonic = monotonic
+        self._l1: dict[UUID, tuple[float, Entitlement]] = {}
 
     async def resolve(self, user_id: UUID) -> Entitlement:
-        if (cached := await self._cache.get(user_id)) is not None:
-            return cached
-        ent = await self._load(user_id)
-        await self._cache.set(user_id, ent, self._ttl)
+        now = self._monotonic()
+        hit = self._l1.get(user_id)
+        if hit is not None and hit[0] > now:
+            return hit[1]
+        ent = await self._cache.get(user_id)
+        if ent is None:
+            ent = await self._load(user_id)
+            await self._cache.set(user_id, ent, self._ttl)
+        if self._l1_ttl > 0:
+            if len(self._l1) >= L1_MAX_ENTRIES:
+                self._l1.clear()
+            self._l1[user_id] = (now + self._l1_ttl, ent)
         return ent
 
     async def invalidate(self, user_id: UUID) -> None:
         """Call after anything that changes what a user may do: a committed subscription change,
         an override granted or ended, an account blocked or unblocked, an org membership change."""
+        self._l1.pop(user_id, None)
         await self._cache.delete(user_id)
 
     async def _load(self, user_id: UUID) -> Entitlement:

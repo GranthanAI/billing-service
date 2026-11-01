@@ -44,3 +44,8 @@ RESERVE_DOWNGRADED = Counter(
 HOLDS_OPEN = Gauge("billing_holds_open", "Open holds (ZCARD holds:due)")
 HOLDS_EXPIRED = Counter("billing_holds_expired_total", "Holds the sweeper expired", ["mode"])
 RELEASE_TOTAL = Counter("billing_release_total", "Release calls that gave a unit back", ["reason"])
+LOOP_LAG = Histogram(
+    "billing_event_loop_lag_seconds",
+    "How late a 50 ms timer fires: a stalled event loop shows up here before latency does",
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+)
