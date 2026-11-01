@@ -123,7 +123,6 @@ The release plan's six tables grow to about twenty, grouped by concern. Usage an
 | Subscriptions | `subscriptions` | billing\_account\_id, plan\_version\_id, interval, seats, status, gateway, gateway\_subscription\_id, current\_period\_end, cancel\_at\_period\_end, grace\_until | One active row per billing account |
 | Subscriptions | `subscription_history` | subscription\_id, from\_status, to\_status, cause, at | Every state change, for support and audits |
 | Entitlements | `plan_overrides` | owner, plan\_code, reason, expires\_at, granted\_by | Pilots, demo accounts, goodwill |
-| Metering | `reservations` | id, user\_id, kind, group, units, status (held / committed / released / expired), expires\_at, idempotency\_key (unique) | Mirror of the Valkey holds, for recovery |
 | Metering | `usage_events` | request\_message\_id (unique), user\_id, billing\_account\_id, model, group, input / output / cached tokens, billable\_units, cost\_micro\_inr, price\_paise, plan\_version\_id, occurred\_at | Partitioned by month |
 | Metering | `usage_daily` | billing\_account\_id, user\_id, day, group, messages, cost, price | Rollup for dashboards and org reports |
 | Money | `invoices`, `invoice_lines` | number, financial\_year, billing\_account\_id, period, taxable\_paise, cgst / sgst / igst\_paise, total\_paise, pdf\_key | One invoice per payment or per org billing period |
@@ -212,7 +211,7 @@ Each known way billing goes wrong has one named control.
 | Double charge from a retried request | `Idempotency-Key` on every mutating API; unique constraints on gateway payment and event IDs |
 | Webhook duplicated, late or out of order | Inbox dedupe on event ID; fetch the subscription from Razorpay before acting; the state machine ignores backward moves |
 | Kafka event lost or stuck | Outbox on the producer, inbox on the consumer; consumer-lag alert; hold expiry as a backstop |
-| Valkey lost | AOF persistence; today's counters rebuilt from `usage_events` plus open `reservations` |
+| Valkey lost | AOF persistence; today's counters rebuilt from `usage_events`; open holds (10 minutes at most) are lost |
 | billing-service down | Degraded mode: Fast models only, 10 a day, Best and Ultra refused |
 | Free-tier abuse | Verified email, per-IP signup and message limits at api-gateway |
 | Card or UPI data exposure | Razorpay Checkout collects payment details; your servers never see them |
@@ -262,7 +261,7 @@ The phases match the release plan; each ends with something people can pay for.
 
 ## Open decisions
 
-Settled on 1 Nov 2026; the reasoning is in the Decisions section of GranthanAI billing-service LLD.
+Settled on 1 Nov 2026; the reasoning is in the Decisions section of `lld.md`.
 
 - [x] Plan precedence for org members: the higher plan wins, the org's on a tie. When the org plan covers a member's own plan, they are told they can cancel; billing never cancels it for them.
 - [x] Grace period after a failed renewal: 3 days, then `suspended` (Free limits) while Razorpay keeps retrying; a late successful charge restores the plan.

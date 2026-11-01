@@ -908,7 +908,7 @@ All routes are under `/billing/v1` behind api-gateway, which verifies the JWT an
 | `POST /billing/v1/checkout/verify` | Frontend | Verify the Checkout signature; activate optimistically | 200 |
 | `GET /billing/v1/me` | Frontend | Plan, status, renewal, limits, usage today, pending change | 200 |
 | `GET /billing/v1/me/usage?from=&to=` | Frontend | Daily usage by model group | 200 |
-| `POST /billing/v1/subscription/change` | Frontend | Upgrade (prorated now) or downgrade (at period end) | 201 / 200 |
+| `POST /billing/v1/subscription/change` | Frontend | Upgrade (new mandate, starts now; unused days refunded) or downgrade (at period end) | 201 / 200 |
 | `POST /billing/v1/subscription/cancel` | Frontend | Cancel at period end | 200 |
 | `POST /billing/v1/subscription/resume` | Frontend | Undo a cancel; returns Checkout options for a new mandate | 201 |
 | `GET /billing/v1/invoices` | Frontend | Invoices and credit notes, newest first | 200 |
@@ -1487,7 +1487,7 @@ The tests that matter most prove the invariants: no message beyond a limit, no u
 
 - For any sequence of postings the code builds, every transaction sums to zero and account balances equal the sum of their entries.
 - `split_gst(g)` parts always add up to `g`, and taxable × 1.18 is within one paisa of `g`.
-- `upgrade_charge` is between 0 and the price difference, and falls as time passes.
+- `unused_credit` is between 0 and the amount paid, and falls as time passes.
 - For any interleaving of reserve, commit, release and expire on one user, the day's committed plus held messages never exceed the limit, and `held` on a wallet is never negative.
 - Applying the same usage event or webhook any number of times leaves the same rows as applying it once.
 - `pick` never returns a lower-ranked grant than another live non-override grant.
