@@ -1,10 +1,15 @@
-.PHONY: sync up down test lint fmt migrate catalog-sync run-api
+.PHONY: sync up down db-create test lint fmt migrate catalog-sync run-api
 
 sync:
 	uv sync
 
+# Shared Postgres/Kafka: start with `make -C .. infra` (../docker-compose.yml). This adds billing's Valkey.
 up:
-	docker compose up -d
+	docker compose up -d --remove-orphans
+	docker exec -i graphgpt-postgres psql -U postgres < deploy/sql/roles.sql
+
+db-create:
+	docker exec -i graphgpt-postgres psql -U postgres < deploy/sql/roles.sql
 
 down:
 	docker compose down

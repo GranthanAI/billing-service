@@ -1,12 +1,20 @@
+# Billing needs only Valkey of its own. PostgreSQL and Kafka come from the shared stack in
+# ../docker-compose.yml (`make -C .. infra`); the billing database is created by
+# deploy/sql/roles.sql (mounted there as an init script, or run `make db-create`).
 services:
-  postgres:
-    image: postgres:17
-    environment: {POSTGRES_USER: billing, POSTGRES_PASSWORD: billing, POSTGRES_DB: billing}
-    ports: ["5433:5432"]
   valkey:
     image: valkey/valkey:8
+    container_name: billing-valkey
+    restart: unless-stopped
     command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
     ports: ["6380:6379"]
-  kafka:
-    image: apache/kafka:3.8.0
-    ports: ["9093:9092"]
+    volumes:
+      - billing_valkey:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  billing_valkey:

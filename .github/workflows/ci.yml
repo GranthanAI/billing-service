@@ -10,3 +10,4 @@ jobs:
       - run: make lint
       - run: make test
       - run: docker build -t billing-service .
+
