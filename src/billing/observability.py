@@ -1,7 +1,7 @@
 import logging
 
 import structlog
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 
 def configure_logging() -> None:
@@ -26,3 +26,21 @@ OUTBOX_OLDEST_UNPUBLISHED = Gauge(
     "Age of the oldest outbox row that has not been published yet",
 )
 JOBS_DEAD = Counter("billing_jobs_dead_total", "Jobs that ran out of attempts", ["kind"])
+
+RESERVE_REQUESTS = Counter(
+    "billing_reserve_requests_total",
+    "CheckAndReserve calls",
+    ["kind", "decision", "reason", "plan"],
+)
+RESERVE_DURATION = Histogram(
+    "billing_reserve_duration_seconds",
+    "CheckAndReserve latency inside billing-service",
+    ["kind"],
+    buckets=(0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100),
+)
+RESERVE_DOWNGRADED = Counter(
+    "billing_reserve_downgraded_total", "Best requests served as Smart", ["plan"]
+)
+HOLDS_OPEN = Gauge("billing_holds_open", "Open holds (ZCARD holds:due)")
+HOLDS_EXPIRED = Counter("billing_holds_expired_total", "Holds the sweeper expired", ["mode"])
+RELEASE_TOTAL = Counter("billing_release_total", "Release calls that gave a unit back", ["reason"])

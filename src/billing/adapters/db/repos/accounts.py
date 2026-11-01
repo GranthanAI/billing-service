@@ -21,6 +21,8 @@ def _account(r: Any) -> BillingAccount:
         gstin=r.gstin,
         state_code=r.state_code,
         gateway_customer_id=r.gateway_customer_id,
+        blocked_at=r.blocked_at,
+        blocked_reason=r.blocked_reason,
     )
 
 

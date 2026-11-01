@@ -31,6 +31,16 @@ class SqlPricingRepo:
             }
         )
 
+    async def model_groups_at(self, ts: datetime) -> dict[str, ModelGroup]:
+        t = model_prices
+        q = (
+            sa.select(t.c.model, t.c.model_group)
+            .distinct(t.c.model)
+            .where(t.c.effective_from <= ts)
+            .order_by(t.c.model, t.c.effective_from.desc())
+        )
+        return {r.model: ModelGroup(r.model_group) for r in (await self._c.execute(q)).all()}
+
     async def fx_at(self, ts: datetime) -> Decimal:
         """The latest rate effective on or before the IST calendar date of `ts`."""
         t = fx_rates

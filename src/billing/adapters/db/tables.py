@@ -88,6 +88,8 @@ billing_accounts = sa.Table(
     sa.Column("billing_email", sa.Text, nullable=False),
     sa.Column("gateway_customer_id", sa.Text),
     _ts("created_at", nullable=False, server_default=_NOW),
+    _ts("blocked_at"),
+    sa.Column("blocked_reason", sa.Text),
     sa.UniqueConstraint("owner_type", "owner_id"),
 )
 

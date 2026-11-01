@@ -17,6 +17,9 @@ from billing.adapters.ids import Uuid7Generator
 from billing.adapters.kafka.consumer import KafkaEventConsumer
 from billing.adapters.kafka.outbox_relay import OutboxRelay
 from billing.adapters.kafka.producer import KafkaProducer
+from billing.adapters.valkey.client import make_valkey
+from billing.adapters.valkey.counters import ValkeyCounters
+from billing.jobs.handlers import holds as holds_job
 from billing.jobs.handlers import partitions as partitions_job
 from billing.jobs.runner import JobContext, JobRunner
 from billing.jobs.scheduler import Recurring, Scheduler
@@ -24,7 +27,7 @@ from billing.observability import configure_logging, metrics_payload
 from billing.settings import Settings, get_settings
 
 log = structlog.get_logger()
-SCHEDULE: tuple[Recurring, ...] = (partitions_job.SCHEDULE,)
+SCHEDULE: tuple[Recurring, ...] = (partitions_job.SCHEDULE, holds_job.SCHEDULE)
 DRAIN_SECONDS = 30.0
 HEALTH_PORT = 9100
 
@@ -72,6 +75,12 @@ async def run_worker(
     engine = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
     ids, clock = Uuid7Generator(), SystemClock()
     producer = KafkaProducer(settings.kafka_bootstrap_servers, settings.kafka_client_id)
+    valkey_client = make_valkey(settings.billing_valkey_url)
+    counters = ValkeyCounters(
+        valkey_client,
+        day_ttl=settings.day_counter_ttl_seconds,
+        month_ttl=settings.month_counter_ttl_seconds,
+    )
 
     def uow_factory() -> SqlUnitOfWork:
         return SqlUnitOfWork(engine, ids, clock)
@@ -83,7 +92,8 @@ async def run_worker(
         relay = OutboxRelay(engine, ids, clock, producer, batch_size=settings.outbox_batch_size)
         scheduler = Scheduler(uow_factory, clock, SCHEDULE)
         runner = JobRunner(
-            JobContext(uow_factory, clock, ids), concurrency=settings.job_concurrency
+            JobContext(uow_factory, clock, ids, counters=counters),
+            concurrency=settings.job_concurrency,
         )
         health = None
         if health_port is not None:
@@ -107,6 +117,7 @@ async def run_worker(
                 group.create_task(health.serve())
     finally:
         await producer.stop()
+        await valkey_client.aclose()
         await engine.dispose()
 
 

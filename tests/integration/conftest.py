@@ -11,6 +11,7 @@ from uuid import uuid4
 import asyncpg
 import pytest
 import pytest_asyncio
+import valkey.asyncio as valkey_asyncio
 from alembic import command
 from alembic.config import Config
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -19,6 +20,7 @@ from testcontainers.core.container import DockerContainer
 from billing.adapters.db.engine import make_engine
 from billing.adapters.db.uow import SqlUnitOfWork
 from billing.adapters.ids import Uuid7Generator
+from billing.adapters.valkey.client import aw, make_valkey
 from billing.app.records import BillingAccount, PlanVersionRecord
 from billing.domain.catalog import OwnerType
 from tests.support import plans
@@ -241,3 +243,124 @@ def kafka() -> Iterator[str]:
         bootstrap = f"localhost:{port}"
         asyncio.run(_wait_kafka(bootstrap))
         yield bootstrap
+
+
+# --- Valkey ---------------------------------------------------------------------------------
+
+
+def _start_valkey(policy: str) -> DockerContainer:
+    return (
+        DockerContainer("valkey/valkey:8")
+        .with_command(f"valkey-server --appendonly yes --maxmemory-policy {policy}")
+        .with_exposed_ports(6379)
+    )
+
+
+async def _wait_valkey(url: str, timeout: float = 30.0) -> None:
+    client = make_valkey(url)
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            try:
+                await aw(client.ping())
+                return
+            except Exception:
+                if time.monotonic() > deadline:
+                    raise
+                await asyncio.sleep(0.3)
+    finally:
+        await client.aclose()
+
+
+@pytest.fixture(scope="session")
+def valkey_url() -> Iterator[str]:
+    """Valkey 8 configured the way billing requires: AOF on, noeviction."""
+    with _start_valkey("noeviction") as c:
+        url = f"redis://{c.get_container_host_ip()}:{c.get_exposed_port(6379)}/0"
+        asyncio.run(_wait_valkey(url))
+        yield url
+
+
+@pytest.fixture(scope="session")
+def valkey_lru_url() -> Iterator[str]:
+    """The unsafe configuration /readyz must refuse."""
+    with _start_valkey("allkeys-lru") as c:
+        url = f"redis://{c.get_container_host_ip()}:{c.get_exposed_port(6379)}/0"
+        asyncio.run(_wait_valkey(url))
+        yield url
+
+
+@pytest_asyncio.fixture
+async def vk(valkey_url: str) -> AsyncIterator[valkey_asyncio.Valkey]:
+    client = make_valkey(valkey_url)
+    yield client
+    await client.aclose()
+
+
+# --- a migrated database with the catalog synced and prices seeded -------------------------
+
+
+@pytest.fixture(scope="session")
+def hot_db_name(urls: Urls) -> str:
+    from billing.adapters.catalog.seed_loader import load_fx_rates, load_model_prices
+    from billing.adapters.catalog.yaml_loader import load_catalog
+    from billing.adapters.clock import SystemClock
+    from billing.adapters.gateway_fake import InMemoryGateway
+    from billing.app.catalog import sync_catalog
+
+    name = f"hot_{uuid4().hex[:8]}"
+
+    async def prepare() -> None:
+        conn = await asyncpg.connect(
+            host=urls.host,
+            port=urls.port,
+            user="postgres",
+            password="postgres",
+            database="postgres",
+        )
+        try:
+            await conn.execute(f'CREATE DATABASE "{name}" OWNER billing_migrator')
+        finally:
+            await conn.close()
+
+    asyncio.run(prepare())
+    command.upgrade(alembic_config(urls.migrator_for(name)), "head")
+
+    async def seed() -> None:
+        engine = make_engine(urls.migrator_for(name), pool_size=2)
+        ids = Uuid7Generator()
+        try:
+            async with SqlUnitOfWork(engine, ids) as uow:
+                for p in load_model_prices(ROOT / "config/seed/model_prices.yaml"):
+                    await uow.pricing.add_model_price(
+                        model=p.model,
+                        provider=p.provider,
+                        model_group=p.group,
+                        input_usd_per_m=p.input_usd_per_m,
+                        cached_input_usd_per_m=p.cached_input_usd_per_m,
+                        output_usd_per_m=p.output_usd_per_m,
+                        effective_from=p.effective_from,
+                    )
+                for r in load_fx_rates(ROOT / "config/seed/fx_rates.yaml"):
+                    await uow.pricing.add_fx_rate(r.effective_from, r.usd_inr, r.source)
+            await sync_catalog(
+                load_catalog(ROOT / "config/plans.yaml"),
+                lambda: SqlUnitOfWork(engine, ids),
+                InMemoryGateway(),
+                SystemClock(),
+                ids,
+            )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(seed())
+    return name
+
+
+@pytest_asyncio.fixture
+async def hot(urls: Urls, hot_db_name: str) -> AsyncIterator[FreshDb]:
+    migrator = make_engine(urls.migrator_for(hot_db_name), pool_size=3)
+    app = make_engine(urls._url("billing_app", "billing_app", hot_db_name), pool_size=10)
+    yield FreshDb(urls, hot_db_name, migrator, app)
+    await migrator.dispose()
+    await app.dispose()

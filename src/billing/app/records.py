@@ -26,6 +26,12 @@ class BillingAccount:
     gstin: str | None = None
     state_code: str | None = None
     gateway_customer_id: str | None = None
+    blocked_at: datetime | None = None
+    blocked_reason: str | None = None
+
+    @property
+    def is_blocked(self) -> bool:
+        return self.blocked_at is not None
 
 
 @dataclass(frozen=True, slots=True)

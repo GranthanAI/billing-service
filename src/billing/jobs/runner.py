@@ -12,7 +12,7 @@ from typing import Any
 import structlog
 
 from billing.adapters.db.uow import SqlUnitOfWork
-from billing.app.ports import Clock, IdGenerator, PlanGateway
+from billing.app.ports import Clock, Counters, IdGenerator, PlanGateway
 from billing.app.records import Job, JobStatus
 from billing.observability import JOBS_DEAD
 
@@ -25,6 +25,7 @@ class JobContext:
     clock: Clock
     ids: IdGenerator
     gateway: PlanGateway | None = None
+    counters: Counters | None = None
 
 
 Handler = Callable[[dict[str, Any], JobContext], Awaitable[None]]

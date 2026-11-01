@@ -28,6 +28,7 @@ from billing.app.records import (
     UsageEventRecord,
 )
 from billing.domain.catalog import DenyReason, ModelGroup, OrgVariant, OwnerType, ReserveKind
+from billing.domain.entitlements import Entitlement
 from billing.domain.ledger import LedgerTransaction
 from billing.domain.money import Paise
 from billing.domain.rating import PriceBook
@@ -146,27 +147,27 @@ class ReserveArgs:
     plan_version_id: UUID
     idem_key: str
     kind: ReserveKind
+    period: str  # "day" | "month": which IST counter hash the adapter picks (and its TTL)
+    now: datetime
     mode: str  # "plan" | "payg"
     field: str
     limit: int
     best_limit: int
     price_paise: Paise
     hold_id: str
-    now_unix: int
     hold_ttl: int
-    counter_ttl: int
     no_credit_fast: int
-    counter_key: str
 
 
 @dataclass(frozen=True, slots=True)
 class ReserveResult:
     allowed: bool
     deny_reason: DenyReason | None
-    group_or_field: str | None
+    field: str | None  # the counter field charged: a model group, "youtube" or "manim"
     hold_id: str | None
     price: Paise
     downgraded: bool
+    total: int  # the counter total after this reservation (0 on a deny)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,7 +181,7 @@ class Hold:
     day_key: str
     billing_account_id: UUID | None
     plan_version_id: UUID
-    expires_at: datetime
+    expires_at: datetime | None
 
 
 class Counters(Protocol):
@@ -192,13 +193,32 @@ class Counters(Protocol):
         hold_id: str,
         charged: Paise,
         source_id: str,
-        group: ModelGroup | None,
+        kind: ReserveKind,
+        field: str,
         occurred_at: datetime,
-    ) -> str: ...
+    ) -> str:
+        """`OK`, or `DUP` when this source_id was already committed."""
+        ...
 
-    async def release(self, user_id: UUID, hold_id: str, reason: str) -> str: ...
+    async def release(self, user_id: UUID, hold_id: str, reason: str) -> bool:
+        """False when the hold is already gone (committed or released)."""
+        ...
 
     async def peek_hold(self, user_id: UUID, hold_id: str) -> Hold | None: ...
+
+    async def day_counts(self, user_id: UUID, day: date) -> dict[str, int]: ...
+
+    async def due_holds(self, now_unix: int, limit: int) -> list[tuple[UUID, str]]: ...
+
+    async def open_holds(self) -> int: ...
+
+
+class EntitlementCache(Protocol):
+    async def get(self, user_id: UUID) -> Entitlement | None: ...
+
+    async def set(self, user_id: UUID, entitlement: Entitlement, ttl_seconds: int) -> None: ...
+
+    async def delete(self, user_id: UUID) -> None: ...
 
 
 # --- storage ---------------------------------------------------------------------------
@@ -253,6 +273,10 @@ class PricingRepo(Protocol):
     async def price_book_at(self, ts: datetime) -> PriceBook: ...
 
     async def fx_at(self, ts: datetime) -> Decimal: ...
+
+    async def model_groups_at(self, ts: datetime) -> dict[str, ModelGroup]:
+        """model id -> its group, for the prices effective at `ts`."""
+        ...
 
     async def add_model_price(
         self,
@@ -312,6 +336,12 @@ class UsageRepo(Protocol):
         ...
 
     async def counts_for_day(self, user_id: UUID, ist_day: date) -> dict[ModelGroup, int]: ...
+
+    async def counts_by_user_for_day(self, ist_day: date) -> dict[UUID, dict[str, int]]:
+        """Committed usage of one IST day per user, by counter field (a model group, or manim)."""
+        ...
+
+    async def youtube_counts_for_month(self, year: int, month: int) -> dict[UUID, int]: ...
 
     async def rollup_day(self, ist_day: date) -> int:
         """Recompute that IST day's usage_daily rows; returns the number of rows written."""

@@ -60,9 +60,14 @@ class Entitlement:
     extra_models: frozenset[str]
     overflow_wallet_account_id: UUID | None
     version_hash: str
+    account_blocked: bool = False  # not part of version_hash
 
     @staticmethod
-    def of(grant: Grant, overflow_wallet_account_id: UUID | None = None) -> "Entitlement":
+    def of(
+        grant: Grant,
+        overflow_wallet_account_id: UUID | None = None,
+        account_blocked: bool = False,
+    ) -> "Entitlement":
         pv = grant.plan_version
         payload = {
             "plan_code": pv.plan_code,
@@ -87,4 +92,5 @@ class Entitlement:
             extra_models=pv.extra_models,
             overflow_wallet_account_id=overflow_wallet_account_id,
             version_hash=digest,
+            account_blocked=account_blocked,
         )

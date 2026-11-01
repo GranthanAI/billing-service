@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     plans_file: str = "/app/config/plans.yaml"
     grace_days: int = 3
     hold_ttl_seconds: int = 600
+    day_counter_ttl_seconds: int = 172_800
+    month_counter_ttl_seconds: int = 40 * 86_400
+    grpc_port: int = 50051
     daily_ai_budget_inr: int = 3000
     timezone_business: str = "Asia/Kolkata"
 

@@ -7,6 +7,7 @@ may write plan_versions and the pricing tables.
 import argparse
 import asyncio
 import sys
+from datetime import date
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,8 +19,11 @@ from billing.adapters.db.engine import make_engine
 from billing.adapters.db.uow import SqlUnitOfWork
 from billing.adapters.gateway_fake import InMemoryGateway
 from billing.adapters.ids import Uuid7Generator
+from billing.adapters.valkey.client import make_valkey
+from billing.adapters.valkey.counters import ValkeyCounters
 from billing.app.catalog import CatalogSyncError, sync_catalog
 from billing.app.ports import PlanGateway
+from billing.domain.calendar import ist_day
 from billing.domain.rating import NoFxRate
 from billing.settings import check_gateway_allowed
 
@@ -56,6 +60,45 @@ async def _catalog_sync(path: Path, dry_run: bool) -> int:
     for line in report.lines():
         print(line)
     print(f"gateway plans created: {report.gateway_plans_created}")
+    return 0
+
+
+class RebuildSettings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
+
+    billing_database_url: str
+    billing_valkey_url: str
+    day_counter_ttl_seconds: int = 172_800
+    month_counter_ttl_seconds: int = 40 * 86_400
+
+
+async def _valkey_rebuild(day: date | None) -> int:
+    """Rewrite one IST day's counters (and that month's YouTube counts) from usage_events.
+
+    Open holds are not rebuilt: they last at most 10 minutes and are lost with the instance.
+    """
+    settings = RebuildSettings()  # type: ignore[call-arg]
+    target = day or ist_day(SystemClock().now())
+    engine = make_engine(settings.billing_database_url, pool_size=2)
+    client = make_valkey(settings.billing_valkey_url)
+    counters = ValkeyCounters(
+        client,
+        day_ttl=settings.day_counter_ttl_seconds,
+        month_ttl=settings.month_counter_ttl_seconds,
+    )
+    try:
+        async with SqlUnitOfWork(engine, Uuid7Generator()) as uow:
+            per_day = await uow.usage.counts_by_user_for_day(target)
+            per_month = await uow.usage.youtube_counts_for_month(target.year, target.month)
+        for user_id, counts in per_day.items():
+            await counters.rebuild_day(user_id, target, counts)
+        for user_id, videos in per_month.items():
+            await counters.rebuild_month(user_id, target.year, target.month, {"youtube": videos})
+    finally:
+        await client.aclose()
+        await engine.dispose()
+    users = len(set(per_day) | set(per_month))
+    print(f"rebuilt counters for {users} user(s) for {target}")
     return 0
 
 
@@ -98,8 +141,14 @@ def main(argv: list[str] | None = None) -> int:
     seed.add_argument("--prices", default="config/seed/model_prices.yaml", type=Path)
     seed.add_argument("--fx", default="config/seed/fx_rates.yaml", type=Path)
 
+    valkey = top.add_parser("valkey").add_subparsers(dest="cmd", required=True)
+    rebuild = valkey.add_parser("rebuild", help="rebuild one day's counters from usage_events")
+    rebuild.add_argument("--day", type=date.fromisoformat, default=None, help="IST day, YYYY-MM-DD")
+
     args = parser.parse_args(argv)
     try:
+        if args.group == "valkey":
+            return asyncio.run(_valkey_rebuild(args.day))
         if args.group == "catalog":
             return asyncio.run(_catalog_sync(args.file, args.dry_run))
         return asyncio.run(_pricing_seed(args.prices, args.fx))

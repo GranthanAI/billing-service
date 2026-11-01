@@ -64,6 +64,37 @@ class SqlUsageRepo:
         )
         return {ModelGroup(g): n for g, n in (await self._c.execute(q)).all()}
 
+    async def counts_by_user_for_day(self, ist_day: date) -> dict[UUID, dict[str, int]]:
+        start, end = _day_bounds(ist_day)
+        q = (
+            sa.select(t.c.user_id, t.c.kind, t.c.model_group, sa.func.count())
+            .where(
+                t.c.kind.in_(("message", "manim_video")),
+                t.c.occurred_at >= start,
+                t.c.occurred_at < end,
+            )
+            .group_by(t.c.user_id, t.c.kind, t.c.model_group)
+        )
+        out: dict[UUID, dict[str, int]] = {}
+        for user_id, kind, group, n in (await self._c.execute(q)).all():
+            field = "manim" if kind == "manim_video" else group
+            if field is None:
+                continue
+            counts = out.setdefault(user_id, {})
+            counts[field] = counts.get(field, 0) + n
+        return out
+
+    async def youtube_counts_for_month(self, year: int, month: int) -> dict[UUID, int]:
+        start = datetime.combine(date(year, month, 1), time(0, 0), tzinfo=IST)
+        end_year, end_month = (year + 1, 1) if month == 12 else (year, month + 1)
+        end = datetime.combine(date(end_year, end_month, 1), time(0, 0), tzinfo=IST)
+        q = (
+            sa.select(t.c.user_id, sa.func.count())
+            .where(t.c.kind == "youtube_video", t.c.occurred_at >= start, t.c.occurred_at < end)
+            .group_by(t.c.user_id)
+        )
+        return {user_id: n for user_id, n in (await self._c.execute(q)).all()}
+
     async def rollup_day(self, ist_day: date) -> int:
         """Upsert, not delete + insert: billing_app has no DELETE on usage_daily and the source
         rows are append-only, so recomputing the aggregate in place gives the same result."""
