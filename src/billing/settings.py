@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
     billing_database_url: str = Field(...)
+    billing_migration_database_url: str = Field(...)
+    db_pool_size: int = 10
     billing_valkey_url: str = Field(...)
     kafka_bootstrap_servers: str = Field(...)
     razorpay_key_id: str = Field(...)

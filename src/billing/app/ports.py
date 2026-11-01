@@ -1,24 +1,43 @@
 """Ports (Protocols) between use cases and adapters.
 
-PROVISIONAL: signatures and DTOs here are a first draft. Phases 2 to 7 will extend them as
-the adapters and use cases that need them are built.
+PROVISIONAL for the gateway and counter ports; the repository ports below are the Phase 2
+contract. All methods are async and take or return domain types or `app/records.py` DTOs.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from types import TracebackType
-from typing import Protocol, Self
+from typing import Any, Protocol, Self
 from uuid import UUID
 
-from billing.domain.catalog import ModelGroup, ReserveKind
+from billing.app.records import (
+    Begin,
+    BillingAccount,
+    InvoiceLineRecord,
+    InvoiceRecord,
+    OverrideRecord,
+    PaymentRecord,
+    PlanVersionRecord,
+    SubscriptionHistoryEntry,
+    SubscriptionRecord,
+    UsageEventRecord,
+)
+from billing.domain.catalog import DenyReason, ModelGroup, OrgVariant, OwnerType, ReserveKind
+from billing.domain.ledger import LedgerTransaction
 from billing.domain.money import Paise
+from billing.domain.rating import PriceBook
 
 
 class Clock(Protocol):
     def now(self) -> datetime:
         """Timezone-aware, UTC."""
         ...
+
+
+class IdGenerator(Protocol):
+    def new(self) -> UUID: ...
 
 
 # --- payment gateway -------------------------------------------------------------------
@@ -121,7 +140,7 @@ class ReserveArgs:
 @dataclass(frozen=True, slots=True)
 class ReserveResult:
     allowed: bool
-    deny_code: str | None
+    deny_reason: DenyReason | None
     group_or_field: str | None
     hold_id: str | None
     price: Paise
@@ -160,13 +179,7 @@ class Counters(Protocol):
     async def peek_hold(self, user_id: UUID, hold_id: str) -> Hold | None: ...
 
 
-# --- events, storage, unit of work -----------------------------------------------------
-
-
-class Publisher(Protocol):
-    async def enqueue(self, topic: str, key: str, event: object) -> None:
-        """Write to the outbox inside the current unit of work."""
-        ...
+# --- storage ---------------------------------------------------------------------------
 
 
 class ObjectStorage(Protocol):
@@ -175,20 +188,205 @@ class ObjectStorage(Protocol):
     async def presigned_get(self, key: str, expires_s: int) -> str: ...
 
 
+# --- repositories ----------------------------------------------------------------------
+
+
+class AccountRepo(Protocol):
+    async def get_by_owner(
+        self, owner_type: OwnerType, owner_id: UUID
+    ) -> BillingAccount | None: ...
+
+    async def get_or_create(
+        self, owner_type: OwnerType, owner_id: UUID, email: str
+    ) -> BillingAccount: ...
+
+    async def set_state_code(self, account_id: UUID, code: str) -> None: ...
+
+    async def set_gstin(
+        self, account_id: UUID, gstin: str | None, legal_name: str | None
+    ) -> None: ...
+
+
+class PlanRepo(Protocol):
+    async def by_id(self, plan_version_id: UUID) -> PlanVersionRecord | None: ...
+
+    async def current(
+        self, plan_code: str, variant: OrgVariant | None
+    ) -> PlanVersionRecord | None: ...
+
+    async def all_current(self) -> Sequence[PlanVersionRecord]: ...
+
+    async def insert_version(self, record: PlanVersionRecord) -> None: ...
+
+    async def retire(self, plan_version_id: UUID, at: datetime) -> None: ...
+
+    async def set_gateway_plan_ids(
+        self, plan_version_id: UUID, month: str | None, year: str | None
+    ) -> None: ...
+
+
+class PricingRepo(Protocol):
+    """Implemented in Phase 3."""
+
+    async def price_book_at(self, ts: datetime) -> PriceBook: ...
+
+    async def fx_at(self, ts: datetime) -> Decimal: ...
+
+    async def add_model_price(
+        self,
+        *,
+        model: str,
+        provider: str,
+        model_group: ModelGroup,
+        input_usd_per_m: Decimal,
+        cached_input_usd_per_m: Decimal | None,
+        output_usd_per_m: Decimal,
+        effective_from: datetime,
+    ) -> None: ...
+
+    async def add_fx_rate(self, effective_from: date, usd_inr: Decimal, source: str) -> None: ...
+
+
 class SubscriptionRepo(Protocol):
-    async def lock_by_gateway_id(self, gateway_subscription_id: str) -> object | None: ...
+    async def get(self, subscription_id: UUID) -> SubscriptionRecord | None: ...
+
+    async def lock(self, subscription_id: UUID) -> SubscriptionRecord | None:
+        """SELECT ... FOR UPDATE."""
+        ...
+
+    async def lock_by_gateway_id(self, gateway_subscription_id: str) -> SubscriptionRecord | None:
+        """Matches the current or the next mandate; locks the row."""
+        ...
+
+    async def live_for_account(self, billing_account_id: UUID) -> SubscriptionRecord | None: ...
+
+    async def insert(self, record: SubscriptionRecord) -> None: ...
+
+    async def save(self, record: SubscriptionRecord) -> SubscriptionRecord:
+        """Compare-and-swap on lock_version; raises StaleRecord on a mismatch."""
+        ...
+
+    async def append_history(self, entry: SubscriptionHistoryEntry) -> None: ...
 
 
-class ProcessedEventsRepo(Protocol):
+class OverrideRepo(Protocol):
+    async def active_for(
+        self, owner_type: OwnerType, owner_id: UUID, now: datetime
+    ) -> Sequence[OverrideRecord]: ...
+
+    async def insert(self, record: OverrideRecord) -> None: ...
+
+    async def end(self, override_id: UUID, now: datetime) -> None: ...
+
+
+class UsageRepo(Protocol):
+    async def insert(self, record: UsageEventRecord) -> bool:
+        """False when the (kind, source_id, occurred_at) key already exists."""
+        ...
+
+    async def counts_for_day(self, user_id: UUID, ist_day: date) -> dict[ModelGroup, int]: ...
+
+    async def rollup_day(self, ist_day: date) -> int:
+        """Recompute that IST day's usage_daily rows; returns the number of rows written."""
+        ...
+
+
+class PaymentRepo(Protocol):
+    async def insert(self, record: PaymentRecord) -> bool: ...
+
+    async def by_gateway_id(self, gateway_payment_id: str) -> PaymentRecord | None: ...
+
+    async def mark_refunded(self, payment_id: UUID, total_refunded: Paise) -> None: ...
+
+
+class InvoiceRepo(Protocol):
+    async def allocate_number(self, series: str, financial_year: str) -> str: ...
+
+    async def insert(self, invoice: InvoiceRecord, lines: Sequence[InvoiceLineRecord]) -> None: ...
+
+    async def set_pdf(self, invoice_id: UUID, object_key: str) -> None: ...
+
+    async def mark_paid(self, invoice_id: UUID) -> None: ...
+
+
+class LedgerRepo(Protocol):
+    async def post(
+        self, tx: LedgerTransaction, ref_type: str, ref_id: str, occurred_at: datetime
+    ) -> bool:
+        """False when the idempotency key already exists."""
+        ...
+
+    async def balance(self, code: str) -> int: ...
+
+    async def lock_balance(self, code: str) -> int: ...
+
+
+class Publisher(Protocol):
+    async def enqueue(
+        self,
+        topic: str,
+        key: str,
+        event_type: str,
+        payload: bytes,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
+        """Write to the outbox inside the current unit of work."""
+        ...
+
+
+class ProcessedEventRepo(Protocol):
     async def claim(self, consumer: str, event_id: str) -> bool:
         """True if this call claimed the event, False if it was already processed."""
         ...
 
 
+class IdempotencyRepo(Protocol):
+    async def begin(self, scope: str, key: str, request_hash: str, lock_seconds: int) -> Begin: ...
+
+    async def complete(self, scope: str, key: str, status: int, body: Any) -> None: ...
+
+
+class WebhookInboxRepo(Protocol):
+    async def store(
+        self, gateway: str, event_id: str, event_type: str, payload: Mapping[str, Any]
+    ) -> bool: ...
+
+
+class JobRepo(Protocol):
+    async def enqueue(
+        self, kind: str, payload: Mapping[str, Any], run_at: datetime, dedupe_key: str | None
+    ) -> bool: ...
+
+
+class AuditRepo(Protocol):
+    async def record(
+        self,
+        actor_id: UUID,
+        action: str,
+        target_type: str,
+        target_id: str,
+        reason: str,
+        before: Mapping[str, Any] | None,
+        after: Mapping[str, Any] | None,
+    ) -> None: ...
+
+
 class UnitOfWork(Protocol):
-    subs: SubscriptionRepo
-    processed: ProcessedEventsRepo
+    accounts: AccountRepo
+    plans: PlanRepo
+    pricing: PricingRepo
+    subscriptions: SubscriptionRepo
+    overrides: OverrideRepo
+    usage: UsageRepo
+    payments: PaymentRepo
+    invoices: InvoiceRepo
+    ledger: LedgerRepo
     publisher: Publisher
+    processed: ProcessedEventRepo
+    idempotency: IdempotencyRepo
+    inbox: WebhookInboxRepo
+    jobs: JobRepo
+    audit: AuditRepo
 
     async def __aenter__(self) -> Self: ...
 

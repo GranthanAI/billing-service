@@ -1,6 +1,7 @@
 """Double-entry posting builders. Debit positive, credit negative; every transaction sums to 0."""
 
 from dataclasses import dataclass
+from enum import StrEnum
 from uuid import UUID
 
 from billing.domain.catalog import Interval
@@ -19,6 +20,16 @@ REVENUE_BREAKAGE = "revenue:breakage"
 GATEWAY_FEES = "expense:gateway_fees"
 
 
+class LedgerKind(StrEnum):
+    SUBSCRIPTION_CHARGE = "subscription_charge"
+    SUBSCRIPTION_REFUND = "subscription_refund"
+    REVENUE_RECOGNITION = "revenue_recognition"
+    WALLET_TOPUP = "wallet_topup"
+    PAYG_USAGE = "payg_usage"
+    CREDIT_EXPIRY = "credit_expiry"
+    SETTLEMENT = "settlement"
+
+
 def wallet_code(billing_account_id: UUID) -> str:
     return f"liability:wallet:{billing_account_id}"
 
@@ -35,7 +46,7 @@ class Posting:
 
 @dataclass(frozen=True, slots=True)
 class LedgerTransaction:
-    kind: str
+    kind: LedgerKind
     idempotency_key: str
     postings: tuple[Posting, ...]
 
@@ -62,18 +73,18 @@ def subscription_charge(split: GstSplit, interval: Interval, key: str) -> Ledger
         Posting(revenue, -split.taxable),
         *_tax_credits(split),
     )
-    return assert_balanced(LedgerTransaction("subscription_charge", key, postings))
+    return assert_balanced(LedgerTransaction(LedgerKind.SUBSCRIPTION_CHARGE, key, postings))
 
 
 def subscription_refund(split: GstSplit, interval: Interval, key: str) -> LedgerTransaction:
     charge = subscription_charge(split, interval, key)
     reversed_ = tuple(Posting(p.account_code, -p.amount) for p in charge.postings)
-    return assert_balanced(LedgerTransaction("subscription_refund", key, reversed_))
+    return assert_balanced(LedgerTransaction(LedgerKind.SUBSCRIPTION_REFUND, key, reversed_))
 
 
 def revenue_recognition(amount: Paise, key: str) -> LedgerTransaction:
     postings = (Posting(DEFERRED_REVENUE, amount), Posting(REVENUE_SUBSCRIPTION, -amount))
-    return assert_balanced(LedgerTransaction("revenue_recognition", key, postings))
+    return assert_balanced(LedgerTransaction(LedgerKind.REVENUE_RECOGNITION, key, postings))
 
 
 def wallet_topup(split: GstSplit, wallet_account: UUID, key: str) -> LedgerTransaction:
@@ -82,13 +93,13 @@ def wallet_topup(split: GstSplit, wallet_account: UUID, key: str) -> LedgerTrans
         Posting(wallet_code(wallet_account), -split.taxable),
         *_tax_credits(split),
     )
-    return assert_balanced(LedgerTransaction("topup", key, postings))
+    return assert_balanced(LedgerTransaction(LedgerKind.WALLET_TOPUP, key, postings))
 
 
 def payg_usage(price_incl_gst: Paise, wallet_account: UUID, key: str) -> LedgerTransaction:
     amount = taxable_of(price_incl_gst)
     postings = (Posting(wallet_code(wallet_account), amount), Posting(REVENUE_PAYG, -amount))
-    return assert_balanced(LedgerTransaction("payg_usage", key, postings))
+    return assert_balanced(LedgerTransaction(LedgerKind.PAYG_USAGE, key, postings))
 
 
 def credit_expiry(remaining: Paise, wallet_account: UUID, key: str) -> LedgerTransaction:
@@ -96,7 +107,7 @@ def credit_expiry(remaining: Paise, wallet_account: UUID, key: str) -> LedgerTra
         Posting(wallet_code(wallet_account), remaining),
         Posting(REVENUE_BREAKAGE, -remaining),
     )
-    return assert_balanced(LedgerTransaction("credit_expiry", key, postings))
+    return assert_balanced(LedgerTransaction(LedgerKind.CREDIT_EXPIRY, key, postings))
 
 
 def settlement(gross: Paise, fee: Paise, fee_gst: Paise, key: str) -> LedgerTransaction:
@@ -110,5 +121,5 @@ def settlement(gross: Paise, fee: Paise, fee_gst: Paise, key: str) -> LedgerTran
         Posting(CLEARING, -gross),
     )
     return assert_balanced(
-        LedgerTransaction("settlement", key, tuple(p for p in candidates if p.amount))
+        LedgerTransaction(LedgerKind.SETTLEMENT, key, tuple(p for p in candidates if p.amount))
     )

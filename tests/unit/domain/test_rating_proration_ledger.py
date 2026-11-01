@@ -242,12 +242,20 @@ def test_refund_is_exact_negation() -> None:
 
 
 def test_unbalanced_raises() -> None:
-    bad = ledger.LedgerTransaction("x", "k", (ledger.Posting("a", 100), ledger.Posting("b", -99)))
+    bad = ledger.LedgerTransaction(
+        ledger.LedgerKind.SETTLEMENT, "k", (ledger.Posting("a", 100), ledger.Posting("b", -99))
+    )
     with pytest.raises(ledger.UnbalancedTransaction):
         ledger.assert_balanced(bad)
     with pytest.raises(ledger.UnbalancedTransaction):
-        ledger.assert_balanced(ledger.LedgerTransaction("x", "k", (ledger.Posting("a", 0),) * 2))
+        ledger.assert_balanced(
+            ledger.LedgerTransaction(
+                ledger.LedgerKind.SETTLEMENT, "k", (ledger.Posting("a", 0),) * 2
+            )
+        )
     with pytest.raises(ledger.UnbalancedTransaction):
-        ledger.assert_balanced(ledger.LedgerTransaction("x", "k", (ledger.Posting("a", 1),)))
+        ledger.assert_balanced(
+            ledger.LedgerTransaction(ledger.LedgerKind.SETTLEMENT, "k", (ledger.Posting("a", 1),))
+        )
     with pytest.raises(ledger.UnbalancedTransaction):
         ledger.payg_usage(Paise(0), WALLET, "k")
