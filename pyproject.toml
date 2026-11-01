@@ -22,10 +22,12 @@ dependencies = [
     "sentry-sdk>=2.0",
     "opentelemetry-sdk>=1.25",
     "tzdata>=2024.1",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]
 dev = [
+    "types-pyyaml>=6.0",
     "ruff>=0.5",
     "mypy>=1.10",
     "import-linter>=2.0",

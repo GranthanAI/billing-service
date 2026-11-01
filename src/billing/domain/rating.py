@@ -16,6 +16,10 @@ class UnknownModelPrice(Exception):
     pass
 
 
+class NoFxRate(Exception):
+    """No USD/INR rate is effective on or before the requested date."""
+
+
 @dataclass(frozen=True, slots=True)
 class LlmCall:
     provider: str
@@ -44,6 +48,12 @@ class ModelPrice:
 class PriceBook:
     def __init__(self, prices: Mapping[str, ModelPrice]) -> None:
         self._prices: Mapping[str, ModelPrice] = MappingProxyType(dict(prices))
+
+    def __contains__(self, model: object) -> bool:
+        return model in self._prices
+
+    def models(self) -> frozenset[str]:
+        return frozenset(self._prices)
 
     def for_model(self, model: str) -> ModelPrice:
         try:

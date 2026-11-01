@@ -1,0 +1,93 @@
+catalog_version: 2026-11-01
+currency: INR
+gst_inclusive: true
+model_groups:
+  fast:  [openai/gpt-oss-20b, gemini-2.5-flash-lite]
+  smart: [openai/gpt-oss-120b, gemini-2.5-flash, gemini-3.1-flash-lite, claude-haiku-5-5, gpt-6-luna]
+  best:  [gemini-3.1-pro, claude-sonnet-5-5, gpt-6.1-sol]
+  ultra: [claude-opus-5-5, gpt-6-astra]
+
+base_limits: &free_limits
+  messages_per_day: 25
+  best_per_day: 0
+  branches_per_tree: 20
+  messages_per_conversation: 50
+  memory_facts: 50
+  context_tokens: 16000
+  documents_per_tree: 3
+  file_size_mb: 10
+  youtube_per_month: 3
+  storage_mb: 100
+  custom_modes: 3
+  mode_instruction_chars: 1000
+
+plans:
+  - code: free
+    rank: 0
+    models: {groups: [fast], extra: [openai/gpt-oss-120b]}
+    limits: *free_limits
+
+  - code: pro
+    rank: 1
+    prices: {month: 49900, year: 499000}
+    models: {groups: [fast, smart]}
+    limits: &pro_limits
+      <<: *free_limits
+      messages_per_day: 60
+      branches_per_tree: 200
+      messages_per_conversation: 200
+      memory_facts: 500
+      context_tokens: 64000
+      documents_per_tree: 25
+      file_size_mb: 50
+      youtube_per_month: 20
+      storage_mb: 2048
+      custom_modes: 10
+      mode_instruction_chars: 4000
+
+  - code: max
+    rank: 2
+    prices: {month: 149900, year: 1499000}
+    models: {groups: [fast, smart, best]}
+    limits: &max_limits
+      <<: *pro_limits
+      messages_per_day: 80
+      best_per_day: 12
+      branches_per_tree: -1
+      messages_per_conversation: 500
+      memory_facts: 2000
+      context_tokens: 128000
+      documents_per_tree: 100
+      file_size_mb: 100
+      youtube_per_month: 60
+      storage_mb: 10240
+      custom_modes: 20
+
+  - code: org_pro                      # v2, yearly, priced per seat
+    rank: 1
+    org_only: true
+    variants:
+      college: {min_seats: 50, prices: {year: 298800}, limits: {<<: *pro_limits, messages_per_day: 30}}
+      company: {min_seats: 5,  prices: {year: 838800}, limits: *pro_limits}
+    models: {groups: [fast, smart]}
+
+  - code: org_max                      # v2
+    rank: 2
+    org_only: true
+    variants:
+      college: {min_seats: 10, prices: {year: 1198800}, limits: {<<: *max_limits, messages_per_day: 50, best_per_day: 8}}
+      company: {min_seats: 5,  prices: {year: 2158800}, limits: *max_limits}
+    models: {groups: [fast, smart, best]}
+
+  - code: payg                         # v3
+    rank: 0                            # credits never outrank a paid plan (Decision 4)
+    models: {groups: [fast, smart, best, ultra]}
+    unit_prices: {fast: 20, smart: 50, best: 400, ultra: 1200, youtube_video: 100, manim_video: 200}
+    storage_over_10gb_per_gb_month: 1000
+    long_message_tokens: 32000
+    no_credit_fast_per_day: 10
+    max_messages_per_minute: 30
+    topup_packs: [{code: ind_199, price: 19900}, {code: ind_499, price: 49900},
+                  {code: ind_999, price: 99900}, {code: ind_1999, price: 199900}]
+    org_min_topup: 500000
+    credit_validity_months: 12

@@ -1,0 +1,4 @@
+rates:
+  - effective_from: 2026-10-25
+    usd_inr: "95.0000"
+    source: "Upstox mid-market 94.96, rounded (workbook)"
