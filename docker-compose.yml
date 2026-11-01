@@ -1,0 +1,12 @@
+services:
+  postgres:
+    image: postgres:17
+    environment: {POSTGRES_USER: billing, POSTGRES_PASSWORD: billing, POSTGRES_DB: billing}
+    ports: ["5433:5432"]
+  valkey:
+    image: valkey/valkey:8
+    command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
+    ports: ["6380:6379"]
+  kafka:
+    image: apache/kafka:3.8.0
+    ports: ["9093:9092"]
