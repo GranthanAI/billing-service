@@ -125,26 +125,31 @@ def test_ledger_balances_equal_sum_of_entries(urls: Urls, migrated: Urls) -> Non
 
 
 async def test_outbox_rolls_back_with_the_unit_of_work(make_uow: Make) -> None:
-    key = f"k-{uuid4()}"
+    from billing.app.events import PaymentFailedEvent
+
+    gateway_id = f"pay_{uuid4().hex}"
+    event = PaymentFailedEvent(uuid4(), uuid4(), gateway_id, Paise(49900), "card_declined", None)
+
+    async def count() -> int:
+        async with make_uow() as uow:
+            return (
+                await uow.connection.execute(
+                    sa.text(
+                        "SELECT count(*) FROM billing.outbox WHERE topic = 'payment.failed' "
+                        "AND key = :k"
+                    ),
+                    {"k": str(event.billing_account_id)},
+                )
+            ).scalar_one()
+
     with pytest.raises(RuntimeError):
         async with make_uow() as uow:
-            await uow.publisher.enqueue("t", key, "x.happened", b"\x01", {"h": "v"})
+            await uow.publisher.enqueue(event)
             raise RuntimeError("boom")
+    assert await count() == 0
     async with make_uow() as uow:
-        count = (
-            await uow.connection.execute(
-                sa.text("SELECT count(*) FROM billing.outbox WHERE key = :k"), {"k": key}
-            )
-        ).scalar_one()
-        assert count == 0
-        await uow.publisher.enqueue("t", key, "x.happened", b"\x01", {"h": "v"})
-    async with make_uow() as uow:
-        count = (
-            await uow.connection.execute(
-                sa.text("SELECT count(*) FROM billing.outbox WHERE key = :k"), {"k": key}
-            )
-        ).scalar_one()
-        assert count == 1
+        await uow.publisher.enqueue(event)
+    assert await count() == 1
 
 
 async def test_processed_claim_and_idempotency(make_uow: Make) -> None:

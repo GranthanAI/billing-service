@@ -1,6 +1,7 @@
 """Postgres 17 via Testcontainers: roles.sql, then alembic upgrade head as the migrator."""
 
 import asyncio
+import socket
 import time
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
@@ -155,6 +156,10 @@ class FreshDb:
     migrator_engine: AsyncEngine
     app_engine: AsyncEngine
 
+    @property
+    def app_url(self) -> str:
+        return self.urls._url("billing_app", "billing_app", self.name)
+
     def migrator_uow(self) -> SqlUnitOfWork:
         return SqlUnitOfWork(self.migrator_engine, _IDS)
 
@@ -181,3 +186,58 @@ async def fresh_db(urls: Urls) -> AsyncIterator[FreshDb]:
     yield FreshDb(urls, name, migrator, app)
     await migrator.dispose()
     await app.dispose()
+
+
+# --- Kafka ------------------------------------------------------------------------------------
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("", 0))
+        return int(sock.getsockname()[1])
+
+
+async def _wait_kafka(bootstrap: str, timeout: float = 90.0) -> None:
+    from aiokafka.admin import AIOKafkaAdminClient
+
+    deadline = time.monotonic() + timeout
+    while True:
+        admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap)
+        try:
+            await admin.start()
+            await admin.list_topics()
+            return
+        except Exception:
+            if time.monotonic() > deadline:
+                raise
+            await asyncio.sleep(1)
+        finally:
+            await admin.close()
+
+
+@pytest.fixture(scope="session")
+def kafka() -> Iterator[str]:
+    """A single-node KRaft apache/kafka:3.8.0 whose advertised address is its mapped port."""
+    port = _free_port()
+    container = (
+        DockerContainer("apache/kafka:3.8.0")
+        .with_bind_ports(port, port)
+        .with_env("KAFKA_NODE_ID", "1")
+        .with_env("KAFKA_PROCESS_ROLES", "broker,controller")
+        .with_env("KAFKA_LISTENERS", f"PLAINTEXT://:{port},CONTROLLER://:9093")
+        .with_env("KAFKA_ADVERTISED_LISTENERS", f"PLAINTEXT://localhost:{port}")
+        .with_env("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER")
+        .with_env(
+            "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP", "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+        )
+        .with_env("KAFKA_CONTROLLER_QUORUM_VOTERS", "1@localhost:9093")
+        .with_env("KAFKA_INTER_BROKER_LISTENER_NAME", "PLAINTEXT")
+        .with_env("KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", "1")
+        .with_env("KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", "1")
+        .with_env("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "1")
+        .with_env("KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS", "0")
+    )
+    with container:
+        bootstrap = f"localhost:{port}"
+        asyncio.run(_wait_kafka(bootstrap))
+        yield bootstrap
