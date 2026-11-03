@@ -8,14 +8,17 @@ order, so two transactions can never deadlock:
 Inside LedgerRepo.post, accounts and balances are also touched in sorted code order.
 """
 
+from collections.abc import Awaitable, Callable
 from types import TracebackType
 from typing import Self
 
 import sqlalchemy as sa
+import structlog
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncTransaction
 
 from billing.adapters.clock import SystemClock
 from billing.adapters.db.repos.accounts import SqlAccountRepo
+from billing.adapters.db.repos.changes import SqlChangeRepo
 from billing.adapters.db.repos.invoices import SqlInvoiceRepo
 from billing.adapters.db.repos.ledger import SqlLedgerRepo
 from billing.adapters.db.repos.overrides import SqlOverrideRepo
@@ -30,6 +33,7 @@ from billing.adapters.db.repos.plumbing import (
     SqlWebhookInbox,
 )
 from billing.adapters.db.repos.pricing import SqlPricingRepo
+from billing.adapters.db.repos.refunds import SqlRefundRepo
 from billing.adapters.db.repos.subscriptions import SqlSubscriptionRepo
 from billing.adapters.db.repos.usage import SqlUsageRepo
 from billing.adapters.kafka.codec import EventCodec
@@ -43,8 +47,13 @@ class SqlUnitOfWork:
         self._clock = clock or SystemClock()
         self._conn: AsyncConnection | None = None
         self._trans: AsyncTransaction | None = None
+        self._after_commit: list[Callable[[], Awaitable[None]]] = []
+
+    def after_commit(self, callback: Callable[[], Awaitable[None]]) -> None:
+        self._after_commit.append(callback)
 
     async def __aenter__(self) -> Self:
+        self._after_commit = []
         conn = await self._engine.connect()
         self._conn = conn
         self._trans = await conn.begin()
@@ -58,12 +67,14 @@ class SqlUnitOfWork:
         self.overrides = SqlOverrideRepo(conn)
         self.usage = SqlUsageRepo(conn)
         self.payments = SqlPaymentRepo(conn)
+        self.refunds = SqlRefundRepo(conn)
+        self.changes = SqlChangeRepo(conn)
         self.invoices = SqlInvoiceRepo(conn)
         self.ledger = SqlLedgerRepo(conn, ids)
         self.publisher = SqlOutbox(conn, EventCodec(ids, self._clock))
         self.processed = SqlProcessedEvents(conn)
         self.idempotency = SqlIdempotency(conn)
-        self.inbox = SqlWebhookInbox(conn)
+        self.inbox = SqlWebhookInbox(conn, self._clock)
         self.jobs = SqlJobs(conn)
         self.audit = SqlAudit(conn)
         return self
@@ -75,15 +86,24 @@ class SqlUnitOfWork:
         tb: TracebackType | None,
     ) -> None:
         assert self._conn is not None and self._trans is not None
+        committed = False
         try:
             if exc_type is None:
                 await self._trans.commit()
+                committed = True
             else:
                 await self._trans.rollback()
         finally:
             await self._conn.close()
             self._conn = None
             self._trans = None
+            callbacks, self._after_commit = self._after_commit, []
+        if committed:
+            for callback in callbacks:
+                try:
+                    await callback()
+                except Exception:  # the commit stands; a stale cache entry expires on its own
+                    structlog.get_logger().exception("after_commit_failed")
 
     @property
     def connection(self) -> AsyncConnection:

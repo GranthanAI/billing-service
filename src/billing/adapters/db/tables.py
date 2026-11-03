@@ -141,6 +141,33 @@ subscription_history = sa.Table(
     _ts("at", nullable=False, server_default=_NOW),
 )
 
+subscription_changes = sa.Table(
+    "subscription_changes",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column(
+        "subscription_id", sa.Uuid, sa.ForeignKey("billing.subscriptions.id"), nullable=False
+    ),
+    sa.Column("kind", sa.Text, nullable=False),
+    sa.Column(
+        "new_plan_version_id", sa.Uuid, sa.ForeignKey("billing.plan_versions.id"), nullable=False
+    ),
+    sa.Column("new_interval", billing_interval, nullable=False),
+    sa.Column("gateway_subscription_id", sa.Text, nullable=False, unique=True),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("refund_payment_id", sa.Uuid, sa.ForeignKey("billing.payments.id")),
+    _ts("created_at", nullable=False, server_default=_NOW),
+    _ts("updated_at", nullable=False, server_default=_NOW),
+    sa.CheckConstraint("kind IN ('upgrade','downgrade','resume')"),
+    sa.CheckConstraint("status IN ('pending','authorised','applied','abandoned')"),
+    sa.Index(
+        "subscription_changes_one_pending",
+        "subscription_id",
+        unique=True,
+        postgresql_where=sa.text("status IN ('pending','authorised')"),
+    ),
+)
+
 plan_overrides = sa.Table(
     "plan_overrides",
     metadata,

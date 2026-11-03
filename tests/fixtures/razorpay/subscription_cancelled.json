@@ -1,0 +1,39 @@
+{
+  "entity": "event",
+  "account_id": "acc_00000000000001",
+  "event": "subscription.cancelled",
+  "contains": [
+    "subscription"
+  ],
+  "payload": {
+    "subscription": {
+      "entity": {
+        "id": "sub_00000000000001",
+        "entity": "subscription",
+        "plan_id": "plan_00000000000001",
+        "customer_id": "cust_00000000000001",
+        "status": "cancelled",
+        "current_start": null,
+        "current_end": null,
+        "ended_at": 1580500000,
+        "quantity": 1,
+        "notes": {},
+        "charge_at": null,
+        "start_at": 1580453311,
+        "end_at": 1606761000,
+        "auth_attempts": 0,
+        "total_count": 6,
+        "paid_count": 0,
+        "customer_notify": true,
+        "created_at": 1580280581,
+        "expire_by": 1580626111,
+        "short_url": null,
+        "has_scheduled_changes": false,
+        "change_scheduled_at": null,
+        "source": "api",
+        "remaining_count": 6
+      }
+    }
+  },
+  "created_at": 1580453320
+}

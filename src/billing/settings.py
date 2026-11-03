@@ -28,11 +28,15 @@ class Settings(BaseSettings):
     invoice_sac_code: str = "998319"
     invoice_series: str = "GA"
     credit_note_series: str = "CN"
+    bill_of_supply_series: str = "BS"
     environment: str = "development"
     payment_gateway: Literal["razorpay", "fake"] = "razorpay"
     payg_enabled: bool = False
     plans_file: str = "/app/config/plans.yaml"
     grace_days: int = 3
+    checkout_abandon_hours: int = Field(24, ge=1)
+    razorpay_total_count_month: int = Field(120, ge=1)
+    razorpay_total_count_year: int = Field(10, ge=1)
     hold_ttl_seconds: int = 600
     day_counter_ttl_seconds: int = 172_800
     month_counter_ttl_seconds: int = 40 * 86_400

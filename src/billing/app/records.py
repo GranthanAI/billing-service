@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from billing.domain.catalog import ModelGroup, OwnerType, PlanVersion
+from billing.domain.catalog import Interval, ModelGroup, OwnerType, PlanVersion
 from billing.domain.money import MicroInr, Paise
 from billing.domain.subscription import SubscriptionState, SubStatus
 
@@ -52,6 +52,7 @@ class SubscriptionRecord:
     seats: int = 1
     gateway: str = "razorpay"
     lock_version: int = 0
+    created_at: datetime | None = None  # set by the repository on read
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +150,54 @@ class SubscriptionHistoryEntry:
     to_status: SubStatus
     trigger: str
     cause_ref: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RefundRecord:
+    id: UUID
+    payment_id: UUID
+    gateway_refund_id: str
+    amount_paise: Paise
+    reason: str
+    status: str
+
+
+class ChangeKind(StrEnum):
+    UPGRADE = "upgrade"
+    DOWNGRADE = "downgrade"
+    RESUME = "resume"
+
+
+class ChangeStatus(StrEnum):
+    PENDING = "pending"
+    AUTHORISED = "authorised"
+    APPLIED = "applied"
+    ABANDONED = "abandoned"
+
+
+@dataclass(frozen=True, slots=True)
+class ChangeRecord:
+    """A plan change (or resume) waiting for its new mandate."""
+
+    id: UUID
+    subscription_id: UUID
+    kind: ChangeKind
+    new_plan_version_id: UUID
+    new_interval: Interval
+    gateway_subscription_id: str
+    status: ChangeStatus
+    refund_payment_id: UUID | None = None
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InboxRow:
+    id: int
+    event_id: str
+    event_type: str
+    payload: Mapping[str, Any]
+    attempts: int
+    received_at: datetime
 
 
 # --- idempotency ---------------------------------------------------------------------------

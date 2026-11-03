@@ -17,7 +17,7 @@ from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog
 from billing.adapters.clock import SystemClock
 from billing.adapters.db.engine import make_engine
 from billing.adapters.db.uow import SqlUnitOfWork
-from billing.adapters.gateway_fake import InMemoryGateway
+from billing.adapters.gateways import make_gateway
 from billing.adapters.ids import Uuid7Generator
 from billing.adapters.valkey.client import make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
@@ -25,7 +25,6 @@ from billing.app.catalog import CatalogSyncError, sync_catalog
 from billing.app.ports import PlanGateway
 from billing.domain.calendar import ist_day
 from billing.domain.rating import NoFxRate
-from billing.settings import check_gateway_allowed
 
 
 class CliSettings(BaseSettings):
@@ -36,13 +35,24 @@ class CliSettings(BaseSettings):
     billing_migration_database_url: str
     payment_gateway: str = "razorpay"
     environment: str = "development"
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
+    razorpay_webhook_secret: str = ""
 
 
 def _gateway(settings: CliSettings) -> PlanGateway:
-    check_gateway_allowed(settings.payment_gateway, settings.environment)
-    if settings.payment_gateway == "fake":
-        return InMemoryGateway()
-    raise NotImplementedError("the Razorpay gateway adapter arrives in Phase 6")
+    if settings.payment_gateway == "razorpay" and not (
+        settings.razorpay_key_id and settings.razorpay_key_secret
+    ):
+        raise ValueError("RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are required")
+    return make_gateway(
+        settings.payment_gateway,
+        settings.environment,
+        key_id=settings.razorpay_key_id,
+        key_secret=settings.razorpay_key_secret,
+        webhook_secret=settings.razorpay_webhook_secret,
+        clock=SystemClock(),
+    )
 
 
 async def _catalog_sync(path: Path, dry_run: bool) -> int:

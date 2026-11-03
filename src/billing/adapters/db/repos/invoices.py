@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from typing import Any
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -8,6 +9,32 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from billing.adapters.db.tables import invoice_counters, invoice_lines
 from billing.adapters.db.tables import invoices as t
 from billing.app.records import InvoiceLineRecord, InvoiceRecord
+from billing.domain.money import Paise
+
+
+def _record(r: Any) -> InvoiceRecord:
+    return InvoiceRecord(
+        id=r.id,
+        number=r.number,
+        kind=r.kind,
+        billing_account_id=r.billing_account_id,
+        issued_at=r.issued_at,
+        customer_state_code=r.customer_state_code,
+        supplier_state_code=r.supplier_state_code,
+        taxable_paise=Paise(r.taxable_paise),
+        cgst_paise=Paise(r.cgst_paise),
+        sgst_paise=Paise(r.sgst_paise),
+        igst_paise=Paise(r.igst_paise),
+        total_paise=Paise(r.total_paise),
+        status=r.status,
+        original_invoice_id=r.original_invoice_id,
+        payment_id=r.payment_id,
+        period_start=r.period_start,
+        period_end=r.period_end,
+        customer_name=r.customer_name,
+        customer_gstin=r.customer_gstin,
+        pdf_object_key=r.pdf_object_key,
+    )
 
 
 class SqlInvoiceRepo:
@@ -83,3 +110,12 @@ class SqlInvoiceRepo:
 
     async def mark_paid(self, invoice_id: UUID) -> None:
         await self._c.execute(sa.update(t).where(t.c.id == invoice_id).values(status="paid"))
+
+    async def get(self, invoice_id: UUID) -> InvoiceRecord | None:
+        r = (await self._c.execute(sa.select(t).where(t.c.id == invoice_id))).first()
+        return _record(r) if r else None
+
+    async def by_payment(self, payment_id: UUID) -> InvoiceRecord | None:
+        q = sa.select(t).where(t.c.payment_id == payment_id, t.c.kind != "credit_note")
+        r = (await self._c.execute(q)).first()
+        return _record(r) if r else None

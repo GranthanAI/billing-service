@@ -60,6 +60,23 @@ class SqlPaymentRepo:
         ).first()
         return _record(r) if r else None
 
+    async def get(self, payment_id: UUID) -> PaymentRecord | None:
+        r = (await self._c.execute(sa.select(t).where(t.c.id == payment_id))).first()
+        return _record(r) if r else None
+
+    async def latest_for_subscription(self, subscription_id: UUID) -> PaymentRecord | None:
+        q = (
+            sa.select(t)
+            .where(
+                t.c.subscription_id == subscription_id,
+                t.c.status.in_(("captured", "partially_refunded")),
+            )
+            .order_by(t.c.captured_at.desc(), t.c.id.desc())
+            .limit(1)
+        )
+        r = (await self._c.execute(q)).first()
+        return _record(r) if r else None
+
     async def mark_refunded(self, payment_id: UUID, total_refunded: Paise) -> None:
         """`refunded` once the whole amount is back, `partially_refunded` before that."""
         status = sa.case(

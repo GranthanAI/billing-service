@@ -20,7 +20,17 @@ from billing.adapters.db.tables import (
 )
 from billing.adapters.kafka.codec import EventCodec
 from billing.app.events import OutboxEvent
-from billing.app.records import Begin, InProgress, Job, JobStatus, Mismatch, New, Replay
+from billing.app.ports import Clock
+from billing.app.records import (
+    Begin,
+    InboxRow,
+    InProgress,
+    Job,
+    JobStatus,
+    Mismatch,
+    New,
+    Replay,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,22 +150,81 @@ class SqlIdempotency:
             .values(status_code=status, response=body, locked_until=None)
         )
 
+    async def release(self, scope: str, key: str) -> None:
+        t = idempotency_keys
+        await self._c.execute(
+            sa.delete(t).where(t.c.scope == scope, t.c.key == key, t.c.status_code.is_(None))
+        )
+
 
 class SqlWebhookInbox:
-    def __init__(self, conn: AsyncConnection) -> None:
+    def __init__(self, conn: AsyncConnection, clock: Clock) -> None:
         self._c = conn
+        self._clock = clock
 
     async def store(
         self, gateway: str, event_id: str, event_type: str, payload: Mapping[str, Any]
     ) -> bool:
+        now = self._clock.now()
         result = await self._c.execute(
             pg_insert(webhook_inbox)
             .values(
-                gateway=gateway, event_id=event_id, event_type=event_type, payload=dict(payload)
+                gateway=gateway,
+                event_id=event_id,
+                event_type=event_type,
+                payload=dict(payload),
+                received_at=now,
+                next_try_at=now,
             )
             .on_conflict_do_nothing(index_elements=["gateway", "event_id"])
         )
         return result.rowcount == 1
+
+    async def claim_due(self, limit: int, lease_seconds: int, now: datetime) -> list[InboxRow]:
+        t = webhook_inbox
+        due = (
+            sa.select(t.c.id)
+            .where(t.c.status == "received", t.c.next_try_at <= now)
+            .order_by(t.c.next_try_at, t.c.id)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        result = await self._c.execute(
+            sa.update(t)
+            .where(t.c.id.in_(due))
+            .values(next_try_at=now + timedelta(seconds=lease_seconds))
+            .returning(
+                t.c.id, t.c.event_id, t.c.event_type, t.c.payload, t.c.attempts, t.c.received_at
+            )
+        )
+        rows = [
+            InboxRow(r.id, r.event_id, r.event_type, r.payload, r.attempts, r.received_at)
+            for r in result
+        ]
+        return sorted(rows, key=lambda r: r.id)
+
+    async def mark(self, row_id: int, status: str) -> None:
+        t = webhook_inbox
+        await self._c.execute(sa.update(t).where(t.c.id == row_id).values(status=status))
+
+    async def record_failure(
+        self, row_id: int, error: str, now: datetime, max_attempts: int
+    ) -> str:
+        t = webhook_inbox
+        attempts = (
+            await self._c.execute(sa.select(t.c.attempts).where(t.c.id == row_id).with_for_update())
+        ).scalar_one() + 1
+        if attempts >= max_attempts:
+            status, next_try = "failed", now
+        else:
+            status = "received"
+            next_try = now + timedelta(seconds=min(30 * 2 ** (attempts - 1), 3600))
+        await self._c.execute(
+            sa.update(t)
+            .where(t.c.id == row_id)
+            .values(attempts=attempts, status=status, next_try_at=next_try, last_error=error[:2000])
+        )
+        return status
 
 
 class SqlJobs:

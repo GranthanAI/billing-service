@@ -13,21 +13,31 @@ from billing.adapters.clock import SystemClock
 from billing.adapters.db import partitions
 from billing.adapters.db.engine import make_engine
 from billing.adapters.db.uow import SqlUnitOfWork
+from billing.adapters.gateways import make_gateway
 from billing.adapters.ids import Uuid7Generator
 from billing.adapters.kafka.consumer import KafkaEventConsumer
 from billing.adapters.kafka.outbox_relay import OutboxRelay
 from billing.adapters.kafka.producer import KafkaProducer
 from billing.adapters.valkey.client import make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
+from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
+from billing.app.webhooks import EventApplier
+from billing.jobs.handlers import billing as billing_jobs
 from billing.jobs.handlers import holds as holds_job
 from billing.jobs.handlers import partitions as partitions_job
 from billing.jobs.runner import JobContext, JobRunner
 from billing.jobs.scheduler import Recurring, Scheduler
+from billing.jobs.webhooks import WebhookProcessor
 from billing.observability import configure_logging, metrics_payload
 from billing.settings import Settings, get_settings
+from billing.wiring import config_from_settings, make_context
 
 log = structlog.get_logger()
-SCHEDULE: tuple[Recurring, ...] = (partitions_job.SCHEDULE, holds_job.SCHEDULE)
+SCHEDULE: tuple[Recurring, ...] = (
+    partitions_job.SCHEDULE,
+    holds_job.SCHEDULE,
+    billing_jobs.SCHEDULE,
+)
 DRAIN_SECONDS = 30.0
 HEALTH_PORT = 9100
 
@@ -87,12 +97,37 @@ async def run_worker(
 
     async with engine.begin() as conn:  # make sure this and the next months have partitions
         await partitions.ensure(conn, months_ahead=2)
+    gateway = make_gateway(
+        settings.payment_gateway,
+        settings.environment,
+        key_id=settings.razorpay_key_id,
+        key_secret=settings.razorpay_key_secret,
+        webhook_secret=settings.razorpay_webhook_secret,
+        clock=clock,
+    )
+    bctx = make_context(
+        config_from_settings(settings),
+        uow_factory,
+        gateway,
+        clock,
+        ids,
+        ValkeyEntitlementCache(valkey_client).delete,
+    )
+    applier = EventApplier(bctx)
     await producer.start()
     try:
         relay = OutboxRelay(engine, ids, clock, producer, batch_size=settings.outbox_batch_size)
         scheduler = Scheduler(uow_factory, clock, SCHEDULE)
         runner = JobRunner(
-            JobContext(uow_factory, clock, ids, counters=counters),
+            JobContext(
+                uow_factory,
+                clock,
+                ids,
+                gateway=gateway,
+                counters=counters,
+                billing=bctx,
+                applier=applier,
+            ),
             concurrency=settings.job_concurrency,
         )
         health = None
@@ -110,6 +145,7 @@ async def run_worker(
             group.create_task(relay.run(stop))
             group.create_task(scheduler.run(stop))
             group.create_task(runner.run(stop, drain_seconds))
+            group.create_task(WebhookProcessor(bctx, applier).run(stop))
             for consumer in consumers:
                 group.create_task(consumer.run(stop))
             group.create_task(watch_stop())
@@ -117,6 +153,9 @@ async def run_worker(
                 group.create_task(health.serve())
     finally:
         await producer.stop()
+        close = getattr(gateway, "aclose", None)
+        if close is not None:
+            await close()
         await valkey_client.aclose()
         await engine.dispose()
 

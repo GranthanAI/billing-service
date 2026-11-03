@@ -1,4 +1,6 @@
+from collections.abc import Sequence
 from dataclasses import replace
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -38,6 +40,7 @@ def _record(r: Any) -> SubscriptionRecord:
         seats=r.seats,
         gateway=r.gateway,
         lock_version=r.lock_version,
+        created_at=r.created_at,
     )
 
 
@@ -92,6 +95,38 @@ class SqlSubscriptionRepo:
         q = sa.select(t).where(t.c.billing_account_id == billing_account_id, t.c.status.in_(LIVE))
         return await self._one(q)
 
+    async def find_reusable_incomplete(
+        self,
+        billing_account_id: UUID,
+        plan_version_id: UUID,
+        interval: Interval,
+        created_after: datetime,
+    ) -> SubscriptionRecord | None:
+        q = (
+            sa.select(t)
+            .where(
+                t.c.billing_account_id == billing_account_id,
+                t.c.status == SubStatus.INCOMPLETE.value,
+                t.c.plan_version_id == plan_version_id,
+                t.c.interval == interval.value,
+                t.c.created_at > created_after,
+            )
+            .order_by(t.c.created_at.desc())
+            .limit(1)
+        )
+        return await self._one(q)
+
+    async def list_incomplete_before(
+        self, cutoff: datetime, limit: int
+    ) -> Sequence[SubscriptionRecord]:
+        q = (
+            sa.select(t)
+            .where(t.c.status == SubStatus.INCOMPLETE.value, t.c.created_at < cutoff)
+            .order_by(t.c.created_at)
+            .limit(limit)
+        )
+        return [_record(r) for r in (await self._c.execute(q)).all()]
+
     async def count_live_for_plan(self, plan_code: str) -> int:
         q = (
             sa.select(sa.func.count())
@@ -101,8 +136,13 @@ class SqlSubscriptionRepo:
         return int((await self._c.execute(q)).scalar_one())
 
     async def insert(self, record: SubscriptionRecord) -> None:
+        extra: dict[str, Any] = {}
+        if record.created_at is not None:
+            extra = {"created_at": record.created_at, "updated_at": record.created_at}
         await self._c.execute(
-            sa.insert(t).values(id=record.id, lock_version=record.lock_version, **_values(record))
+            sa.insert(t).values(
+                id=record.id, lock_version=record.lock_version, **_values(record), **extra
+            )
         )
 
     async def save(self, record: SubscriptionRecord) -> SubscriptionRecord:

@@ -4,7 +4,7 @@ PROVISIONAL for the gateway and counter ports; the repository ports below are th
 contract. All methods are async and take or return domain types or `app/records.py` DTOs.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -16,6 +16,9 @@ from billing.app.events import OutboxEvent
 from billing.app.records import (
     Begin,
     BillingAccount,
+    ChangeRecord,
+    ChangeStatus,
+    InboxRow,
     InvoiceLineRecord,
     InvoiceRecord,
     Job,
@@ -23,11 +26,19 @@ from billing.app.records import (
     OverrideRecord,
     PaymentRecord,
     PlanVersionRecord,
+    RefundRecord,
     SubscriptionHistoryEntry,
     SubscriptionRecord,
     UsageEventRecord,
 )
-from billing.domain.catalog import DenyReason, ModelGroup, OrgVariant, OwnerType, ReserveKind
+from billing.domain.catalog import (
+    DenyReason,
+    Interval,
+    ModelGroup,
+    OrgVariant,
+    OwnerType,
+    ReserveKind,
+)
 from billing.domain.entitlements import Entitlement
 from billing.domain.ledger import LedgerTransaction
 from billing.domain.money import Paise
@@ -48,11 +59,6 @@ class IdGenerator(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class GatewayPlan:
-    id: str
-
-
-@dataclass(frozen=True, slots=True)
 class GatewayPlanSpec:
     """What ensure_plan needs. `notes` carries plan_code, version, interval and checksum."""
 
@@ -67,31 +73,32 @@ class GatewayPlanSpec:
 @dataclass(frozen=True, slots=True)
 class GatewaySubscription:
     id: str
-    status: str
     plan_id: str
+    status: str
     current_start: datetime | None
     current_end: datetime | None
+    charge_at: datetime | None
+    start_at: datetime | None
+    paid_count: int
     notes: Mapping[str, str]
-
-
-@dataclass(frozen=True, slots=True)
-class GatewayOrder:
-    id: str
-    amount: Paise
-    notes: Mapping[str, str]
+    short_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class GatewayPayment:
     id: str
     amount: Paise
+    currency: str
     status: str
     method: str | None
     fee: Paise | None
-    fee_gst: Paise | None
+    tax: Paise | None  # the GST Razorpay charged on its fee
     order_id: str | None
-    subscription_id: str | None
-    captured_at: datetime | None
+    invoice_id: str | None
+    subscription_id: str | None  # Razorpay payments carry no subscription id; see the adapter
+    created_at: datetime
+    notes: Mapping[str, str]
+    raw: Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +107,7 @@ class GatewayRefund:
     payment_id: str
     amount: Paise
     status: str
+    notes: Mapping[str, str]
 
 
 class PlanGateway(Protocol):
@@ -110,25 +118,40 @@ class PlanGateway(Protocol):
 
 
 class PaymentGateway(PlanGateway, Protocol):
-    async def create_plan(
-        self, *, name: str, amount: Paise, interval: str, notes: Mapping[str, str]
-    ) -> GatewayPlan: ...
+    """Raises GatewayRejected on a 4xx and GatewayUnavailable once retries are exhausted."""
 
     async def create_subscription(
-        self, plan_id: str, *, start_at: datetime | None, notes: Mapping[str, str]
-    ) -> GatewaySubscription: ...
+        self,
+        plan_id: str,
+        *,
+        total_count: int,
+        start_at: datetime | None,
+        notes: Mapping[str, str],
+        lookup_first: bool = False,
+    ) -> GatewaySubscription:
+        """Idempotent on notes["billing_ref"]: a retry after a timeout finds the subscription
+        it already created. `lookup_first` makes the first attempt look too (crash recovery)."""
+        ...
 
     async def fetch_subscription(self, subscription_id: str) -> GatewaySubscription: ...
 
-    async def cancel_subscription(self, subscription_id: str, *, at_cycle_end: bool) -> None: ...
-
-    async def create_order(self, amount: Paise, *, notes: Mapping[str, str]) -> GatewayOrder: ...
+    async def cancel_subscription(
+        self, subscription_id: str, *, at_cycle_end: bool
+    ) -> GatewaySubscription: ...
 
     async def fetch_payment(self, payment_id: str) -> GatewayPayment: ...
 
+    async def list_subscription_payments(self, subscription_id: str) -> list[GatewayPayment]:
+        """Captured payments of a subscription, newest first (through its invoices)."""
+        ...
+
     async def refund_payment(
-        self, payment_id: str, amount: Paise, notes: Mapping[str, str]
-    ) -> GatewayRefund: ...
+        self, payment_id: str, amount: Paise, *, notes: Mapping[str, str]
+    ) -> GatewayRefund:
+        """Idempotent on notes["refund_key"]."""
+        ...
+
+    async def fetch_refund(self, refund_id: str) -> GatewayRefund: ...
 
     def verify_checkout_signature(
         self, payment_id: str, subscription_id: str, signature: str
@@ -242,6 +265,20 @@ class AccountRepo(Protocol):
         self, owner_type: OwnerType, owner_id: UUID, email: str
     ) -> BillingAccount: ...
 
+    async def get(self, account_id: UUID) -> BillingAccount | None: ...
+
+    async def update_checkout(
+        self,
+        account_id: UUID,
+        *,
+        state_code: str,
+        email: str,
+        legal_name: str | None,
+        gstin: str | None,
+    ) -> None:
+        """Checkout always refreshes state and email; name and GSTIN only when given."""
+        ...
+
     async def set_state_code(self, account_id: UUID, code: str) -> None: ...
 
     async def set_gstin(
@@ -306,6 +343,20 @@ class SubscriptionRepo(Protocol):
 
     async def live_for_account(self, billing_account_id: UUID) -> SubscriptionRecord | None: ...
 
+    async def find_reusable_incomplete(
+        self,
+        billing_account_id: UUID,
+        plan_version_id: UUID,
+        interval: Interval,
+        created_after: datetime,
+    ) -> SubscriptionRecord | None: ...
+
+    async def list_incomplete_before(
+        self, cutoff: datetime, limit: int
+    ) -> Sequence[SubscriptionRecord]:
+        """`incomplete` subscriptions created before `cutoff`, oldest first."""
+        ...
+
     async def count_live_for_plan(self, plan_code: str) -> int:
         """Subscriptions on any version of the plan that are active, past_due, suspended or
         cancelling."""
@@ -353,7 +404,45 @@ class PaymentRepo(Protocol):
 
     async def by_gateway_id(self, gateway_payment_id: str) -> PaymentRecord | None: ...
 
+    async def get(self, payment_id: UUID) -> PaymentRecord | None: ...
+
+    async def latest_for_subscription(self, subscription_id: UUID) -> PaymentRecord | None:
+        """The most recent captured (or part-refunded) payment of a subscription."""
+        ...
+
     async def mark_refunded(self, payment_id: UUID, total_refunded: Paise) -> None: ...
+
+
+class RefundRepo(Protocol):
+    async def insert(self, record: RefundRecord) -> bool:
+        """False when that gateway refund is already recorded."""
+        ...
+
+    async def by_gateway_id(self, gateway_refund_id: str) -> RefundRecord | None: ...
+
+    async def set_status(self, gateway_refund_id: str, status: str) -> bool:
+        """False when we have no such refund."""
+        ...
+
+    async def total_for_payment(self, payment_id: UUID) -> Paise:
+        """Sum of the refunds recorded for a payment, whatever their status except failed."""
+        ...
+
+
+class ChangeRepo(Protocol):
+    async def insert(self, record: ChangeRecord) -> None: ...
+
+    async def get(self, change_id: UUID) -> ChangeRecord | None: ...
+
+    async def by_gateway_id(self, gateway_subscription_id: str) -> ChangeRecord | None: ...
+
+    async def open_for_subscription(self, subscription_id: UUID) -> ChangeRecord | None:
+        """The one `pending` or `authorised` change, if any."""
+        ...
+
+    async def set_status(self, change_id: UUID, status: ChangeStatus) -> None: ...
+
+    async def list_pending_before(self, cutoff: datetime, limit: int) -> Sequence[ChangeRecord]: ...
 
 
 class InvoiceRepo(Protocol):
@@ -364,6 +453,12 @@ class InvoiceRepo(Protocol):
     async def set_pdf(self, invoice_id: UUID, object_key: str) -> None: ...
 
     async def mark_paid(self, invoice_id: UUID) -> None: ...
+
+    async def get(self, invoice_id: UUID) -> InvoiceRecord | None: ...
+
+    async def by_payment(self, payment_id: UUID) -> InvoiceRecord | None:
+        """The tax invoice (or bill of supply) issued for a payment; never a credit note."""
+        ...
 
 
 class LedgerRepo(Protocol):
@@ -395,11 +490,31 @@ class IdempotencyRepo(Protocol):
 
     async def complete(self, scope: str, key: str, status: int, body: Any) -> None: ...
 
+    async def release(self, scope: str, key: str) -> None:
+        """Forget an unfinished key (the handler failed with a 5xx) so the client can retry."""
+        ...
+
 
 class WebhookInboxRepo(Protocol):
     async def store(
         self, gateway: str, event_id: str, event_type: str, payload: Mapping[str, Any]
     ) -> bool: ...
+
+    async def claim_due(self, limit: int, lease_seconds: int, now: datetime) -> list[InboxRow]:
+        """`received` rows due at `now` (FOR UPDATE SKIP LOCKED); their next_try_at moves
+        `lease_seconds` ahead, so another replica leaves them alone while this one works."""
+        ...
+
+    async def mark(self, row_id: int, status: str) -> None:
+        """`processed` or `ignored`."""
+        ...
+
+    async def record_failure(
+        self, row_id: int, error: str, now: datetime, max_attempts: int
+    ) -> str:
+        """attempts += 1; retry at now + min(30 s * 2**(attempts-1), 1 h); `failed` once
+        attempts reach max_attempts. Returns the new status."""
+        ...
 
 
 class JobRepo(Protocol):
@@ -458,6 +573,12 @@ class UnitOfWork(Protocol):
     def payments(self) -> PaymentRepo: ...
 
     @property
+    def refunds(self) -> RefundRepo: ...
+
+    @property
+    def changes(self) -> ChangeRepo: ...
+
+    @property
     def invoices(self) -> InvoiceRepo: ...
 
     @property
@@ -480,6 +601,11 @@ class UnitOfWork(Protocol):
 
     @property
     def audit(self) -> AuditRepo: ...
+
+    def after_commit(self, callback: Callable[[], Awaitable[None]]) -> None:
+        """Run `callback` once the transaction has committed; dropped on rollback. A callback
+        that raises is logged and does not undo the commit."""
+        ...
 
     async def __aenter__(self) -> Self: ...
 

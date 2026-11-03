@@ -17,17 +17,23 @@ from billing.adapters.clock import SystemClock
 from billing.adapters.db.engine import make_engine
 from billing.adapters.db.migrations import schema_problem
 from billing.adapters.db.uow import SqlUnitOfWork
+from billing.adapters.gateways import make_gateway
 from billing.adapters.ids import Uuid7Generator
 from billing.adapters.valkey.client import aw, config_problem, make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
 from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
 from billing.api.grpc.internal import start_grpc_server
+from billing.api.rest import errors as rest_errors
+from billing.api.rest.billing import router as billing_router
+from billing.api.rest.idempotency import IdempotencyMiddleware
 from billing.api.rest.public import router as public_router
+from billing.api.rest.webhooks import router as webhook_router
 from billing.app.context import correlation_id_var
 from billing.app.entitlements import EntitlementService, ModelCatalog
 from billing.app.reserve import ReserveService
 from billing.observability import HOLDS_OPEN, LOOP_LAG, configure_logging, metrics_payload
 from billing.settings import Settings, get_settings
+from billing.wiring import config_from_settings, install_billing, make_context
 
 configure_logging()
 log = structlog.get_logger()
@@ -82,13 +88,33 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         def uow_factory() -> SqlUnitOfWork:
             return SqlUnitOfWork(owned_engine, ids, clock)
 
-        reserve = ReserveService(
-            EntitlementService(
+        entitlements = EntitlementService(
+            uow_factory,
+            ValkeyEntitlementCache(client),
+            clock,
+            l1_ttl_seconds=settings.entitlement_l1_ttl_seconds,
+        )
+        gateway = make_gateway(
+            settings.payment_gateway,
+            settings.environment,
+            key_id=settings.razorpay_key_id,
+            key_secret=settings.razorpay_key_secret,
+            webhook_secret=settings.razorpay_webhook_secret,
+            clock=clock,
+        )
+        install_billing(
+            app,
+            make_context(
+                config_from_settings(settings),
                 uow_factory,
-                ValkeyEntitlementCache(client),
+                gateway,
                 clock,
-                l1_ttl_seconds=settings.entitlement_l1_ttl_seconds,
+                ids,
+                entitlements.invalidate,
             ),
+        )
+        reserve = ReserveService(
+            entitlements,
             ModelCatalog(uow_factory, clock),
             counters,
             clock,
@@ -117,6 +143,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if grpc_server is not None:
         await grpc_server.stop(5)  # 5 s grace for in-flight calls
     if settings is not None:
+        close = getattr(app.state.gateway, "aclose", None)
+        if close is not None:
+            await close()
         await app.state.valkey.aclose()
     if owned_engine is not None:
         await owned_engine.dispose()
@@ -124,6 +153,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="billing-api", lifespan=lifespan)
 app.include_router(public_router)
+app.include_router(billing_router)
+app.include_router(webhook_router)
+rest_errors.install(app)
+# Added before the correlation-id middleware below, so it runs inside it and sees the id.
+app.add_middleware(IdempotencyMiddleware)
 
 
 @app.middleware("http")

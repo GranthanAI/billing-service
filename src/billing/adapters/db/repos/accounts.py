@@ -56,6 +56,26 @@ class SqlAccountRepo:
         assert found is not None
         return found
 
+    async def get(self, account_id: UUID) -> BillingAccount | None:
+        r = (await self._c.execute(sa.select(t).where(t.c.id == account_id))).first()
+        return _account(r) if r else None
+
+    async def update_checkout(
+        self,
+        account_id: UUID,
+        *,
+        state_code: str,
+        email: str,
+        legal_name: str | None,
+        gstin: str | None,
+    ) -> None:
+        values: dict[str, Any] = {"state_code": state_code, "billing_email": email}
+        if legal_name is not None:
+            values["legal_name"] = legal_name
+        if gstin is not None:
+            values["gstin"] = gstin
+        await self._c.execute(sa.update(t).where(t.c.id == account_id).values(**values))
+
     async def set_state_code(self, account_id: UUID, code: str) -> None:
         await self._c.execute(sa.update(t).where(t.c.id == account_id).values(state_code=code))
 

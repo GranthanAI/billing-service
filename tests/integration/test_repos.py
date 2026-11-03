@@ -212,7 +212,7 @@ async def test_subscription_cas_and_lookup(
         await uow.subscriptions.insert(rec)
     async with make_uow() as uow:
         stale = await uow.subscriptions.get(rec.id)
-        assert stale == rec
+        assert stale == replace(rec, created_at=stale.created_at)  # created_at is read back
         saved = await uow.subscriptions.save(
             replace(stale, state=replace(stale.state, status=SubStatus.PAST_DUE))
         )

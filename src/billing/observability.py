@@ -49,3 +49,19 @@ LOOP_LAG = Histogram(
     "How late a 50 ms timer fires: a stalled event loop shows up here before latency does",
     buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
 )
+
+WEBHOOKS_RECEIVED = Counter(
+    "billing_webhooks_received_total",
+    "Webhook deliveries",
+    ["event_type", "signature_ok"],
+)
+WEBHOOK_REJECTED = Counter("billing_webhook_rejected_total", "Webhooks with a bad signature")
+WEBHOOK_FAILED = Counter(
+    "billing_webhook_failed_total", "Inbox rows that ran out of attempts (alert in Phase 9)"
+)
+WEBHOOK_UNEXPECTED = Counter(
+    "billing_webhook_unexpected_total",
+    "Events that should never happen with our total counts (completed, expired)",
+    ["event_type"],
+)
+REFUND_FAILED = Counter("billing_refund_failed_total", "Refunds Razorpay reported as failed")

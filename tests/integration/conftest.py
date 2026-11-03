@@ -1,11 +1,14 @@
 """Postgres 17 via Testcontainers: roles.sql, then alembic upgrade head as the migrator."""
 
+from __future__ import annotations
+
 import asyncio
 import socket
 import time
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import asyncpg
@@ -24,6 +27,9 @@ from billing.adapters.valkey.client import aw, make_valkey
 from billing.app.records import BillingAccount, PlanVersionRecord
 from billing.domain.catalog import OwnerType
 from tests.support import plans
+
+if TYPE_CHECKING:
+    from tests.integration.billing_env import Env
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -364,3 +370,95 @@ async def hot(urls: Urls, hot_db_name: str) -> AsyncIterator[FreshDb]:
     yield FreshDb(urls, hot_db_name, migrator, app)
     await migrator.dispose()
     await app.dispose()
+
+
+# --- Phase 6: one cloned database per test ------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Template:
+    name: str
+    plans: dict[str, object]  # razorpay plan id -> GatewayPlanSpec, for the fake gateway
+
+
+@pytest.fixture(scope="session")
+def phase6_template(urls: Urls) -> Template:
+    """A migrated database with prices and the real catalog synced, cloned for each test."""
+    from billing.adapters.catalog.seed_loader import load_fx_rates, load_model_prices
+    from billing.adapters.catalog.yaml_loader import load_catalog
+    from billing.adapters.clock import SystemClock
+    from billing.adapters.gateway_fake import InMemoryGateway
+    from billing.app.catalog import sync_catalog
+
+    name = f"tpl_{uuid4().hex[:8]}"
+    gateway = InMemoryGateway()
+
+    async def prepare() -> None:
+        conn = await asyncpg.connect(
+            host=urls.host,
+            port=urls.port,
+            user="postgres",
+            password="postgres",
+            database="postgres",
+        )
+        try:
+            await conn.execute(f'CREATE DATABASE "{name}" OWNER billing_migrator')
+        finally:
+            await conn.close()
+
+    asyncio.run(prepare())
+    command.upgrade(alembic_config(urls.migrator_for(name)), "head")
+
+    async def seed() -> None:
+        engine = make_engine(urls.migrator_for(name), pool_size=2)
+        ids = Uuid7Generator()
+        try:
+            async with SqlUnitOfWork(engine, ids) as uow:
+                for p in load_model_prices(ROOT / "config/seed/model_prices.yaml"):
+                    await uow.pricing.add_model_price(
+                        model=p.model,
+                        provider=p.provider,
+                        model_group=p.group,
+                        input_usd_per_m=p.input_usd_per_m,
+                        cached_input_usd_per_m=p.cached_input_usd_per_m,
+                        output_usd_per_m=p.output_usd_per_m,
+                        effective_from=p.effective_from,
+                    )
+                for r in load_fx_rates(ROOT / "config/seed/fx_rates.yaml"):
+                    await uow.pricing.add_fx_rate(r.effective_from, r.usd_inr, r.source)
+            await sync_catalog(
+                load_catalog(ROOT / "config/plans.yaml"),
+                lambda: SqlUnitOfWork(engine, ids),
+                gateway,
+                SystemClock(),
+                ids,
+            )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(seed())
+    return Template(name, dict(gateway.plans))
+
+
+@pytest_asyncio.fixture
+async def env(
+    urls: Urls, phase6_template: Template, vk: valkey_asyncio.Valkey
+) -> AsyncIterator[Env]:
+    from tests.integration.billing_env import build_env
+
+    name = f"p6_{uuid4().hex[:10]}"
+    conn = await asyncpg.connect(
+        host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"
+    )
+    try:
+        await conn.execute(
+            f'CREATE DATABASE "{name}" TEMPLATE "{phase6_template.name}" OWNER billing_migrator'
+        )
+    finally:
+        await conn.close()
+    app = make_engine(urls._url("billing_app", "billing_app", name), pool_size=10)
+    migrator = make_engine(urls.migrator_for(name), pool_size=2)
+    built = build_env(app, migrator, vk, phase6_template.plans)
+    yield built
+    await app.dispose()
+    await migrator.dispose()

@@ -32,10 +32,12 @@ def test_fake_gateway_is_refused_in_production(
     check_gateway_allowed("razorpay", "production")
 
 
-def test_razorpay_adapter_is_not_built_yet(
+def test_razorpay_needs_credentials(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("BILLING_MIGRATION_DATABASE_URL", "postgresql+asyncpg://x@nowhere/x")
     monkeypatch.setenv("PAYMENT_GATEWAY", "razorpay")
+    monkeypatch.delenv("RAZORPAY_KEY_ID", raising=False)
+    monkeypatch.delenv("RAZORPAY_KEY_SECRET", raising=False)
     assert main(["catalog", "sync", "--file", str(ROOT / "config/plans.yaml")]) == 1
-    assert "Phase 6" in capsys.readouterr().err
+    assert "RAZORPAY_KEY_ID" in capsys.readouterr().err

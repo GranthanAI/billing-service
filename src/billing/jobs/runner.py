@@ -12,8 +12,10 @@ from typing import Any
 import structlog
 
 from billing.adapters.db.uow import SqlUnitOfWork
+from billing.app.config import BillingContext
 from billing.app.ports import Clock, Counters, IdGenerator, PlanGateway
 from billing.app.records import Job, JobStatus
+from billing.app.webhooks import EventApplier
 from billing.observability import JOBS_DEAD
 
 log = structlog.get_logger()
@@ -26,6 +28,8 @@ class JobContext:
     ids: IdGenerator
     gateway: PlanGateway | None = None
     counters: Counters | None = None
+    billing: BillingContext | None = None
+    applier: EventApplier | None = None
 
 
 Handler = Callable[[dict[str, Any], JobContext], Awaitable[None]]
@@ -79,6 +83,15 @@ class JobRunner:
         else:
             async with self._ctx.uow_factory() as uow:
                 await uow.jobs.complete(job.id)
+
+    async def run_pending(self) -> int:
+        """Claim and finish every ready job (tests and one-shot tools)."""
+        total = 0
+        while started := await self.claim_and_start():
+            total += started
+            if self._running:
+                await asyncio.wait(self._running)
+        return total
 
     async def claim_and_start(self) -> int:
         free = self._concurrency - len(self._running)
