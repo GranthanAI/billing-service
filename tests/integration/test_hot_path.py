@@ -162,6 +162,9 @@ async def test_release_gives_the_message_back_once(hot: FreshDb, vk: valkey_asyn
 async def test_expired_hold_is_swept_and_late_usage_counts_again(
     hot: FreshDb, vk: valkey_asyncio.Valkey
 ) -> None:
+    await vk.delete(
+        keys.HOLDS_DUE
+    )  # holds other tests left behind would be swept (and counted) too
     stack = make_stack(hot, vk)
     uid = await make_user(hot)
     r = await stack.reserve.check_and_reserve(msg(uid))
@@ -282,3 +285,38 @@ async def test_rebuild_reproduces_the_counters(
     assert await stack.counters.day_counts(uid, day) == before_day
     assert await vk.hgetall(month_key) == before_month
     assert 0 < await vk.ttl(keys.day_counters_for(uid, day)) <= 172_800
+
+
+async def test_invalidation_on_one_replica_reaches_the_other_within_100_ms(
+    hot: FreshDb, vk: valkey_asyncio.Valkey
+) -> None:
+    import asyncio
+    import time
+
+    from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
+    from billing.app.entitlements import EntitlementService
+
+    clock = make_stack(hot, vk).clock
+    uid = await make_user(hot)
+
+    def replica() -> EntitlementService:
+        return EntitlementService(
+            lambda: hot.app_uow(), ValkeyEntitlementCache(vk), clock, l1_ttl_seconds=60.0
+        )
+
+    a, b = replica(), replica()
+    ready = asyncio.Event()
+    listener = asyncio.create_task(b.listen(ready))
+    try:
+        await asyncio.wait_for(ready.wait(), 5)
+        first = await b.resolve(uid)  # b now holds it in L1 (60 s: only the message can clear it)
+        assert uid in b._l1
+        await a.invalidate(uid)
+        started = time.monotonic()
+        while uid in b._l1 and time.monotonic() - started < 1:
+            await asyncio.sleep(0.005)
+        assert uid not in b._l1
+        assert time.monotonic() - started < 0.1
+        assert (await b.resolve(uid)).version_hash == first.version_hash
+    finally:
+        listener.cancel()

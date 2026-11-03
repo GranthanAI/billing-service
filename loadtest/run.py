@@ -104,11 +104,12 @@ def wait_ready(timeout: float = 90.0) -> None:
     raise SystemExit("billing-api did not become ready")
 
 
-def histogram(text: str) -> tuple[list[tuple[float, float]], float]:
-    """Cumulative (le, count) pairs for kind=message, and the total count."""
-    pattern = re.compile(
-        r'billing_reserve_duration_seconds_bucket\{kind="message",le="([^"]+)"\} ([0-9.e+]+)'
-    )
+def histogram(
+    text: str, name: str = "billing_reserve_duration_seconds"
+) -> tuple[list[tuple[float, float]], float]:
+    """Cumulative (le, count) pairs (kind=message for the reserve histogram), and the total."""
+    label = 'kind="message",' if name == "billing_reserve_duration_seconds" else ""
+    pattern = re.compile(rf'{name}_bucket\{{{label}le="([^"]+)"\}} ([0-9.e+]+)')
     buckets = sorted(
         (float("inf") if le == "+Inf" else float(le), float(count))
         for le, count in pattern.findall(text)
@@ -166,6 +167,8 @@ def main() -> int:
         "-d",
         "--name",
         API_CONTAINER,
+        "--cpuset-cpus",
+        "0-3",  # the server and the driver must not compete for the same cores
         "--network",
         NETWORK,
         "-p",
@@ -203,6 +206,8 @@ def main() -> int:
                 "docker",
                 "run",
                 "--rm",
+                "--cpuset-cpus",
+                "4-7",
                 "--network",
                 NETWORK,
                 "-v",
@@ -223,6 +228,17 @@ def main() -> int:
         )
         with urllib.request.urlopen(f"http://localhost:{HTTP_PORT}/metrics") as r:
             metrics = r.read().decode()
+        logs = docker("logs", "--tail", "200", API_CONTAINER, check=False)
+        logs_tail = (logs.stdout + logs.stderr).splitlines()[-6:]
+        log_lines = (logs.stdout + logs.stderr).count(chr(10))
+        stats = docker(
+            "stats",
+            "--no-stream",
+            "--format",
+            "{{.CPUPerc}} {{.MemUsage}}",
+            API_CONTAINER,
+            check=False,
+        )
     finally:
         docker("rm", "-f", API_CONTAINER, check=False)
 
@@ -251,6 +267,18 @@ def main() -> int:
     )
     ok = total > 0 and within / total >= 0.99 and result["errors"] == 0
     passed = ok and driver.returncode == 0
+    print(f"errors by code: {result.get('errors_by_code')}")
+    lag_b, lag_n = histogram(metrics, "billing_event_loop_lag_seconds")
+    if lag_n:
+        print(
+            "event-loop lag: "
+            + "  ".join(
+                f"p{int(q * 100)}={quantile(lag_b, lag_n, q) * 1000:.1f} ms"
+                for q in (0.5, 0.95, 0.99)
+            )
+        )
+    print("api log tail:", *logs_tail, sep=chr(10) + "  ")
+    print(f"api log lines in last 200: {log_lines}; api container {stats.stdout.strip()}")
     print("RESULT:", "PASS" if passed else "FAIL")
     return 0 if passed else 1
 

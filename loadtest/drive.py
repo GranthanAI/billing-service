@@ -49,6 +49,7 @@ async def main() -> None:
         rel_lat: list[float] = []
         errors = 0
         denied = 0
+        by_code: dict[str, int] = {}
 
         async def one() -> None:
             nonlocal errors, denied
@@ -67,8 +68,9 @@ async def main() -> None:
                     metadata=META,
                     timeout=0.15,  # the contract deadline for conversation-service
                 )
-            except grpc.aio.AioRpcError:
+            except grpc.aio.AioRpcError as exc:
                 errors += 1
+                by_code[exc.code().name] = by_code.get(exc.code().name, 0) + 1
                 return
             lat.append((time.perf_counter() - t) * 1000)
             if not r.allowed:
@@ -84,8 +86,11 @@ async def main() -> None:
                         timeout=0.5,
                     )
                     rel_lat.append((time.perf_counter() - t) * 1000)
-                except grpc.aio.AioRpcError:
+                except grpc.aio.AioRpcError as exc:
                     errors += 1
+                    by_code["Release." + exc.code().name] = (
+                        by_code.get("Release." + exc.code().name, 0) + 1
+                    )
 
         tasks = []
         start = time.perf_counter()
@@ -103,6 +108,7 @@ async def main() -> None:
         "calls": len(lat) + errors,
         "ok": len(lat),
         "errors": errors,
+        "errors_by_code": by_code,
         "denied": denied,
         "releases": len(rel_lat),
         "rate": (len(lat) + errors) / elapsed,

@@ -61,6 +61,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     owned_engine: AsyncEngine | None = None
     grpc_server: grpc.aio.Server | None = None
     sampler: asyncio.Task[None] | None = None
+    invalidation_listener: asyncio.Task[None] | None = None
     lag_watch: asyncio.Task[None] | None = None
     settings: Settings | None = None
     if getattr(app.state, "engine", None) is None:
@@ -128,6 +129,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         grpc_server, _ = await start_grpc_server(
             reserve, tokens, settings.grpc_port, production=settings.environment == "production"
         )
+        invalidation_listener = asyncio.create_task(entitlements.listen())
         sampler = asyncio.create_task(_sample_holds(counters))
         lag_watch = asyncio.create_task(_watch_loop_lag())
         # Long-lived objects are built; keep the cyclic GC from scanning them and from pausing
@@ -137,7 +139,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         gc.set_threshold(50_000, 20, 20)
         log.info("billing_api_started", grpc_port=settings.grpc_port)
     yield
-    for task in (sampler, lag_watch):
+    for task in (sampler, lag_watch, invalidation_listener):
         if task is not None:
             task.cancel()
     if grpc_server is not None:

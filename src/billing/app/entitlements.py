@@ -1,5 +1,6 @@
 """Who may do what right now: the winning grant for a user, cached in Valkey."""
 
+import asyncio
 import time
 from collections.abc import Callable
 from uuid import UUID
@@ -54,6 +55,17 @@ class EntitlementService:
         an override granted or ended, an account blocked or unblocked, an org membership change."""
         self._l1.pop(user_id, None)
         await self._cache.delete(user_id)
+
+    async def listen(self, ready: asyncio.Event | None = None) -> None:
+        """Drop this process's L1 copy whenever any replica invalidates a user. Runs until
+        cancelled. Without it the 5 s L1 TTL is the only bound on staleness."""
+        async for user_id in self._cache.invalidations():
+            if user_id is None:
+                if ready is not None:
+                    ready.set()
+                self._l1.clear()  # we may have missed messages while disconnected
+            else:
+                self._l1.pop(user_id, None)
 
     async def _load(self, user_id: UUID) -> Entitlement:
         """Read-only: the hot path never writes to Postgres. A free user may have no account."""

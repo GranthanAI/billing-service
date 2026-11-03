@@ -1,14 +1,19 @@
 """ent:{uid}: the resolved entitlement as JSON, so a hit needs no Postgres."""
 
+import asyncio
+import contextlib
 import json
+from collections.abc import AsyncIterator
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+import structlog
 import valkey.asyncio as valkey_asyncio
 
 from billing.adapters.valkey import keys
+from billing.adapters.valkey.client import aw
 from billing.domain.catalog import Limits, ModelGroup, OrgVariant, PlanVersion
 from billing.domain.entitlements import Entitlement, Grant, GrantSource
 from billing.domain.money import Paise
@@ -83,6 +88,10 @@ def decode(raw: str) -> Entitlement:
     )
 
 
+log = structlog.get_logger()
+RECONNECT_MAX_SECONDS = 10.0
+
+
 class ValkeyEntitlementCache:
     def __init__(self, client: valkey_asyncio.Valkey) -> None:
         self._c = client
@@ -95,4 +104,29 @@ class ValkeyEntitlementCache:
         await self._c.set(keys.ent(user_id), encode(entitlement), ex=ttl_seconds)
 
     async def delete(self, user_id: UUID) -> None:
+        """Drop the entry and tell every replica to drop its in-process copy too."""
         await self._c.delete(keys.ent(user_id))
+        await self._c.publish(keys.ENT_INVALIDATE_CHANNEL, str(user_id))
+
+    async def invalidations(self) -> AsyncIterator[UUID | None]:
+        """User ids other replicas invalidated. Yields None each time the subscription is
+        (re)established. Reconnects with backoff; the L1 TTL covers the gap."""
+        backoff = 0.5
+        while True:
+            pubsub = self._c.pubsub()
+            try:
+                await pubsub.subscribe(keys.ENT_INVALIDATE_CHANNEL)
+                yield None
+                backoff = 0.5
+                async for message in pubsub.listen():
+                    if message["type"] == "message":
+                        yield UUID(message["data"])
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning("ent_invalidation_subscription_lost", error=str(exc), retry_in=backoff)
+            finally:
+                with contextlib.suppress(Exception):  # closing a connection that may be broken
+                    await aw(pubsub.aclose())  # type: ignore[no-untyped-call]
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, RECONNECT_MAX_SECONDS)

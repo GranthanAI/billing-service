@@ -51,3 +51,6 @@ def wallet(account: str) -> str:
 
 def threshold(uid: UUID, limit: str, period: str, percent: int) -> str:
     return f"thr:{{{uid}}}:{limit}:{period}:{percent}"
+
+
+ENT_INVALIDATE_CHANNEL = "billing:ent:invalidate"

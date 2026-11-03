@@ -4,7 +4,7 @@ PROVISIONAL for the gateway and counter ports; the repository ports below are th
 contract. All methods are async and take or return domain types or `app/records.py` DTOs.
 """
 
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -241,7 +241,13 @@ class EntitlementCache(Protocol):
 
     async def set(self, user_id: UUID, entitlement: Entitlement, ttl_seconds: int) -> None: ...
 
-    async def delete(self, user_id: UUID) -> None: ...
+    async def delete(self, user_id: UUID) -> None:
+        """Also announces the invalidation to other replicas."""
+        ...
+
+    def invalidations(self) -> AsyncIterator[UUID | None]:
+        """User ids other replicas invalidated; None whenever the subscription is (re)made."""
+        ...
 
 
 # --- storage ---------------------------------------------------------------------------
