@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, ValidationError
 
-from billing.app.catalog_spec import CatalogSpec, PaygSpec, PlanSpec, VariantSpec
+from billing.app.catalog_spec import CatalogSpec, ModelEntry, PaygSpec, PlanSpec, VariantSpec
 from billing.domain.catalog import UNLIMITED, Limits, ModelGroup, OrgVariant
 
 LIMIT_FIELDS = tuple(f.name for f in fields(Limits))
@@ -40,9 +40,16 @@ class _Variant(_Strict):
     limits: dict[str, Any]
 
 
+class _ModelItem(_Strict):
+    id: str
+    label: str
+    provider: str
+
+
 class _Plan(_Strict):
     code: str
     rank: StrictInt
+    default_group: str
     models: _Models
     prices: _Prices | None = None
     limits: dict[str, Any] | None = None
@@ -53,6 +60,7 @@ class _Plan(_Strict):
 class _Payg(_Strict):
     code: str
     rank: StrictInt
+    default_group: str
     models: _Models
     unit_prices: dict[str, StrictInt]
     storage_over_10gb_per_gb_month: StrictInt
@@ -129,18 +137,29 @@ def parse_catalog(raw: object) -> CatalogSpec:
 
     # model groups: every model in exactly one group
     group_names = {g.value for g in ModelGroup}
-    model_groups: dict[ModelGroup, tuple[str, ...]] = {}
+    model_groups: dict[ModelGroup, tuple[ModelEntry, ...]] = {}
     seen: dict[str, str] = {}
-    for gname, models in raw["model_groups"].items():
+    order = 0
+    # picker order is the group order (fast, smart, best, ultra), then the order in the file
+    for group in ModelGroup:
+        models = raw["model_groups"].get(group.value, [])
+        entries: list[ModelEntry] = []
+        for item in models:
+            m = _check(_ModelItem, item, f"model_groups.{group.value}")
+            if m.id in seen:
+                raise CatalogError(
+                    f"model_groups: model '{m.id}' is in more than one group "
+                    f"({seen[m.id]}, {group.value})"
+                )
+            if not m.label.strip() or not m.provider.strip():
+                raise CatalogError(f"model_groups: model '{m.id}' needs a label and a provider")
+            seen[m.id] = group.value
+            entries.append(ModelEntry(m.id, m.label, m.provider, group, order))
+            order += 1
+        model_groups[group] = tuple(entries)
+    for gname in raw["model_groups"]:
         if gname not in group_names:
             raise CatalogError(f"model_groups: unknown model group '{gname}'")
-        for m in models:
-            if m in seen:
-                raise CatalogError(
-                    f"model_groups: model '{m}' is in more than one group ({seen[m]}, {gname})"
-                )
-            seen[m] = gname
-        model_groups[ModelGroup(gname)] = tuple(models)
 
     base = _limits(raw["base_limits"], "base_limits")
 
@@ -170,6 +189,7 @@ def parse_catalog(raw: object) -> CatalogSpec:
                 raise CatalogError(f"{where}: long_message_tokens must be > 0")
             payg = PaygSpec(
                 rank=p.rank,
+                default_group=_default_group(p.default_group, groups, where),
                 groups=groups,
                 unit_prices=dict(p.unit_prices),
                 long_message_tokens=p.long_message_tokens,
@@ -185,10 +205,11 @@ def parse_catalog(raw: object) -> CatalogSpec:
         p = _check(_Plan, item, where)
         groups = _groups(p.models.groups, where, group_names)
         _models_known(p.models.extra, seen, where)
+        default = _default_group(p.default_group, groups, where)
         if p.variants is not None:
-            plans.append(_org_plan(p, groups, where))
+            plans.append(_org_plan(p, groups, default, where))
         else:
-            plans.append(_individual_plan(p, groups, where))
+            plans.append(_individual_plan(p, groups, default, where))
 
     if payg is None:
         raise CatalogError("plans: the 'payg' plan is missing")
@@ -205,13 +226,27 @@ def parse_catalog(raw: object) -> CatalogSpec:
     )
 
 
+def _default_group(name: str, allowed: tuple[ModelGroup, ...], where: str) -> ModelGroup:
+    try:
+        group = ModelGroup(name)
+    except ValueError:
+        raise CatalogError(f"{where}: default_group: unknown model group '{name}'") from None
+    if group not in allowed:
+        raise CatalogError(f"{where}: default_group '{name}' is not one of the plan's model groups")
+    if group in (ModelGroup.BEST, ModelGroup.ULTRA):
+        raise CatalogError(f"{where}: default_group must not be '{name}' (Auto never spends it)")
+    return group
+
+
 def _models_known(extra: list[str], seen: Mapping[str, str], where: str) -> None:
     for m in extra:
         if m not in seen:
             raise CatalogError(f"{where}: extra model '{m}' is not in any model group")
 
 
-def _individual_plan(p: _Plan, groups: tuple[ModelGroup, ...], where: str) -> PlanSpec:
+def _individual_plan(
+    p: _Plan, groups: tuple[ModelGroup, ...], default: ModelGroup, where: str
+) -> PlanSpec:
     if p.limits is None:
         raise CatalogError(f"{where}: limits is missing")
     limits = _limits(p.limits, where)
@@ -236,10 +271,13 @@ def _individual_plan(p: _Plan, groups: tuple[ModelGroup, ...], where: str) -> Pl
         price_month=month,
         price_year=year,
         limits=limits,
+        default_group=default,
     )
 
 
-def _org_plan(p: _Plan, groups: tuple[ModelGroup, ...], where: str) -> PlanSpec:
+def _org_plan(
+    p: _Plan, groups: tuple[ModelGroup, ...], default: ModelGroup, where: str
+) -> PlanSpec:
     assert p.variants is not None
     if p.prices is not None or p.limits is not None:
         raise CatalogError(f"{where}: organisation plans carry prices and limits per variant")
@@ -266,6 +304,7 @@ def _org_plan(p: _Plan, groups: tuple[ModelGroup, ...], where: str) -> PlanSpec:
         rank=p.rank,
         groups=groups,
         extra_models=tuple(p.models.extra),
+        default_group=default,
         org_only=True,
         variants=tuple(variants),
     )

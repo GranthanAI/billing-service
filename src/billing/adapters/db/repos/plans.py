@@ -7,7 +7,9 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from billing.adapters.db.tables import models as models_t
 from billing.adapters.db.tables import plan_versions as t
+from billing.app.catalog_spec import ModelEntry
 from billing.app.records import PlanVersionRecord
 from billing.domain.catalog import Limits, ModelGroup, OrgVariant, PlanVersion
 from billing.domain.money import Paise
@@ -36,6 +38,7 @@ def _record(r: Any) -> PlanVersionRecord:
             ModelGroup(m.removeprefix(GROUP_PREFIX)) for m in models if m.startswith(GROUP_PREFIX)
         ),
         extra_models=frozenset(m for m in models if not m.startswith(GROUP_PREFIX)),
+        default_group=ModelGroup(r.default_group),
     )
     return PlanVersionRecord(
         plan=plan,
@@ -89,6 +92,7 @@ class SqlPlanRepo:
                 allowed_models=encode_models(p),
                 razorpay_plan_month=record.razorpay_plan_month,
                 razorpay_plan_year=record.razorpay_plan_year,
+                default_group=p.default_group.value,
                 effective_from=record.effective_from,
                 retired_at=record.retired_at,
                 checksum=record.checksum,
@@ -106,3 +110,37 @@ class SqlPlanRepo:
             .where(t.c.id == plan_version_id)
             .values(razorpay_plan_month=month, razorpay_plan_year=year)
         )
+
+    async def list_models(self) -> list[ModelEntry]:
+        q = sa.select(models_t).order_by(models_t.c.sort_order)
+        return [
+            ModelEntry(r.id, r.label, r.provider, ModelGroup(r.model_group), r.sort_order)
+            for r in (await self._c.execute(q)).all()
+        ]
+
+    async def sync_models(self, entries: Sequence[ModelEntry]) -> int:
+        """Make the models table equal `entries`; returns how many rows were added, changed or
+        removed. Labels and order change without a new plan version."""
+        have = {e.id: e for e in await self.list_models()}
+        changed = 0
+        for e in entries:
+            if have.get(e.id) == e:
+                continue
+            values = dict(
+                label=e.label,
+                provider=e.provider,
+                model_group=e.group.value,
+                sort_order=e.sort_order,
+            )
+            if e.id in have:
+                await self._c.execute(
+                    sa.update(models_t).where(models_t.c.id == e.id).values(**values)
+                )
+            else:
+                await self._c.execute(sa.insert(models_t).values(id=e.id, **values))
+            changed += 1
+        gone = set(have) - {e.id for e in entries}
+        if gone:
+            await self._c.execute(sa.delete(models_t).where(models_t.c.id.in_(gone)))
+            changed += len(gone)
+        return changed

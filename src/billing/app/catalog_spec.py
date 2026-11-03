@@ -11,6 +11,17 @@ from billing.domain.money import Paise
 
 
 @dataclass(frozen=True, slots=True)
+class ModelEntry:
+    """One model in the picker: id, label, provider and its place in the list."""
+
+    id: str
+    label: str
+    provider: str
+    group: ModelGroup
+    sort_order: int
+
+
+@dataclass(frozen=True, slots=True)
 class VariantSpec:
     variant: OrgVariant
     min_seats: int
@@ -27,6 +38,7 @@ class PlanSpec:
     price_month: int | None = None
     price_year: int | None = None
     limits: Limits | None = None  # None for plans that only have variants
+    default_group: ModelGroup = ModelGroup.FAST
     org_only: bool = False
     variants: tuple[VariantSpec, ...] = ()
 
@@ -34,6 +46,7 @@ class PlanSpec:
 @dataclass(frozen=True, slots=True)
 class PaygSpec:
     rank: int
+    default_group: ModelGroup
     groups: tuple[ModelGroup, ...]
     unit_prices: Mapping[str, int]
     long_message_tokens: int
@@ -50,16 +63,21 @@ class CatalogSpec:
     catalog_version: str
     currency: str
     gst_inclusive: bool
-    model_groups: Mapping[ModelGroup, tuple[str, ...]]
+    model_groups: Mapping[ModelGroup, tuple[ModelEntry, ...]]
     base_limits: Limits
     plans: tuple[PlanSpec, ...]
     payg: PaygSpec
 
     def group_of(self) -> dict[str, ModelGroup]:
-        return {m: g for g, models in self.model_groups.items() for m in models}
+        return {e.id: g for g, entries in self.model_groups.items() for e in entries}
 
     def all_models(self) -> frozenset[str]:
-        return frozenset(m for models in self.model_groups.values() for m in models)
+        return frozenset(e.id for entries in self.model_groups.values() for e in entries)
+
+    def model_entries(self) -> list[ModelEntry]:
+        return sorted(
+            (e for es in self.model_groups.values() for e in es), key=lambda e: e.sort_order
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +92,7 @@ class PlanBlock:
     limits: Limits
     groups: tuple[ModelGroup, ...]
     extra_models: tuple[str, ...]
+    default_group: ModelGroup = ModelGroup.FAST
     min_seats: int | None = None
     payg: PaygSpec | None = None
 
@@ -96,6 +115,7 @@ class PlanBlock:
             "limits": asdict(self.limits),
             "groups": sorted(g.value for g in self.groups),
             "extra_models": sorted(self.extra_models),
+            "default_group": self.default_group.value,
             "min_seats": self.min_seats,
         }
         if self.payg is not None:
@@ -124,6 +144,7 @@ class PlanBlock:
             limits=self.limits,
             allowed_groups=frozenset(self.groups),
             extra_models=frozenset(self.extra_models),
+            default_group=self.default_group,
         )
 
 
@@ -143,6 +164,7 @@ def blocks(spec: CatalogSpec) -> list[PlanBlock]:
                         v.limits,
                         p.groups,
                         p.extra_models,
+                        default_group=p.default_group,
                         min_seats=v.min_seats,
                     )
                 )
@@ -158,6 +180,7 @@ def blocks(spec: CatalogSpec) -> list[PlanBlock]:
                     p.limits,
                     p.groups,
                     p.extra_models,
+                    default_group=p.default_group,
                 )
             )
     out.append(
@@ -170,6 +193,7 @@ def blocks(spec: CatalogSpec) -> list[PlanBlock]:
             spec.base_limits,
             spec.payg.groups,
             (),
+            default_group=spec.payg.default_group,
             payg=spec.payg,
         )
     )

@@ -12,6 +12,7 @@ from types import TracebackType
 from typing import Any, Protocol, Self
 from uuid import UUID
 
+from billing.app.catalog_spec import ModelEntry
 from billing.app.events import OutboxEvent
 from billing.app.records import (
     Begin,
@@ -304,6 +305,12 @@ class PlanRepo(Protocol):
     async def insert_version(self, record: PlanVersionRecord) -> None: ...
 
     async def retire(self, plan_version_id: UUID, at: datetime) -> None: ...
+
+    async def list_models(self) -> list[ModelEntry]: ...
+
+    async def sync_models(self, entries: Sequence[ModelEntry]) -> int:
+        """Make the models table equal `entries`; returns rows added, changed or removed."""
+        ...
 
     async def set_gateway_plan_ids(
         self, plan_version_id: UUID, month: str | None, year: str | None

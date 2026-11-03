@@ -47,12 +47,23 @@ plan_versions = sa.Table(
     sa.Column("allowed_models", pg.ARRAY(sa.Text), nullable=False),
     sa.Column("razorpay_plan_month", sa.Text),
     sa.Column("razorpay_plan_year", sa.Text),
+    sa.Column("default_group", model_group, nullable=False),
     _ts("effective_from", nullable=False),
     _ts("retired_at"),
     sa.Column("checksum", sa.Text, nullable=False),
     sa.UniqueConstraint("plan_code", "variant", "version"),
     sa.CheckConstraint("price_month_paise >= 0"),
     sa.CheckConstraint("price_year_paise >= 0"),
+)
+
+models = sa.Table(
+    "models",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("label", sa.Text, nullable=False),
+    sa.Column("provider", sa.Text, nullable=False),
+    sa.Column("model_group", model_group, nullable=False),
+    sa.Column("sort_order", sa.Integer, nullable=False),
 )
 
 model_prices = sa.Table(

@@ -70,6 +70,7 @@ async def _catalog_sync(path: Path, dry_run: bool) -> int:
     for line in report.lines():
         print(line)
     print(f"gateway plans created: {report.gateway_plans_created}")
+    print(f"models changed: {report.models_changed}")
     return 0
 
 

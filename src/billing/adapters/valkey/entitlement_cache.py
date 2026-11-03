@@ -43,6 +43,7 @@ def encode(ent: Entitlement) -> str:
                 "limits": asdict(pv.limits),
                 "allowed_groups": sorted(x.value for x in pv.allowed_groups),
                 "extra_models": sorted(pv.extra_models),
+                "default_group": pv.default_group.value,
             },
             "wallet": str(ent.overflow_wallet_account_id)
             if ent.overflow_wallet_account_id
@@ -52,6 +53,13 @@ def encode(ent: Entitlement) -> str:
         },
         separators=(",", ":"),
     )
+
+
+def _default_group(p: dict[str, Any]) -> ModelGroup:
+    """Entries cached before default_group existed: Smart if the plan has it, else Fast."""
+    if p.get("default_group"):
+        return ModelGroup(p["default_group"])
+    return ModelGroup.SMART if "smart" in p["allowed_groups"] else ModelGroup.FAST
 
 
 def decode(raw: str) -> Entitlement:
@@ -68,6 +76,7 @@ def decode(raw: str) -> Entitlement:
         limits=Limits(**p["limits"]),
         allowed_groups=frozenset(ModelGroup(x) for x in p["allowed_groups"]),
         extra_models=frozenset(p["extra_models"]),
+        default_group=_default_group(p),
     )
     grant = Grant(
         source=GrantSource(d["source"]),

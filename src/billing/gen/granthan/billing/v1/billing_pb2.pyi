@@ -133,6 +133,7 @@ class CheckAndReserveResponse(_message.Message):
     HOLD_EXPIRES_AT_UNIX_FIELD_NUMBER: _builtins.int
     REMAINING_TODAY_FIELD_NUMBER: _builtins.int
     FUNDED_BY_FIELD_NUMBER: _builtins.int
+    GRANTED_MODEL_FIELD_NUMBER: _builtins.int
     allowed: _builtins.bool
     deny_reason: Global___DenyReason.ValueType
     hold_id: _builtins.str
@@ -149,6 +150,8 @@ class CheckAndReserveResponse(_message.Message):
     """-1 = unlimited"""
     funded_by: _builtins.str
     """plan | credits"""
+    granted_model: _builtins.str
+    """set only when a specific model was requested"""
     def __init__(
         self,
         *,
@@ -163,10 +166,11 @@ class CheckAndReserveResponse(_message.Message):
         hold_expires_at_unix: _builtins.int = ...,
         remaining_today: _builtins.int = ...,
         funded_by: _builtins.str = ...,
+        granted_model: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["allowed", b"allowed", "billing_account_id", b"billing_account_id", "deny_reason", b"deny_reason", "downgraded", b"downgraded", "funded_by", b"funded_by", "granted_group", b"granted_group", "hold_expires_at_unix", b"hold_expires_at_unix", "hold_id", b"hold_id", "max_context_tokens", b"max_context_tokens", "message_key", b"message_key", "remaining_today", b"remaining_today"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["allowed", b"allowed", "billing_account_id", b"billing_account_id", "deny_reason", b"deny_reason", "downgraded", b"downgraded", "funded_by", b"funded_by", "granted_group", b"granted_group", "granted_model", b"granted_model", "hold_expires_at_unix", b"hold_expires_at_unix", "hold_id", b"hold_id", "max_context_tokens", b"max_context_tokens", "message_key", b"message_key", "remaining_today", b"remaining_today"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

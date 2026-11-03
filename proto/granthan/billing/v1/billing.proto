@@ -55,6 +55,7 @@ message CheckAndReserveResponse {
   int64 hold_expires_at_unix = 9;
   int32 remaining_today = 10;       // -1 = unlimited
   string funded_by = 11;            // plan | credits
+  string granted_model = 12;        // set only when a specific model was requested
 }
 
 message ReleaseRequest {

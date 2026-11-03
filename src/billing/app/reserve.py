@@ -59,6 +59,7 @@ class CheckAndReserveResult:
     hold_expires_at_unix: int = 0
     remaining_today: int = 0
     funded_by: str = ""
+    granted_model: str = ""  # only for an explicit model request
 
 
 def _deny(reason: DenyReason, ent: Entitlement | None = None) -> CheckAndReserveResult:
@@ -116,8 +117,8 @@ class ReserveService:
                 return None
             allowed = group in ent.allowed_groups or req.requested_model in ent.extra_models
             return group.value if allowed else None
-        if req.requested_group is None:
-            raise ValueError("requested_group or requested_model is required for a message")
+        if req.requested_group is None:  # Auto: the plan's default group, never Best
+            return ent.grant.plan_version.default_group.value
         return req.requested_group.value if req.requested_group in ent.allowed_groups else None
 
     async def _decide(self, req: CheckAndReserveRequest, ent: Entitlement) -> CheckAndReserveResult:
@@ -182,6 +183,7 @@ class ReserveService:
             hold_expires_at_unix=int((now + timedelta(seconds=self._hold_ttl)).timestamp()),
             remaining_today=-1 if limit < 0 else max(0, limit - res.total),
             funded_by="plan",
+            granted_model=req.requested_model if req.kind is ReserveKind.MESSAGE else "",
         )
 
     # --- Release / GetEntitlements -------------------------------------------------------

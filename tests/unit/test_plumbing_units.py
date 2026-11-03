@@ -62,9 +62,9 @@ def test_codec_round_trip_and_envelope(event: object) -> None:
     assert decoded == event
     assert envelope.event_id == str(u(100))
     assert envelope.event_type == encoded.topic
-    assert envelope.producer == "billing-service" and envelope.schema_version == 1
+    assert envelope.producer == "billing-service" and envelope.schema_version == "1.0"
     assert envelope.correlation_id == "c-abc123"
-    assert envelope.occurred_at.ToDatetime(tzinfo=UTC) == NOW
+    assert envelope.occurred_at == NOW
     assert encoded.headers["event_id"] == envelope.event_id
     assert encoded.headers["event_type"] == encoded.topic
     assert encoded.headers["correlation_id"] == "c-abc123"

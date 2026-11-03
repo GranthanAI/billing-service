@@ -108,6 +108,7 @@ class BillingInternalService(billing_pb2_grpc.BillingInternalServicer):
             hold_expires_at_unix=result.hold_expires_at_unix,
             remaining_today=result.remaining_today,
             funded_by=result.funded_by,
+            granted_model=result.granted_model,
         )
 
     async def Release(  # noqa: N802

@@ -159,8 +159,9 @@ def test_price_book_membership() -> None:
         ),
         # 5. models and groups
         (
-            "  fast:  [openai/gpt-oss-20b, gemini-2.5-flash-lite]",
-            "  fast:  [openai/gpt-oss-20b, gemini-2.5-flash-lite, claude-haiku-5-5]",
+            "  smart:\n    - {id: openai/gpt-oss-120b,",
+            "    - {id: claude-haiku-5-5, label: X, provider: anthropic}\n"
+            "  smart:\n    - {id: openai/gpt-oss-120b,",
             "model 'claude-haiku-5-5' is in more than one group (fast, smart)",
         ),
         (
@@ -174,9 +175,29 @@ def test_price_book_membership() -> None:
             "plan 'pro': unknown model group 'nope'",
         ),
         (
-            "  ultra: [claude-opus-5-5, gpt-6-astra]",
-            "  turbo: [claude-opus-5-5, gpt-6-astra]",
+            "  ultra:\n",
+            "  turbo:\n",
             "model_groups: unknown model group 'turbo'",
+        ),
+        (
+            "label: GPT-6 Astra,           provider: openai",
+            "label: '',                    provider: openai",
+            "model 'gpt-6-astra' needs a label and a provider",
+        ),
+        (
+            "    default_group: fast\n",
+            "    default_group: smart\n",
+            "plan 'free': default_group 'smart' is not one of the plan's model groups",
+        ),
+        (
+            "    default_group: fast\n",
+            "    default_group: turbo\n",
+            "plan 'free': default_group: unknown model group 'turbo'",
+        ),
+        (
+            "rank: 2\n    default_group: smart\n    prices: {month: 149900",
+            "rank: 2\n    default_group: best\n    prices: {month: 149900",
+            "default_group must not be 'best'",
         ),
         # 6. payg
         (", ultra: 1200", "", "plan 'payg': unit_prices is missing 'ultra'"),
@@ -237,9 +258,39 @@ def test_checksum_changes_on_price_and_limit_edits() -> None:
     assert seats[("org_pro", OrgVariant.COLLEGE)] != base[("org_pro", OrgVariant.COLLEGE)]
     groups = checksums(
         edit(
-            "models: {groups: [fast, smart]}\n    limits: &pro_limits",
-            "models: {groups: [fast]}\n    limits: &pro_limits",
+            "default_group: smart\n    prices: {month: 49900, year: 499000}\n"
+            "    models: {groups: [fast, smart]}",
+            "default_group: fast\n    prices: {month: 49900, year: 499000}\n"
+            "    models: {groups: [fast]}",
         )
     )
     assert groups[("pro", None)] != base[("pro", None)]
     assert ModelGroup.FAST in parse(TEXT).plans[1].groups
+
+
+def test_models_keep_picker_order_with_labels_and_providers() -> None:
+    entries = parse(TEXT).model_entries()
+    assert [e.sort_order for e in entries] == list(range(12))
+    groups = [e.group.value for e in entries]
+    assert groups == ["fast"] * 2 + ["smart"] * 5 + ["best"] * 3 + ["ultra"] * 2
+    first = entries[0]
+    assert (first.id, first.label, first.provider) == ("openai/gpt-oss-20b", "GPT-OSS 20B", "groq")
+    assert entries[5].id == "gemini-3.1-flash-lite" and entries[5].provider == "google"
+
+
+def test_default_groups_follow_the_catalog() -> None:
+    by = {b.key: b for b in blocks(parse(TEXT))}
+    assert by[("free", None)].default_group is ModelGroup.FAST
+    for key in (("pro", None), ("max", None), ("payg", None)):
+        assert by[key].default_group is ModelGroup.SMART
+    assert by[("org_pro", OrgVariant.COLLEGE)].default_group is ModelGroup.SMART
+    assert by[("org_max", OrgVariant.COMPANY)].default_group is ModelGroup.SMART
+
+
+def test_default_group_joins_the_checksum_but_labels_do_not() -> None:
+    base = checksums(TEXT)
+    assert checksums(edit("label: GPT-OSS 20B,", "label: GPT-OSS Twenty,")) == base
+    pro = "rank: 1\n    default_group: "
+    moved = checksums(edit(pro + "smart", pro + "fast"))
+    assert moved[("pro", None)] != base[("pro", None)]
+    assert moved[("max", None)] == base[("max", None)]

@@ -99,6 +99,7 @@ class PlanVersion:
     limits: Limits
     allowed_groups: frozenset[ModelGroup]
     extra_models: frozenset[str] = frozenset()
+    default_group: ModelGroup = ModelGroup.FAST  # what an Auto request reserves
 
     def price_for(self, interval: Interval) -> Paise:
         price = self.price_month if interval is Interval.MONTH else self.price_year

@@ -26,10 +26,12 @@ from billing.api.grpc.internal import start_grpc_server
 from billing.api.rest import errors as rest_errors
 from billing.api.rest.billing import router as billing_router
 from billing.api.rest.idempotency import IdempotencyMiddleware
+from billing.api.rest.models import router as models_router
 from billing.api.rest.public import router as public_router
 from billing.api.rest.webhooks import router as webhook_router
 from billing.app.context import correlation_id_var
 from billing.app.entitlements import EntitlementService, ModelCatalog
+from billing.app.model_picker import ModelPicker
 from billing.app.reserve import ReserveService
 from billing.observability import HOLDS_OPEN, LOOP_LAG, configure_logging, metrics_payload
 from billing.settings import Settings, get_settings
@@ -123,6 +125,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             hold_ttl_seconds=settings.hold_ttl_seconds,
         )
         app.state.valkey, app.state.counters, app.state.reserve = client, counters, reserve
+        app.state.picker = ModelPicker(
+            uow_factory, entitlements, counters, clock, payg_enabled=settings.payg_enabled
+        )
         with contextlib.suppress(Exception):
             await counters.ensure_scripts_loaded()
         tokens = [t.strip() for t in settings.service_token_keys.split(",")]
@@ -156,6 +161,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="billing-api", lifespan=lifespan)
 app.include_router(public_router)
 app.include_router(billing_router)
+app.include_router(models_router)
 app.include_router(webhook_router)
 rest_errors.install(app)
 # Added before the correlation-id middleware below, so it runs inside it and sees the id.

@@ -57,6 +57,7 @@ class PlanOutcome:
 class SyncReport:
     dry_run: bool
     outcomes: list[PlanOutcome] = field(default_factory=list)
+    models_changed: int = 0
 
     @property
     def gateway_plans_created(self) -> int:
@@ -64,8 +65,10 @@ class SyncReport:
 
     @property
     def changed(self) -> bool:
-        return any(o.action is not SyncAction.UNCHANGED for o in self.outcomes) or (
-            self.gateway_plans_created > 0
+        return (
+            any(o.action is not SyncAction.UNCHANGED for o in self.outcomes)
+            or self.gateway_plans_created > 0
+            or self.models_changed > 0
         )
 
     def lines(self) -> list[str]:
@@ -177,6 +180,17 @@ async def sync_catalog(
             )
             if not dry_run:
                 await uow.plans.retire(r.plan.id, now)
+
+    # --- the model picker list: labels and order change without a new plan version -------------
+    async with uow_factory() as uow:
+        if dry_run:
+            have = {e.id: e for e in await uow.plans.list_models()}
+            want = spec.model_entries()
+            report.models_changed = sum(have.get(e.id) != e for e in want) + len(
+                set(have) - {e.id for e in want}
+            )
+        else:
+            report.models_changed = await uow.plans.sync_models(spec.model_entries())
 
     # --- gateway plans: after the versions are committed; self-healing on every run ------------
     async with uow_factory() as uow:
