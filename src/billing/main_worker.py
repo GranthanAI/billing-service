@@ -27,6 +27,7 @@ from billing.app.usage import UsageService
 from billing.app.webhooks import EventApplier
 from billing.jobs.handlers import billing as billing_jobs
 from billing.jobs.handlers import holds as holds_job
+from billing.jobs.handlers import lifecycle as lifecycle_jobs
 from billing.jobs.handlers import partitions as partitions_job
 from billing.jobs.handlers import usage as usage_jobs
 from billing.jobs.runner import JobContext, JobRunner
@@ -42,6 +43,7 @@ SCHEDULE: tuple[Recurring, ...] = (
     holds_job.SCHEDULE,
     billing_jobs.SCHEDULE,
     usage_jobs.SCHEDULE,
+    *lifecycle_jobs.SCHEDULES,
 )
 DRAIN_SECONDS = 30.0
 HEALTH_PORT = 9100

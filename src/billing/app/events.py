@@ -33,6 +33,17 @@ class PaymentFailedEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class RenewalUpcomingEvent:
+    """A renewal is 24 to 48 hours away (the bank sends the RBI pre-debit notice itself)."""
+
+    billing_account_id: UUID
+    owner_id: UUID
+    plan_code: str
+    amount: Paise
+    charge_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class UsageThresholdReachedEvent:
     user_id: UUID
     billing_account_id: UUID
@@ -54,5 +65,9 @@ class InvoiceIssuedEvent:
 
 
 OutboxEvent = (
-    SubscriptionChangedEvent | PaymentFailedEvent | UsageThresholdReachedEvent | InvoiceIssuedEvent
+    SubscriptionChangedEvent
+    | PaymentFailedEvent
+    | RenewalUpcomingEvent
+    | UsageThresholdReachedEvent
+    | InvoiceIssuedEvent
 )

@@ -295,6 +295,42 @@ class SqlJobs:
         return int(result.rowcount)
 
 
+# table, the column that carries its age, extra condition, retention in days (LLD "housekeeping")
+RETENTION: tuple[tuple[str, str, str, int], ...] = (
+    ("processed_events", "processed_at", "true", 30),
+    ("outbox", "published_at", "published_at IS NOT NULL", 7),
+    ("idempotency_keys", "created_at", "true", 1),
+    ("jobs", "run_at", "status = 'done'", 14),
+    ("webhook_inbox", "received_at", "status IN ('processed', 'ignored')", 180),
+)
+PRUNE_BATCH = 5000
+
+
+class SqlHousekeeping:
+    def __init__(self, conn: AsyncConnection) -> None:
+        self._c = conn
+
+    async def prune(self, now: datetime) -> dict[str, int]:
+        removed: dict[str, int] = {}
+        for table, column, condition, days in RETENTION:
+            cutoff = now - timedelta(days=days)
+            total = 0
+            while True:  # in batches, so one run never holds a huge delete
+                result = await self._c.execute(
+                    sa.text(
+                        f"DELETE FROM billing.{table} WHERE ctid IN ("  # noqa: S608 - constants
+                        f"SELECT ctid FROM billing.{table} WHERE {condition} "
+                        f"AND {column} < :cutoff LIMIT :n)"
+                    ),
+                    {"cutoff": cutoff, "n": PRUNE_BATCH},
+                )
+                total += result.rowcount
+                if result.rowcount < PRUNE_BATCH:
+                    break
+            removed[table] = total
+        return removed
+
+
 class SqlAudit:
     def __init__(self, conn: AsyncConnection) -> None:
         self._c = conn

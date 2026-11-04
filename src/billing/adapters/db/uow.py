@@ -26,6 +26,7 @@ from billing.adapters.db.repos.payments import SqlPaymentRepo
 from billing.adapters.db.repos.plans import SqlPlanRepo
 from billing.adapters.db.repos.plumbing import (
     SqlAudit,
+    SqlHousekeeping,
     SqlIdempotency,
     SqlJobs,
     SqlOutbox,
@@ -77,6 +78,7 @@ class SqlUnitOfWork:
         self.inbox = SqlWebhookInbox(conn, self._clock)
         self.jobs = SqlJobs(conn)
         self.audit = SqlAudit(conn)
+        self.housekeeping = SqlHousekeeping(conn)
         return self
 
     async def __aexit__(

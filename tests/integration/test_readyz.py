@@ -40,7 +40,7 @@ async def test_not_ready_when_schema_is_behind(
         async with migrator_engine.begin() as conn:
             await conn.execute(
                 sa.text(
-                    "UPDATE billing.alembic_version SET version_num = '0013_nullable_billing_email'"
+                    "UPDATE billing.alembic_version SET version_num = '0013a_housekeeping_grants'"
                 )
             )
 

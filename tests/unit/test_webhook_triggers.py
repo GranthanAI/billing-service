@@ -17,6 +17,7 @@ from billing.domain.subscription import (
     DowngradeScheduled,
     GatewayHalted,
     NextMandateCharged,
+    NextMandateFailed,
     Resumed,
     SubscriptionState,
     SubStatus,
@@ -204,10 +205,25 @@ def test_pending_and_paused_on_the_current_mandate_fail_the_charge(kind: str, fr
     assert run(kind, state(), status=fresh).triggers == (ChargeFailed(),)
 
 
-@pytest.mark.parametrize("kind", ["subscription.pending", "subscription.paused"])
-def test_failure_events_for_other_mandates_are_ignored(kind: str) -> None:
+@pytest.mark.parametrize(
+    "kind,fresh", [("subscription.pending", "pending"), ("subscription.paused", "paused")]
+)
+def test_a_failure_on_the_next_mandate_is_next_mandate_failed(kind: str, fresh: str) -> None:
     st = state(next_gateway_subscription_id="sub_next")
-    assert run(kind, st, "sub_next", status="pending").triggers == ()
+    assert run(kind, st, "sub_next", status=fresh).triggers == (NextMandateFailed(),)
+
+
+def test_halted_on_the_next_mandate_swaps_then_ends() -> None:
+    st = state(next_gateway_subscription_id="sub_next")
+    d = run("subscription.halted", st, "sub_next", status="halted")
+    assert d.triggers == (NextMandateFailed(), GatewayHalted())
+
+
+def test_failure_events_for_a_change_row_are_ignored() -> None:
+    d = run(
+        "subscription.pending", state(), "sub_chg", change(ChangeKind.UPGRADE), status="pending"
+    )
+    assert d.triggers == ()
 
 
 def test_a_failure_event_made_stale_by_a_recovery_is_ignored() -> None:
@@ -216,7 +232,11 @@ def test_a_failure_event_made_stale_by_a_recovery_is_ignored() -> None:
 
 
 def test_halted_current_mandate() -> None:
-    assert run("subscription.halted", state(), status="halted").triggers == (GatewayHalted(),)
+    past_due = state(status=SubStatus.PAST_DUE)
+    assert run("subscription.halted", past_due, status="halted").triggers == (GatewayHalted(),)
+    # still active here: the `pending` event was lost, so the failure is applied first
+    both = run("subscription.halted", state(), status="halted").triggers
+    assert both == (ChargeFailed(), GatewayHalted())
     assert run("subscription.halted", state(), status="active").triggers == ()
 
 

@@ -17,6 +17,7 @@ from billing.app.context import correlation_id_var
 from billing.app.events import (
     InvoiceIssuedEvent,
     PaymentFailedEvent,
+    RenewalUpcomingEvent,
     SubscriptionChangedEvent,
     UsageThresholdReachedEvent,
 )
@@ -44,6 +45,7 @@ EVENTS = [
     ),
     PaymentFailedEvent(u(1), u(3), "pay_123", Paise(49900), "card_declined", NOW),
     PaymentFailedEvent(u(1), u(3), "pay_124", Paise(1), "x", None),
+    RenewalUpcomingEvent(u(1), u(2), "pro", Paise(49900), NOW),
     UsageThresholdReachedEvent(u(9), u(1), "messages_per_day", 80, 48, 60, NOW),
     InvoiceIssuedEvent(u(1), u(4), "GA/2627/000001", "tax_invoice", Paise(49900), "inv/1.pdf"),
     InvoiceIssuedEvent(u(1), u(4), "CN/2627/000001", "credit_note", Paise(100), None),
@@ -96,6 +98,7 @@ def test_topic_names_are_exactly_the_agreed_ones() -> None:
         "user.deleted",
         "subscription.changed",
         "payment.failed",
+        "subscription.renewal_upcoming",
         "usage.threshold_reached",
         "invoice.issued",
         "billing.usage.dlq",

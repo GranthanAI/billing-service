@@ -11,7 +11,7 @@ from itertools import count
 from pathlib import Path
 from typing import Any
 
-from billing.adapters.gateway_fake import InMemoryGateway, add_months
+from billing.adapters.gateway_fake import InMemoryGateway
 from billing.adapters.razorpay import mapping, signatures
 from billing.app.ports import (
     GatewayPayment,
@@ -175,8 +175,7 @@ class FakeGateway(InMemoryGateway):
             start = current.current_end
         else:
             start = current.start_at or now
-        months = self.period_months(current.plan_id)
-        end = add_months(start, months)
+        end = self.period_end(current.plan_id, start)
         pay_id = self.next_payment_id()
         fee = amount * 2 // 100
         raw = self._template("subscription_charged")["payload"]["payment"]["entity"]

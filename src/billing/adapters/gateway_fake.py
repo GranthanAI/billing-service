@@ -9,7 +9,7 @@ import calendar
 import itertools
 from collections.abc import Mapping
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from billing.adapters.clock import SystemClock
 from billing.adapters.razorpay import signatures
@@ -69,6 +69,15 @@ class InMemoryGateway:
     def period_months(self, plan_id: str) -> int:
         spec = self.plans.get(plan_id)
         return 12 if spec is not None and spec.period == "yearly" else 1
+
+    def period_end(self, plan_id: str, start: datetime) -> datetime:
+        """End of the billing period that starts at `start`. Besides Razorpay's `monthly` and
+        `yearly`, a plan may use the fake-only period `"<n>days"` so a test can run a whole
+        subscription lifecycle in a few weeks."""
+        spec = self.plans.get(plan_id)
+        if spec is not None and spec.period.endswith("days"):
+            return start + timedelta(days=int(spec.period.removesuffix("days")))
+        return add_months(start, self.period_months(plan_id))
 
     # --- subscriptions -------------------------------------------------------------------
 

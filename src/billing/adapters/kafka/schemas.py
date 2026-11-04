@@ -51,6 +51,14 @@ class PaymentFailedMsg(Envelope):
     next_retry_at: datetime | None = None
 
 
+class RenewalUpcomingMsg(Envelope):
+    billing_account_id: str
+    owner_id: str
+    plan_code: str
+    amount_paise: int
+    charge_at: datetime
+
+
 class UsageThresholdReachedMsg(Envelope):
     user_id: str
     billing_account_id: str

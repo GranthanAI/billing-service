@@ -13,6 +13,7 @@ from billing.app.events import (
     InvoiceIssuedEvent,
     OutboxEvent,
     PaymentFailedEvent,
+    RenewalUpcomingEvent,
     SubscriptionChangedEvent,
     UsageThresholdReachedEvent,
 )
@@ -89,6 +90,17 @@ class EventCodec:
                     reason=event.reason,
                     next_retry_at=event.next_retry_at,
                 )
+            case RenewalUpcomingEvent():
+                topic, key = topics.SUBSCRIPTION_RENEWAL_UPCOMING, str(event.billing_account_id)
+                env, headers = self._envelope(topic)
+                msg = schemas.RenewalUpcomingMsg(
+                    **env,  # type: ignore[arg-type]
+                    billing_account_id=str(event.billing_account_id),
+                    owner_id=str(event.owner_id),
+                    plan_code=event.plan_code,
+                    amount_paise=int(event.amount),
+                    charge_at=event.charge_at,
+                )
             case UsageThresholdReachedEvent():
                 topic, key = topics.USAGE_THRESHOLD_REACHED, str(event.user_id)
                 env, headers = self._envelope(topic)
@@ -142,6 +154,15 @@ def decode_event(event_type: str, payload: bytes) -> tuple[Envelope, OutboxEvent
                 amount=Paise(p.amount_paise),
                 reason=p.reason,
                 next_retry_at=p.next_retry_at,
+            )
+        case topics.SUBSCRIPTION_RENEWAL_UPCOMING:
+            r = schemas.RenewalUpcomingMsg.model_validate_json(payload)
+            return r, RenewalUpcomingEvent(
+                billing_account_id=UUID(r.billing_account_id),
+                owner_id=UUID(r.owner_id),
+                plan_code=r.plan_code,
+                amount=Paise(r.amount_paise),
+                charge_at=r.charge_at,
             )
         case topics.USAGE_THRESHOLD_REACHED:
             u = schemas.UsageThresholdReachedMsg.model_validate_json(payload)

@@ -127,6 +127,56 @@ class SqlSubscriptionRepo:
         )
         return [_record(r) for r in (await self._c.execute(q)).all()]
 
+    async def _many(self, q: sa.Select[Any]) -> Sequence[SubscriptionRecord]:
+        return [_record(r) for r in (await self._c.execute(q)).all()]
+
+    async def list_grace_due(self, now: datetime, limit: int) -> Sequence[SubscriptionRecord]:
+        q = (
+            sa.select(t)
+            .where(t.c.status == SubStatus.PAST_DUE.value, t.c.grace_until <= now)
+            .order_by(t.c.grace_until)
+            .limit(limit)
+        )
+        return await self._many(q)
+
+    async def list_cancelling_due(self, now: datetime, limit: int) -> Sequence[SubscriptionRecord]:
+        q = (
+            sa.select(t)
+            .where(t.c.status == SubStatus.CANCELLING.value, t.c.current_period_end <= now)
+            .order_by(t.c.current_period_end)
+            .limit(limit)
+        )
+        return await self._many(q)
+
+    async def list_stale_live(self, cutoff: datetime, limit: int) -> Sequence[SubscriptionRecord]:
+        live = (SubStatus.ACTIVE.value, SubStatus.PAST_DUE.value, SubStatus.SUSPENDED.value)
+        q = (
+            sa.select(t)
+            .where(
+                t.c.status.in_(live),
+                t.c.current_period_end < cutoff,
+                t.c.gateway_subscription_id.is_not(None),
+            )
+            .order_by(t.c.current_period_end)
+            .limit(limit)
+        )
+        return await self._many(q)
+
+    async def list_renewing(
+        self, start: datetime, end: datetime, limit: int
+    ) -> Sequence[SubscriptionRecord]:
+        q = (
+            sa.select(t)
+            .where(
+                t.c.status == SubStatus.ACTIVE.value,
+                t.c.current_period_end >= start,
+                t.c.current_period_end < end,
+            )
+            .order_by(t.c.current_period_end)
+            .limit(limit)
+        )
+        return await self._many(q)
+
     async def count_live_for_plan(self, plan_code: str) -> int:
         q = (
             sa.select(sa.func.count())

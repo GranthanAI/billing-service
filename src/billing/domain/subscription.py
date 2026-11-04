@@ -106,6 +106,11 @@ class NextMandateCharged:
 
 
 @dataclass(frozen=True, slots=True)
+class NextMandateFailed:
+    """The first charge of the next mandate (a downgrade or a resume) failed."""
+
+
+@dataclass(frozen=True, slots=True)
 class Resumed:
     next_gateway_subscription_id: str
 
@@ -122,6 +127,7 @@ Trigger = (
     | UpgradeCharged
     | DowngradeScheduled
     | NextMandateCharged
+    | NextMandateFailed
     | Resumed
 )
 
@@ -295,6 +301,21 @@ def transition(
                     next_gateway_subscription_id=trigger.next_gateway_subscription_id,
                 )
                 return TransitionResult(new, _cancel(state, True))
+        case NextMandateFailed():
+            if s is SubStatus.ACTIVE and state.next_gateway_subscription_id is not None:
+                # the period ended and the next mandate is the contract now, already failing
+                new = replace(
+                    state,
+                    status=SubStatus.PAST_DUE,
+                    plan_version_id=state.pending_plan_version_id or state.plan_version_id,
+                    interval=state.pending_interval or state.interval,
+                    gateway_subscription_id=state.next_gateway_subscription_id,
+                    next_gateway_subscription_id=None,
+                    pending_plan_version_id=None,
+                    pending_interval=None,
+                    grace_until=now + timedelta(days=grace_days),
+                )
+                return TransitionResult(new, (EmitPaymentFailed(), _CHANGED))
         case NextMandateCharged():
             if s in (SubStatus.ACTIVE, SubStatus.CANCELLING) and (
                 state.next_gateway_subscription_id is not None

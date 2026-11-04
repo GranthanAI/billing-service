@@ -19,6 +19,7 @@ from billing.domain.subscription import (
     IllegalTransition,
     IssueRefund,
     NextMandateCharged,
+    NextMandateFailed,
     PeriodEnded,
     Resumed,
     SubscriptionState,
@@ -210,6 +211,28 @@ def test_next_mandate_after_resume_keeps_plan() -> None:
     assert r.state.gateway_subscription_id == "sub_2"
 
 
+def test_next_mandate_failing_swaps_the_mandate_applies_the_plan_and_starts_grace() -> None:
+    state = st(SubStatus.ACTIVE, next_id="sub_next", pending=MAX)
+    now = T0 + DAY30
+    result = transition(state, NextMandateFailed(), now)
+    new = result.state
+    assert new.status is SubStatus.PAST_DUE
+    assert (new.gateway_subscription_id, new.next_gateway_subscription_id) == ("sub_next", None)
+    assert new.plan_version_id == MAX and new.pending_plan_version_id is None
+    assert new.grace_until == now + timedelta(days=3)
+    assert result.effects == (EmitPaymentFailed(), CH)
+
+
+def test_next_mandate_failing_without_a_pending_plan_keeps_the_plan() -> None:
+    result = transition(st(SubStatus.ACTIVE, next_id="n"), NextMandateFailed(), T0)
+    assert result.state.plan_version_id == PRO and result.state.gateway_subscription_id == "n"
+
+
+def test_next_mandate_failing_needs_a_next_mandate() -> None:
+    with pytest.raises(IllegalTransition):
+        transition(st(SubStatus.ACTIVE), NextMandateFailed(), T0)
+
+
 def test_next_mandate_needs_next_id() -> None:
     with pytest.raises(IllegalTransition):
         transition(st(SubStatus.ACTIVE), NextMandateCharged(T0, T0, Paise(1)), T0)
@@ -227,6 +250,7 @@ ALL_TRIGGERS = [
     UpgradeCharged(MAX, "x", T0, T0, Paise(1)),
     DowngradeScheduled(FREE_ID, "x"),
     NextMandateCharged(T0, T0, Paise(1)),
+    NextMandateFailed(),
     Resumed("x"),
 ]
 LEGAL = {
@@ -239,6 +263,7 @@ LEGAL = {
         "UpgradeCharged",
         "DowngradeScheduled",
         "NextMandateCharged",
+        "NextMandateFailed",
     },
     SubStatus.PAST_DUE: {
         "ChargeCaptured",

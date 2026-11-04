@@ -378,6 +378,24 @@ class SubscriptionRepo(Protocol):
         """`incomplete` subscriptions created before `cutoff`, oldest first."""
         ...
 
+    async def list_grace_due(self, now: datetime, limit: int) -> Sequence[SubscriptionRecord]:
+        """`past_due` with grace_until <= now."""
+        ...
+
+    async def list_cancelling_due(self, now: datetime, limit: int) -> Sequence[SubscriptionRecord]:
+        """`cancelling` with current_period_end <= now."""
+        ...
+
+    async def list_stale_live(self, cutoff: datetime, limit: int) -> Sequence[SubscriptionRecord]:
+        """active, past_due or suspended whose period ended before `cutoff`, oldest first."""
+        ...
+
+    async def list_renewing(
+        self, start: datetime, end: datetime, limit: int
+    ) -> Sequence[SubscriptionRecord]:
+        """`active` subscriptions whose period ends in [start, end)."""
+        ...
+
     async def count_live_for_plan(self, plan_code: str) -> int:
         """Subscriptions on any version of the plan that are active, past_due, suspended or
         cancelling."""
@@ -558,6 +576,12 @@ class JobRepo(Protocol):
         ...
 
 
+class HousekeepingRepo(Protocol):
+    async def prune(self, now: datetime) -> dict[str, int]:
+        """Delete what has outlived its retention window; returns rows removed per table."""
+        ...
+
+
 class AuditRepo(Protocol):
     async def record(
         self,
@@ -622,6 +646,9 @@ class UnitOfWork(Protocol):
 
     @property
     def audit(self) -> AuditRepo: ...
+
+    @property
+    def housekeeping(self) -> HousekeepingRepo: ...
 
     def after_commit(self, callback: Callable[[], Awaitable[None]]) -> None:
         """Run `callback` once the transaction has committed; dropped on rollback. A callback

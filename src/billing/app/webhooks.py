@@ -22,8 +22,10 @@ from billing.domain.subscription import (
     DowngradeScheduled,
     GatewayHalted,
     NextMandateCharged,
+    NextMandateFailed,
     Resumed,
     SubscriptionState,
+    SubStatus,
     Trigger,
     UpgradeCharged,
 )
@@ -118,16 +120,24 @@ def derive(
         return _derive_charged(event, state, role, change)
 
     if kind in ("subscription.pending", "subscription.paused"):
-        if role is not Role.CURRENT:
+        if role not in (Role.CURRENT, Role.NEXT):
             return Derivation()
         allowed = _FAILED_OK.get(kind, {"paused"})
         if fresh_status not in allowed:  # a later event already moved Razorpay on
             return Derivation(reasons=("stale",))
+        if role is Role.NEXT:  # the first charge of a downgrade or resume mandate failed
+            return Derivation((NextMandateFailed(),))
         return Derivation((ChargeFailed(),))
 
     if kind == "subscription.halted":
-        if role is Role.CURRENT and fresh_status == "halted":
+        if fresh_status != "halted":
+            return Derivation()
+        if role is Role.CURRENT:
+            if state.status is SubStatus.ACTIVE:  # the `pending` event never reached us
+                return Derivation((ChargeFailed(), GatewayHalted()))
             return Derivation((GatewayHalted(),))
+        if role is Role.NEXT:  # the next mandate took over, failed, and Razorpay gave up
+            return Derivation((NextMandateFailed(), GatewayHalted()))
         return Derivation()
 
     if kind == "subscription.cancelled":

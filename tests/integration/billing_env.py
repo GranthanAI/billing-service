@@ -23,6 +23,7 @@ from billing.app.webhooks import EventApplier
 from billing.domain.catalog import Interval
 from billing.domain.entitlements import Entitlement
 from billing.jobs.handlers import billing as billing_jobs  # noqa: F401  (registers handlers)
+from billing.jobs.handlers import lifecycle as lifecycle_jobs  # noqa: F401
 from billing.jobs.runner import JobContext, JobRunner
 from billing.jobs.webhooks import WebhookProcessor
 from billing.main_api import app
@@ -60,6 +61,7 @@ class Env:
     entitlements: EntitlementService
     invalidated: list[UUID] = field(default_factory=list)
     user: UUID = field(default_factory=uuid4)
+    _job_seq: int = 0
 
     def uow(self) -> SqlUnitOfWork:
         return SqlUnitOfWork(self.app_engine, self.bctx.ids, self.clock)
@@ -86,6 +88,20 @@ class Env:
 
     async def run_jobs(self) -> int:
         return await self.runner.run_pending()
+
+    async def run_job(self, kind: str, payload: dict[str, object] | None = None) -> None:
+        """Enqueue one job of `kind` now and run everything that is ready."""
+        self._job_seq += 1
+        async with self.uow() as uow:
+            await uow.jobs.enqueue(
+                kind, payload or {}, self.clock.now(), f"{kind}:{self._job_seq}:{self.clock.now()}"
+            )
+        await self.runner.run_pending()
+
+    def set_period(self, period: str) -> None:
+        """Give every fake plan a billing period such as "10days" (fake-only)."""
+        for plan_id, spec in list(self.gateway.plans.items()):
+            self.gateway.plans[plan_id] = replace(spec, period=period)
 
     async def checkout(
         self, plan: str = "pro", interval: Interval = Interval.MONTH, user: UUID | None = None
