@@ -110,9 +110,6 @@ async def test_bad_requests_are_invalid_argument(server: tuple[Stack, str]) -> N
         billing_pb2.CheckAndReserveRequest(
             user_id=str(uuid4()), kind=billing_pb2.RESERVE_KIND_MESSAGE
         ),
-        billing_pb2.CheckAndReserveRequest(
-            user_id=str(uuid4()), idempotency_key="k", kind=billing_pb2.RESERVE_KIND_MESSAGE
-        ),  # no group
     ]
     for request in bad:
         with pytest.raises(grpc.aio.AioRpcError) as exc:
@@ -174,3 +171,31 @@ async def test_a_tiny_deadline_is_refused_without_touching_valkey(
     with pytest.raises(grpc.aio.AioRpcError) as exc:  # and over the wire
         await _call(target, "CheckAndReserve", reserve_request(uid), metadata=auth(), timeout=0.001)
     assert exc.value.code() is grpc.StatusCode.DEADLINE_EXCEEDED
+
+
+async def test_auto_and_granted_model_over_grpc(server: tuple[Stack, str], hot: FreshDb) -> None:
+    stack, target = server
+    uid = await make_user(hot, "pro")
+    auto = await _call(
+        target,
+        "CheckAndReserve",
+        billing_pb2.CheckAndReserveRequest(
+            user_id=str(uid), idempotency_key="auto", kind=billing_pb2.RESERVE_KIND_MESSAGE
+        ),  # MODEL_GROUP_UNSPECIFIED and no model
+        metadata=auth(),
+    )
+    assert auto.allowed and auto.granted_group == billing_pb2.MODEL_GROUP_SMART
+    assert auto.granted_model == ""
+    chosen = await _call(
+        target,
+        "CheckAndReserve",
+        billing_pb2.CheckAndReserveRequest(
+            user_id=str(uid),
+            idempotency_key="explicit",
+            kind=billing_pb2.RESERVE_KIND_MESSAGE,
+            requested_model="claude-haiku-5-5",
+        ),
+        metadata=auth(),
+    )
+    assert chosen.granted_model == "claude-haiku-5-5"
+    assert chosen.granted_group == billing_pb2.MODEL_GROUP_SMART

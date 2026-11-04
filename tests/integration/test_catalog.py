@@ -329,3 +329,85 @@ async def test_get_plans_endpoint(fresh_db: FreshDb) -> None:
         assert with_payg.headers["etag"] != etag
         assert "org_pro" not in with_payg.text
     app.state.payg_enabled = False
+
+
+async def models_table(db: FreshDb) -> list[tuple[object, ...]]:
+    async with db.migrator_uow() as uow:
+        rows = await uow.connection.execute(
+            sa.text(
+                "SELECT id, label, provider, model_group::text, sort_order "
+                "FROM billing.models ORDER BY sort_order"
+            )
+        )
+        return [tuple(r) for r in rows]
+
+
+async def test_sync_stores_default_groups_and_the_models(fresh_db: FreshDb) -> None:
+    await seed(fresh_db)
+    report = await run(fresh_db, FakeGateway())
+    assert report.models_changed == 12
+    async with fresh_db.migrator_uow() as uow:
+        rows = await uow.connection.execute(
+            sa.text("SELECT plan_code, default_group::text FROM billing.plan_versions")
+        )
+        defaults = {(r[0], r[1]) for r in rows}
+    assert defaults == {
+        ("free", "fast"),
+        ("pro", "smart"),
+        ("max", "smart"),
+        ("payg", "smart"),
+        ("org_pro", "smart"),
+        ("org_max", "smart"),
+    }
+
+    table = await models_table(fresh_db)
+    assert len(table) == 12
+    assert table[0] == ("openai/gpt-oss-20b", "GPT-OSS 20B", "groq", "fast", 0)
+    assert table[7] == ("claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic", "best", 7)
+    assert [r[4] for r in table] == list(range(12))
+    async with fresh_db.app_uow() as uow:  # the app role reads the plan's default group
+        pro = await uow.plans.current("pro", None)
+        assert pro is not None and pro.plan.default_group is ModelGroup.SMART
+
+
+async def test_a_label_change_updates_models_without_a_new_plan_version(
+    fresh_db: FreshDb,
+) -> None:
+    await seed(fresh_db)
+    gw = FakeGateway()
+    await run(fresh_db, gw)
+    versions_before = {c: len(await versions(fresh_db, c)) for c in ("free", "pro", "max")}
+    calls_before = len(gw.calls)
+
+    relabelled = TEXT.replace("label: GPT-OSS 20B,", "label: GPT-OSS Twenty-B,")
+    assert relabelled != TEXT
+    report = await run(fresh_db, gw, relabelled)
+    assert report.models_changed == 1
+    assert {o.action for o in report.outcomes} == {SyncAction.UNCHANGED}
+    assert {c: len(await versions(fresh_db, c)) for c in ("free", "pro", "max")} == versions_before
+    assert len(gw.calls) == calls_before  # no gateway plan was touched either
+    assert (await models_table(fresh_db))[0][1] == "GPT-OSS Twenty-B"
+
+    again = await run(fresh_db, gw, relabelled)
+    assert again.models_changed == 0 and not again.changed
+
+
+async def test_sync_removes_a_model_that_left_the_file(fresh_db: FreshDb) -> None:
+    await seed(fresh_db)
+    await run(fresh_db, FakeGateway())
+    lines = [ln for ln in TEXT.splitlines() if "id: gpt-6-astra" not in ln]
+    # gpt-6-astra stays priced; only the picker list shrinks
+    report = await run(fresh_db, FakeGateway(), "\n".join(lines))
+    assert report.models_changed == 1
+    assert "gpt-6-astra" not in {r[0] for r in await models_table(fresh_db)}
+
+
+async def test_default_group_change_is_a_new_version(fresh_db: FreshDb) -> None:
+    await seed(fresh_db)
+    gw = FakeGateway()
+    await run(fresh_db, gw)
+    pro = "rank: 1\n    default_group: "
+    report = await run(fresh_db, gw, TEXT.replace(pro + "smart", pro + "fast", 1))
+    out = by_label(report)["pro"]
+    assert out.action is SyncAction.LIMITS_ONLY and out.version == 2
+    assert [r.default_group for r in await versions(fresh_db, "pro")] == ["smart", "fast"]

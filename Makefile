@@ -48,12 +48,13 @@ run-api:
 proto:
 	uv run python scripts/gen_proto.py
 
-# buf lint, and buf breaking against main for billing.proto only (events are JSON, not proto).
+# buf lint, and buf breaking against main. billing.proto is the only proto left: Kafka events
+# are JSON, so there are no event protos to compare.
 # Uses a local `buf` when there is one, otherwise the official image through Docker.
-BUF = $(if $(shell which buf 2>/dev/null),buf,docker run --rm -v "$(CURDIR):/w" -w /w bufbuild/buf)
+BUF = $(if $(shell which buf 2>/dev/null),buf,MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR):/w" -w /w bufbuild/buf)
 proto-check:
 	$(BUF) lint proto
-	$(BUF) breaking proto --path granthan/billing/v1/billing.proto --against '.git#branch=main,subdir=proto'
+	$(BUF) breaking proto --against '.git#branch=main,subdir=proto'
 
 loadtest:
 	uv run python loadtest/run.py

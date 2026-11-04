@@ -103,6 +103,7 @@ async def test_free_plan_models(hot: FreshDb, vk: valkey_asyncio.Valkey) -> None
     uid = await make_user(hot)
     extra = await stack.reserve.check_and_reserve(msg(uid, group=None, model="openai/gpt-oss-120b"))
     assert extra.allowed and extra.granted_group is ModelGroup.SMART  # counted as smart
+    assert extra.granted_model == "openai/gpt-oss-120b"
     best = await stack.reserve.check_and_reserve(msg(uid, group=ModelGroup.BEST))
     assert best.deny_reason is DenyReason.MODEL_NOT_IN_PLAN
     assert best.message_key == "plan.model_not_included"
@@ -110,9 +111,10 @@ async def test_free_plan_models(hot: FreshDb, vk: valkey_asyncio.Valkey) -> None
     assert unknown.deny_reason is DenyReason.MODEL_NOT_IN_PLAN
     smart_model = await stack.reserve.check_and_reserve(msg(uid, group=None, model="gpt-6-luna"))
     assert smart_model.deny_reason is DenyReason.MODEL_NOT_IN_PLAN  # smart group, not extra
-    with pytest.raises(ValueError):
-        await stack.reserve.check_and_reserve(msg(uid, group=None))
     assert await total(stack, uid) == 1  # denies never touch the counters
+    auto = await stack.reserve.check_and_reserve(msg(uid, group=None))  # no group, no model: Auto
+    assert auto.allowed and auto.granted_group is ModelGroup.FAST  # Free's default group
+    assert auto.granted_model == ""
 
 
 async def test_youtube_limit_is_monthly_in_ist(hot: FreshDb, vk: valkey_asyncio.Valkey) -> None:
@@ -320,3 +322,32 @@ async def test_invalidation_on_one_replica_reaches_the_other_within_100_ms(
         assert (await b.resolve(uid)).version_hash == first.version_hash
     finally:
         listener.cancel()
+
+
+async def test_auto_uses_the_plan_default_group_and_never_spends_best(
+    hot: FreshDb, vk: valkey_asyncio.Valkey
+) -> None:
+    stack = make_stack(hot, vk)
+    uid = await make_user(hot, "max")  # Max: 80 a day, 12 Best; its Auto group is Smart
+    for _ in range(30):
+        r = await stack.reserve.check_and_reserve(msg(uid, group=None))
+        assert r.allowed and r.granted_group is ModelGroup.SMART and not r.downgraded
+        assert r.granted_model == ""
+    counts = await stack.counters.day_counts(uid, ist_day(stack.clock.now()))
+    assert counts.get("smart") == 30 and counts.get("best", 0) == 0
+    assert counts["total"] == 30
+    best = await stack.reserve.check_and_reserve(msg(uid, group=ModelGroup.BEST))
+    assert best.allowed and best.granted_group is ModelGroup.BEST  # explicit Best still works
+    assert (await stack.counters.day_counts(uid, ist_day(stack.clock.now())))["best"] == 1
+
+
+async def test_auto_on_pro_is_smart_and_an_explicit_model_is_echoed(
+    hot: FreshDb, vk: valkey_asyncio.Valkey
+) -> None:
+    stack = make_stack(hot, vk)
+    uid = await make_user(hot, "pro")
+    assert (await stack.reserve.check_and_reserve(msg(uid, group=None))).granted_group is (
+        ModelGroup.SMART
+    )
+    chosen = await stack.reserve.check_and_reserve(msg(uid, group=None, model="gemini-2.5-flash"))
+    assert chosen.granted_model == "gemini-2.5-flash" and chosen.granted_group is ModelGroup.SMART

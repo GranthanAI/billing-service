@@ -17,8 +17,20 @@ async def aw[T](value: Awaitable[T] | T) -> T:
     return value
 
 
-def make_valkey(url: str) -> valkey_asyncio.Valkey:
-    return valkey_asyncio.from_url(url, decode_responses=True)
+POOL_SIZE = 64
+
+
+def make_valkey(url: str, max_connections: int = POOL_SIZE) -> valkey_asyncio.Valkey:
+    """A client over a bounded, blocking pool.
+
+    An unbounded pool opens a new connection for every concurrent request, so a burst of 200
+    reserves means 200 simultaneous handshakes; a bounded one reuses connections and makes the
+    excess wait its turn (up to `timeout` seconds) instead of storming the server.
+    """
+    pool = valkey_asyncio.BlockingConnectionPool.from_url(
+        url, max_connections=max_connections, timeout=5.0, decode_responses=True
+    )
+    return valkey_asyncio.Valkey(connection_pool=pool)
 
 
 async def config_problem(client: valkey_asyncio.Valkey) -> str | None:
