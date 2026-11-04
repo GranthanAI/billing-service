@@ -113,6 +113,20 @@ async def _valkey_rebuild(day: date | None) -> int:
     return 0
 
 
+class KafkaSettings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
+
+    kafka_bootstrap_servers: str
+
+
+async def _dlq_replay(topic: str, limit: int | None) -> int:
+    from billing.adapters.kafka.dlq import replay
+
+    result = await replay(KafkaSettings().kafka_bootstrap_servers, topic, limit=limit)  # type: ignore[call-arg]
+    print(f"replayed {result.replayed} message(s) from {topic}; skipped {result.skipped}")
+    return 0
+
+
 async def _pricing_seed(prices: Path, fx: Path) -> int:
     price_rows = load_model_prices(prices)
     fx_rows = load_fx_rates(fx)
@@ -152,12 +166,19 @@ def main(argv: list[str] | None = None) -> int:
     seed.add_argument("--prices", default="config/seed/model_prices.yaml", type=Path)
     seed.add_argument("--fx", default="config/seed/fx_rates.yaml", type=Path)
 
+    dlq = top.add_parser("dlq").add_subparsers(dest="cmd", required=True)
+    replay_cmd = dlq.add_parser("replay", help="republish dead-lettered messages to their source")
+    replay_cmd.add_argument("--topic", required=True, help="e.g. billing.usage.dlq")
+    replay_cmd.add_argument("--limit", type=int, default=None, help="at most this many messages")
+
     valkey = top.add_parser("valkey").add_subparsers(dest="cmd", required=True)
     rebuild = valkey.add_parser("rebuild", help="rebuild one day's counters from usage_events")
     rebuild.add_argument("--day", type=date.fromisoformat, default=None, help="IST day, YYYY-MM-DD")
 
     args = parser.parse_args(argv)
     try:
+        if args.group == "dlq":
+            return asyncio.run(_dlq_replay(args.topic, args.limit))
         if args.group == "valkey":
             return asyncio.run(_valkey_rebuild(args.day))
         if args.group == "catalog":

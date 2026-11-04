@@ -61,7 +61,7 @@ class CheckoutOptions:
     gateway_subscription_id: str
     name: str
     description: str
-    email: str
+    email: str | None
     kind: str | None = None  # upgrade | downgrade | resume for plan changes
     change_id: UUID | None = None
 
@@ -100,7 +100,7 @@ class SubscriptionService:
         gateway_id: str,
         plan: PlanVersionRecord,
         interval: Interval,
-        email: str,
+        email: str | None,
         *,
         kind: str | None = None,
         change_id: UUID | None = None,
@@ -329,7 +329,7 @@ class SubscriptionService:
         plan_id: str,
         start_at: datetime | None,
         refund_payment_id: UUID | None,
-        email: str,
+        email: str | None,
     ) -> CheckoutOptions:
         ref = uuid4()
         gw = await self._b.gateway.create_subscription(

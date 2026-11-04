@@ -18,13 +18,17 @@ from billing.adapters.ids import Uuid7Generator
 from billing.adapters.kafka.consumer import KafkaEventConsumer
 from billing.adapters.kafka.outbox_relay import OutboxRelay
 from billing.adapters.kafka.producer import KafkaProducer
+from billing.adapters.kafka.usage_consumer import make_usage_consumer
 from billing.adapters.valkey.client import make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
 from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
+from billing.app.entitlements import EntitlementService
+from billing.app.usage import UsageService
 from billing.app.webhooks import EventApplier
 from billing.jobs.handlers import billing as billing_jobs
 from billing.jobs.handlers import holds as holds_job
 from billing.jobs.handlers import partitions as partitions_job
+from billing.jobs.handlers import usage as usage_jobs
 from billing.jobs.runner import JobContext, JobRunner
 from billing.jobs.scheduler import Recurring, Scheduler
 from billing.jobs.webhooks import WebhookProcessor
@@ -37,6 +41,7 @@ SCHEDULE: tuple[Recurring, ...] = (
     partitions_job.SCHEDULE,
     holds_job.SCHEDULE,
     billing_jobs.SCHEDULE,
+    usage_jobs.SCHEDULE,
 )
 DRAIN_SECONDS = 30.0
 HEALTH_PORT = 9100
@@ -81,6 +86,7 @@ async def run_worker(
     consumers: Sequence[KafkaEventConsumer[object]] = (),
     health_port: int | None = HEALTH_PORT,
     drain_seconds: float = DRAIN_SECONDS,
+    usage_consumer: bool = True,
 ) -> None:
     engine = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
     ids, clock = Uuid7Generator(), SystemClock()
@@ -115,6 +121,24 @@ async def run_worker(
     )
     applier = EventApplier(bctx)
     await producer.start()
+    all_consumers: list[KafkaEventConsumer[object]] = list(consumers)
+    if usage_consumer:
+        usage = UsageService(
+            uow_factory,
+            EntitlementService(uow_factory, ValkeyEntitlementCache(valkey_client), clock),
+            counters,
+            clock,
+            manim_render_cost_usd=settings.manim_render_cost_usd,
+            youtube_ingest_cost_inr=settings.youtube_ingest_cost_inr,
+        )
+        all_consumers.append(
+            make_usage_consumer(
+                usage,
+                bootstrap_servers=settings.kafka_bootstrap_servers,
+                client_id=settings.kafka_client_id,
+                producer=producer,
+            )  # type: ignore[arg-type]
+        )
     try:
         relay = OutboxRelay(engine, ids, clock, producer, batch_size=settings.outbox_batch_size)
         scheduler = Scheduler(uow_factory, clock, SCHEDULE)
@@ -146,7 +170,7 @@ async def run_worker(
             group.create_task(scheduler.run(stop))
             group.create_task(runner.run(stop, drain_seconds))
             group.create_task(WebhookProcessor(bctx, applier).run(stop))
-            for consumer in consumers:
+            for consumer in all_consumers:
                 group.create_task(consumer.run(stop))
             group.create_task(watch_stop())
             if health is not None:

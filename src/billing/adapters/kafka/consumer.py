@@ -37,12 +37,13 @@ class KafkaEventConsumer[T]:
         client_id: str,
         topics: list[str],
         group_id: str,
-        decoder: Callable[[bytes], T],
+        decoder: Callable[[str, bytes], T],
         handler: Callable[[T], Awaitable[None]],
         dlq_topic: str,
         producer: KafkaProducer,
         backoff: tuple[float, ...] = BACKOFF_SECONDS,
         max_attempts: int = MAX_ATTEMPTS,
+        on_dead_letter: Callable[[str], None] | None = None,
     ) -> None:
         self._topics = topics
         self._group_id = group_id
@@ -52,6 +53,7 @@ class KafkaEventConsumer[T]:
         self._producer = producer
         self._backoff = backoff
         self._max_attempts = max_attempts
+        self._on_dead_letter = on_dead_letter
         self._consumer = AIOKafkaConsumer(
             *topics,
             bootstrap_servers=bootstrap_servers,
@@ -75,6 +77,8 @@ class KafkaEventConsumer[T]:
             source_topic=msg.topic.encode(),
         )
         await self._producer.send_and_wait(self._dlq, msg.key, msg.value, headers)
+        if self._on_dead_letter is not None:
+            self._on_dead_letter(msg.topic)
         log.warning("dead_lettered", topic=msg.topic, offset=msg.offset, error=error[:200])
 
     async def _commit(self, msg: ConsumerRecord[bytes, bytes]) -> None:
@@ -85,7 +89,7 @@ class KafkaEventConsumer[T]:
         headers = self._headers(msg)
         correlation_id_var.set(headers.get("correlation_id", b"").decode())
         try:
-            event = self._decoder(msg.value)
+            event = self._decoder(msg.topic, msg.value)
         except Exception as exc:
             log.warning("decode_failed", error=str(exc)[:200])
             await self._to_dlq(msg, "decode", 0)

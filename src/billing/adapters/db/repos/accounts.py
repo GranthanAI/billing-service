@@ -40,7 +40,7 @@ class SqlAccountRepo:
         return _account(r) if r else None
 
     async def get_or_create(
-        self, owner_type: OwnerType, owner_id: UUID, email: str
+        self, owner_type: OwnerType, owner_id: UUID, email: str | None = None
     ) -> BillingAccount:
         await self._c.execute(
             pg_insert(t)

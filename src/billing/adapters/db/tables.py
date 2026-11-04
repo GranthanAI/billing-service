@@ -96,7 +96,7 @@ billing_accounts = sa.Table(
     sa.Column("legal_name", sa.Text),
     sa.Column("gstin", sa.Text),
     sa.Column("state_code", sa.CHAR(2)),
-    sa.Column("billing_email", sa.Text, nullable=False),
+    sa.Column("billing_email", sa.Text),
     sa.Column("gateway_customer_id", sa.Text),
     _ts("created_at", nullable=False, server_default=_NOW),
     _ts("blocked_at"),

@@ -21,7 +21,7 @@ class BillingAccount:
     id: UUID
     owner_type: OwnerType
     owner_id: UUID
-    billing_email: str
+    billing_email: str | None
     legal_name: str | None = None
     gstin: str | None = None
     state_code: str | None = None

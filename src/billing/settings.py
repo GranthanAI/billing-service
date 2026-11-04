@@ -1,3 +1,4 @@
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
@@ -43,6 +44,8 @@ class Settings(BaseSettings):
     grpc_port: int = 50051
     entitlement_l1_ttl_seconds: float = 5.0
     daily_ai_budget_inr: int = 3000
+    manim_render_cost_usd: Decimal = Decimal("0.01")
+    youtube_ingest_cost_inr: Decimal = Decimal("0.30")
     timezone_business: str = "Asia/Kolkata"
 
 

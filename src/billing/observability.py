@@ -65,3 +65,18 @@ WEBHOOK_UNEXPECTED = Counter(
     ["event_type"],
 )
 REFUND_FAILED = Counter("billing_refund_failed_total", "Refunds Razorpay reported as failed")
+
+USAGE_EVENTS = Counter(
+    "billing_usage_events_total",
+    "Usage events handled",
+    ["kind", "result"],  # applied | duplicate | dlq
+)
+USAGE_COST = Counter(
+    "billing_usage_cost_micro_inr_total",
+    "Provider cost of rated usage, in micro-rupees",
+    ["provider", "model_group", "plan"],
+)
+USAGE_LATE_COMMIT = Counter(
+    "billing_usage_late_commit_total",
+    "Usage that arrived after its hold had expired (or with no hold) and was counted then",
+)

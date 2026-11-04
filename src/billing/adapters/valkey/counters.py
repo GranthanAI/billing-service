@@ -179,6 +179,13 @@ class ValkeyCounters:
         data: dict[str, str] = await aw(self._c.hgetall(keys.day_counters_for(user_id, day)))
         return {k: int(v) for k, v in data.items()}
 
+    async def month_counts(self, user_id: UUID, now: datetime) -> dict[str, int]:
+        data: dict[str, str] = await aw(self._c.hgetall(keys.month_counters(user_id, now)))
+        return {k: int(v) for k, v in data.items()}
+
+    async def set_once(self, key: str, ttl_seconds: int) -> bool:
+        return bool(await self._c.set(key, "1", nx=True, ex=max(1, ttl_seconds)))
+
     async def due_holds(self, now_unix: int, limit: int) -> list[tuple[UUID, str]]:
         members: list[str] = await self._c.zrangebyscore(
             keys.HOLDS_DUE, "-inf", now_unix, start=0, num=limit

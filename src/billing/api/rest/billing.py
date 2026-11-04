@@ -64,7 +64,7 @@ def checkout_json(o: CheckoutOptions) -> dict[str, Any]:
             "subscription_id": o.gateway_subscription_id,
             "name": o.name,
             "description": o.description,
-            "prefill": {"email": o.email},
+            "prefill": {"email": o.email} if o.email else {},
             "notes": {"billing_subscription_id": str(o.subscription_id)},
         },
     }

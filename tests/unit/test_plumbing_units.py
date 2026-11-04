@@ -90,6 +90,7 @@ def test_unknown_event_type() -> None:
 def test_topic_names_are_exactly_the_agreed_ones() -> None:
     assert set(topics.ALL) == {
         "chat.response.generated",
+        "chat.response.cancelled",
         "artifact.manim.rendered",
         "file.youtube.ingested",
         "user.deleted",

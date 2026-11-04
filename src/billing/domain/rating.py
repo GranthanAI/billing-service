@@ -69,18 +69,8 @@ class Rating:
     price: Paise
 
 
-def rate(
-    calls: Sequence[LlmCall],
-    prices: PriceBook,
-    usd_inr: Decimal,
-    group: ModelGroup,
-    mode: Literal["plan", "payg"],
-    payg: PaygPrices,
-) -> Rating:
-    answers = [c for c in calls if c.purpose == "answer"]
-    if len(answers) != 1:
-        raise ValueError(f"exactly one answer call required, got {len(answers)}")
-
+def cost_micro_inr(calls: Sequence[LlmCall], prices: PriceBook, usd_inr: Decimal) -> MicroInr:
+    """What the provider calls cost, in micro-rupees, rounded once at the end."""
     cost_usd = Decimal(0)
     for c in calls:
         p = prices.for_model(c.model)
@@ -93,8 +83,30 @@ def rate(
             + c.cached_input_tokens * cached_price
             + c.output_tokens * p.output_usd_per_m
         ) / Decimal(1_000_000)
-    cost = MicroInr(int((cost_usd * usd_inr * 1_000_000).to_integral_value(ROUND_HALF_UP)))
+    return usd_to_micro_inr(cost_usd, usd_inr)
 
+
+def usd_to_micro_inr(usd: Decimal, usd_inr: Decimal) -> MicroInr:
+    return MicroInr(int((usd * usd_inr * 1_000_000).to_integral_value(ROUND_HALF_UP)))
+
+
+def inr_to_micro_inr(inr: Decimal) -> MicroInr:
+    return MicroInr(int((inr * 1_000_000).to_integral_value(ROUND_HALF_UP)))
+
+
+def rate(
+    calls: Sequence[LlmCall],
+    prices: PriceBook,
+    usd_inr: Decimal,
+    group: ModelGroup,
+    mode: Literal["plan", "payg"],
+    payg: PaygPrices,
+) -> Rating:
+    answers = [c for c in calls if c.purpose == "answer"]
+    if len(answers) != 1:
+        raise ValueError(f"exactly one answer call required, got {len(answers)}")
+
+    cost = cost_micro_inr(calls, prices, usd_inr)
     if mode == "payg":
         units = max(1, -(-answers[0].input_tokens // payg.long_message_tokens))
         return Rating(cost, units, Paise(units * payg.unit_prices[group.value]))

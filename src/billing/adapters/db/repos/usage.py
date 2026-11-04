@@ -56,6 +56,7 @@ class SqlUsageRepo:
             .where(
                 t.c.user_id == user_id,
                 t.c.kind == "message",
+                t.c.billable_units > 0,  # a failed attempt costs money but is not a message
                 t.c.occurred_at >= start,
                 t.c.occurred_at < end,
                 t.c.model_group.is_not(None),
@@ -70,6 +71,7 @@ class SqlUsageRepo:
             sa.select(t.c.user_id, t.c.kind, t.c.model_group, sa.func.count())
             .where(
                 t.c.kind.in_(("message", "manim_video")),
+                t.c.billable_units > 0,
                 t.c.occurred_at >= start,
                 t.c.occurred_at < end,
             )
@@ -90,7 +92,12 @@ class SqlUsageRepo:
         end = datetime.combine(date(end_year, end_month, 1), time(0, 0), tzinfo=IST)
         q = (
             sa.select(t.c.user_id, sa.func.count())
-            .where(t.c.kind == "youtube_video", t.c.occurred_at >= start, t.c.occurred_at < end)
+            .where(
+                t.c.kind == "youtube_video",
+                t.c.billable_units > 0,
+                t.c.occurred_at >= start,
+                t.c.occurred_at < end,
+            )
             .group_by(t.c.user_id)
         )
         return {user_id: n for user_id, n in (await self._c.execute(q)).all()}
@@ -105,7 +112,7 @@ class SqlUsageRepo:
                 t.c.billing_account_id,
                 t.c.user_id,
                 t.c.model_group,
-                sa.func.count(),
+                sa.func.count().filter(t.c.billable_units > 0),  # messages that were answered
                 sa.func.sum(t.c.billable_units),
                 sa.func.sum(t.c.cost_micro_inr),
                 sa.func.sum(t.c.price_paise),

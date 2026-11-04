@@ -144,7 +144,7 @@ async def test_relay_crash_then_restart_gives_exactly_one_effect(
         client_id="t",
         topics=[topics.PAYMENT_FAILED],
         group_id=f"g-{uuid4()}",
-        decoder=lambda b: decode_event(topics.PAYMENT_FAILED, b),
+        decoder=lambda _topic, b: decode_event(topics.PAYMENT_FAILED, b),
         handler=handler,
         dlq_topic=topics.BILLING_USER_DLQ,
         producer=producer,
@@ -198,7 +198,7 @@ class Harness:
     def consumer(
         self, cls: type[KafkaEventConsumer[str]] = KafkaEventConsumer
     ) -> KafkaEventConsumer[str]:
-        def decode(b: bytes) -> str:
+        def decode(_topic: str, b: bytes) -> str:
             if b.startswith(b"\xff"):
                 raise ValueError("malformed")
             return b.decode()
