@@ -26,6 +26,7 @@ from billing.app.webhooks import EventApplier
 from billing.domain.catalog import Interval
 from billing.domain.entitlements import Entitlement
 from billing.jobs.handlers import billing as billing_jobs  # noqa: F401  (registers handlers)
+from billing.jobs.handlers import finance as finance_jobs  # noqa: F401
 from billing.jobs.handlers import invoices as invoice_jobs  # noqa: F401
 from billing.jobs.handlers import lifecycle as lifecycle_jobs  # noqa: F401
 from billing.jobs.runner import JobContext, JobRunner

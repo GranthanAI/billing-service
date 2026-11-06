@@ -9,7 +9,7 @@ import calendar
 import itertools
 from collections.abc import Mapping
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from billing.adapters.clock import SystemClock
 from billing.adapters.razorpay import signatures
@@ -20,6 +20,7 @@ from billing.app.ports import (
     GatewayPlanSpec,
     GatewayRefund,
     GatewaySubscription,
+    SettlementItem,
 )
 from billing.domain.money import Paise
 
@@ -47,6 +48,7 @@ class InMemoryGateway:
         self.payments: dict[str, GatewayPayment] = {}
         self.refunds: dict[str, GatewayRefund] = {}
         self.cycle_end_cancels: set[str] = set()
+        self.settlements: dict[date, list[SettlementItem]] = {}
         self._plan_seq = itertools.count(1)
         self._sub_seq = itertools.count(1)
         self._pay_seq = itertools.count(1)
@@ -180,6 +182,58 @@ class InMemoryGateway:
             return self.refunds[refund_id]
         except KeyError:
             raise GatewayRejected("BAD_REQUEST_ERROR", "The id provided does not exist") from None
+
+    async def list_settlement_items(self, day: date) -> list[SettlementItem]:
+        return list(self.settlements.get(day, []))
+
+    async def list_payments(self, start: datetime, end: datetime) -> list[GatewayPayment]:
+        return sorted(
+            (
+                p
+                for p in self.payments.values()
+                if p.status == "captured" and start <= p.created_at.astimezone(UTC) < end
+            ),
+            key=lambda p: p.created_at,
+        )
+
+    def settle_payment(
+        self, payment_id: str, day: date, *, fee: int, tax: int, settled: bool = True
+    ) -> SettlementItem:
+        """Script a settlement line for a payment: credit = amount - fee (fee includes tax)."""
+        pay = self.payments[payment_id]
+        item = SettlementItem(
+            entity_id=payment_id,
+            kind="payment",
+            amount=pay.amount,
+            credit=Paise(pay.amount - fee),
+            debit=Paise(0),
+            fee=Paise(fee),
+            tax=Paise(tax),
+            settled=settled,
+            settled_at=datetime.combine(day, datetime.min.time(), tzinfo=UTC),
+            settlement_id="setl_fake_1",
+            payment_id=None,
+        )
+        self.settlements.setdefault(day, []).append(item)
+        return item
+
+    def settle_refund(self, refund_id: str, day: date) -> SettlementItem:
+        refund = self.refunds[refund_id]
+        item = SettlementItem(
+            entity_id=refund_id,
+            kind="refund",
+            amount=refund.amount,
+            credit=Paise(0),
+            debit=refund.amount,
+            fee=Paise(0),
+            tax=Paise(0),
+            settled=True,
+            settled_at=datetime.combine(day, datetime.min.time(), tzinfo=UTC),
+            settlement_id="setl_fake_1",
+            payment_id=refund.payment_id,
+        )
+        self.settlements.setdefault(day, []).append(item)
+        return item
 
     # --- signatures ----------------------------------------------------------------------
 

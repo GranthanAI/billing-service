@@ -30,6 +30,7 @@ from billing.app.ports import ObjectStorage
 from billing.app.usage import UsageService
 from billing.app.webhooks import EventApplier
 from billing.jobs.handlers import billing as billing_jobs
+from billing.jobs.handlers import finance as finance_jobs
 from billing.jobs.handlers import holds as holds_job
 from billing.jobs.handlers import invoices as invoice_jobs  # noqa: F401  (registers handlers)
 from billing.jobs.handlers import lifecycle as lifecycle_jobs
@@ -49,6 +50,7 @@ SCHEDULE: tuple[Recurring, ...] = (
     billing_jobs.SCHEDULE,
     usage_jobs.SCHEDULE,
     *lifecycle_jobs.SCHEDULES,
+    *finance_jobs.SCHEDULES,
 )
 DRAIN_SECONDS = 30.0
 HEALTH_PORT = 9100

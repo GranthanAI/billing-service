@@ -4,7 +4,12 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from billing.app.ports import GatewayPayment, GatewayRefund, GatewaySubscription
+from billing.app.ports import (
+    GatewayPayment,
+    GatewayRefund,
+    GatewaySubscription,
+    SettlementItem,
+)
 from billing.domain.money import Paise
 
 
@@ -53,6 +58,22 @@ def payment(d: Mapping[str, Any]) -> GatewayPayment:
         created_at=ts(d["created_at"]) or datetime.fromtimestamp(0, UTC),
         notes=_notes(d.get("notes")),
         raw=dict(d),
+    )
+
+
+def settlement_item(d: Mapping[str, Any]) -> SettlementItem:
+    return SettlementItem(
+        entity_id=str(d["entity_id"]),
+        kind=str(d.get("type", "")),
+        amount=Paise(int(d.get("amount") or 0)),
+        credit=Paise(int(d.get("credit") or 0)),
+        debit=Paise(int(d.get("debit") or 0)),
+        fee=Paise(int(d.get("fee") or 0)),
+        tax=Paise(int(d.get("tax") or 0)),
+        settled=bool(d.get("settled")),
+        settled_at=ts(d.get("settled_at")),
+        settlement_id=d.get("settlement_id"),
+        payment_id=d.get("payment_id"),
     )
 
 

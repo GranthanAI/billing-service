@@ -177,6 +177,19 @@ class SqlSubscriptionRepo:
         )
         return await self._many(q)
 
+    async def list_live_yearly(self) -> Sequence[SubscriptionRecord]:
+        q = (
+            sa.select(t)
+            .where(
+                t.c.status.in_(
+                    (SubStatus.ACTIVE.value, SubStatus.PAST_DUE.value, SubStatus.CANCELLING.value)
+                ),
+                t.c.interval == Interval.YEAR.value,
+            )
+            .order_by(t.c.created_at)
+        )
+        return await self._many(q)
+
     async def count_live_for_plan(self, plan_code: str) -> int:
         q = (
             sa.select(sa.func.count())

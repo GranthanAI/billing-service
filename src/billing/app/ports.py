@@ -112,6 +112,23 @@ class GatewayRefund:
     notes: Mapping[str, str]
 
 
+@dataclass(frozen=True, slots=True)
+class SettlementItem:
+    """One line of Razorpay's settlement reconciliation report."""
+
+    entity_id: str  # payment id, or refund id
+    kind: str  # payment | refund | transfer | adjustment
+    amount: Paise  # the gross amount of the payment or refund
+    credit: Paise  # what reached us (payments)
+    debit: Paise  # what left us (refunds, adjustments)
+    fee: Paise
+    tax: Paise  # GST on the fee
+    settled: bool
+    settled_at: datetime | None
+    settlement_id: str | None
+    payment_id: str | None  # for refunds: the payment they belong to
+
+
 class PlanGateway(Protocol):
     async def ensure_plan(self, spec: GatewayPlanSpec) -> str:
         """Idempotent: returns the id of an existing plan with the same notes.checksum and
@@ -154,6 +171,14 @@ class PaymentGateway(PlanGateway, Protocol):
         ...
 
     async def fetch_refund(self, refund_id: str) -> GatewayRefund: ...
+
+    async def list_settlement_items(self, day: date) -> list[SettlementItem]:
+        """Razorpay's settlement reconciliation lines for the day they were settled."""
+        ...
+
+    async def list_payments(self, start: datetime, end: datetime) -> list[GatewayPayment]:
+        """Captured payments created in [start, end)."""
+        ...
 
     def verify_checkout_signature(
         self, payment_id: str, subscription_id: str, signature: str
@@ -399,6 +424,10 @@ class SubscriptionRepo(Protocol):
         self, start: datetime, end: datetime, limit: int
     ) -> Sequence[SubscriptionRecord]:
         """`active` subscriptions whose period ends in [start, end)."""
+        ...
+
+    async def list_live_yearly(self) -> Sequence[SubscriptionRecord]:
+        """Yearly subscriptions in a status that grants the plan."""
         ...
 
     async def count_live_for_plan(self, plan_code: str) -> int:

@@ -3,7 +3,7 @@
 import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable, Mapping
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -17,6 +17,7 @@ from billing.app.ports import (
     GatewayPlanSpec,
     GatewayRefund,
     GatewaySubscription,
+    SettlementItem,
 )
 from billing.domain.money import Paise
 
@@ -250,6 +251,19 @@ class RazorpayGateway:
 
     async def fetch_refund(self, refund_id: str) -> GatewayRefund:
         return mapping.refund(await self._request("GET", f"/refunds/{refund_id}"))
+
+    async def list_settlement_items(self, day: date) -> list[SettlementItem]:
+        items = await self._list(
+            "/settlements/recon/combined",
+            {"year": day.year, "month": day.month, "day": day.day},
+        )
+        return [mapping.settlement_item(i) for i in items]
+
+    async def list_payments(self, start: datetime, end: datetime) -> list[GatewayPayment]:
+        raw = await self._list(
+            "/payments", {"from": int(start.timestamp()), "to": int(end.timestamp()) - 1}
+        )
+        return [mapping.payment(p) for p in raw if p.get("status") == "captured"]
 
     # --- signatures ----------------------------------------------------------------------
 
