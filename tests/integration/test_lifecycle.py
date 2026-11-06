@@ -416,7 +416,11 @@ async def test_a_40_day_timeline_gives_the_expected_states_events_and_invoices(e
     assert (await sub_row(env))[0] == "ended" and await env.plan_code() == "free"
 
     # --- what the 40 days left behind -------------------------------------------------------
-    assert await event_types(env) == [
+    await env.run_jobs()  # render the four invoices, which announces each with invoice.issued
+    types = await event_types(env)
+    assert types.count("invoice.issued") == 4  # one per invoice, none for the other events
+    types = [t for t in types if t != "invoice.issued"]
+    assert types == [
         "subscription.changed",  # D0   incomplete -> active
         "subscription.renewal_upcoming",  # D9
         "subscription.renewal_upcoming",  # D19

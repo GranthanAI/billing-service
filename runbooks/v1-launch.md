@@ -16,7 +16,9 @@ done by the code: they need a person, an account or a staging environment.
       `tests/fixtures/razorpay/recorded/`, the suite re-run against them, and every difference
       from the documentation samples fixed. The list of things to look for is at the end of the
       test-mode runbook (notably: does `payment.fee` include the GST in `payment.tax`?
-      `settlements.sync` assumes it may or may not and derives the fee from the bank credit).
+      `settlements.sync` derives the fee from the bank credit and logs `settlement_fee_disagrees`
+      when that differs from the stored fee + GST by more than a paisa; any such warning in the
+      test-mode run means the stored split is wrong).
 - [ ] **Chartered accountant sign-off (you)** on: the 18% GST on subscriptions and SAC 998319; the
       invoice and credit-note content (`adapters/templates/invoice.html`, GST rule 46); place of
       supply = the customer's state; paise rounding (half-up, rounded to the rupee only in returns);
@@ -43,6 +45,10 @@ done by the code: they need a person, an account or a staging environment.
 - [ ] Live keys set: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`; the live
       webhook points at `https://<host>/billing/v1/webhooks/razorpay` for `subscription.*`,
       `payment.*` and `refund.*` **(you)**
+- [ ] `GATEWAY_SHARED_SECRET` set in billing and api-gateway sends it as `X-Gateway-Secret` on every
+      request (see `contracts/api-gateway.md`); the process refuses to start without it. api-gateway
+      must also strip client-supplied `X-User-Id` / `X-Staff-Role` and set `X-Staff-Role` only from
+      staff claims in the JWT **(you, in api-gateway)**
 - [ ] `ENVIRONMENT=production` and `PAYMENT_GATEWAY=razorpay` (the fake gateway refuses to start in
       production)
 - [ ] Supplier details: `SUPPLIER_LEGAL_NAME`, `SUPPLIER_ADDRESS`, `SUPPLIER_GSTIN`,
