@@ -564,6 +564,10 @@ class InvoiceRepo(Protocol):
 
     async def get(self, invoice_id: UUID) -> InvoiceRecord | None: ...
 
+    async def credited_taxable(self, payment_id: UUID) -> Paise:
+        """Taxable value of the credit notes issued against a payment."""
+        ...
+
     async def by_payment(self, payment_id: UUID) -> InvoiceRecord | None:
         """The tax invoice (or bill of supply) issued for a payment; never a credit note."""
         ...
@@ -577,6 +581,11 @@ class LedgerRepo(Protocol):
         ...
 
     async def balance(self, code: str) -> int: ...
+
+    async def recognised_for_payment(self, payment_id: UUID) -> int:
+        """Taxable value of a payment already moved out of deferred revenue (monthly slices and a
+        release), as a positive number."""
+        ...
 
     async def lock_balance(self, code: str) -> int: ...
 
@@ -635,6 +644,10 @@ class JobRepo(Protocol):
         ...
 
     async def complete(self, job_id: int) -> None: ...
+
+    async def exists(self, dedupe_key: str) -> bool:
+        """Whether a job with this dedupe key was ever queued."""
+        ...
 
     async def fail(self, job_id: int, error: str, now: datetime) -> JobStatus:
         """Requeue with run_at = now + min(2**attempts, 3600) s, or `dead` at max_attempts."""

@@ -10,9 +10,10 @@ import structlog
 
 from billing.app.charges import record_charge
 from billing.app.config import BillingContext
-from billing.app.effects import EffectContext
+from billing.app.effects import REFUND_ISSUE, EffectContext
 from billing.app.ports import GatewayPayment, GatewayRefund, GatewaySubscription, UnitOfWork
 from billing.app.records import ChangeKind, ChangeRecord, ChangeStatus
+from billing.app.revenue import release_deferred
 from billing.app.transitions import IllegalTransition, apply_transition
 from billing.domain.catalog import Interval
 from billing.domain.subscription import (
@@ -296,6 +297,17 @@ class EventApplier:
                 break
         if applied and change is not None and d.change_status is not None:
             await uow.changes.set_status(change.id, d.change_status)
+        if (
+            applied
+            and d.charge_purpose == "upgrade"
+            and change is not None
+            and change.refund_payment_id is not None
+            and not await uow.jobs.exists(f"{REFUND_ISSUE}:upgrade:{change.id}")
+        ):
+            # nothing is being refunded (the old period was used up): the old payment is earned
+            old = await uow.payments.get(change.refund_payment_id)
+            if old is not None:
+                await release_deferred(uow, old, self._b.clock.now())
         return PROCESSED
 
     async def _apply_refund(self, uow: UnitOfWork, event: GatewayEvent) -> str:

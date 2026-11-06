@@ -261,6 +261,10 @@ class SqlJobs:
         )
         return [Job(r.id, r.kind, dict(r.payload), r.attempts, r.max_attempts) for r in result]
 
+    async def exists(self, dedupe_key: str) -> bool:
+        q = sa.select(jobs.c.id).where(jobs.c.dedupe_key == dedupe_key).limit(1)
+        return (await self._c.execute(q)).first() is not None
+
     async def complete(self, job_id: int) -> None:
         await self._c.execute(
             sa.update(jobs).where(jobs.c.id == job_id).values(status="done", locked_until=None)

@@ -16,10 +16,12 @@ from billing.app.records import (
     RefundRecord,
     SubscriptionRecord,
 )
+from billing.app.revenue import release_deferred
 from billing.domain.calendar import IST, financial_year_code
 from billing.domain.catalog import Interval
 from billing.domain.ledger import subscription_charge, subscription_refund
 from billing.domain.money import GstSplit, Paise, round_half_up, split_gst
+from billing.domain.proration import period_interval
 from billing.observability import PAYMENTS
 
 log = structlog.get_logger()
@@ -199,6 +201,9 @@ async def issue_refund(bctx: BillingContext, payload: Mapping[str, Any]) -> None
         original = await uow.invoices.by_payment(payment_uuid)
         if original is None:
             raise LookupError(f"payment {payment_uuid} has no invoice to credit")
+        if original.period_start is not None and original.period_end is not None:
+            # what the payment paid for, not the subscription's interval now (it may have changed)
+            interval = period_interval(original.period_start, original.period_end)
         split = split_gst(
             refund.amount,
             original.supplier_state_code,
@@ -248,3 +253,7 @@ async def issue_refund(bctx: BillingContext, payload: Mapping[str, Any]) -> None
         await uow.jobs.enqueue(
             RENDER_JOB, {"invoice_id": str(note_id)}, now, f"{RENDER_JOB}:{note_id}"
         )
+        if (
+            reason == "upgrade"
+        ):  # the old period is superseded: what the refund did not return is earned
+            await release_deferred(uow, payment, now)

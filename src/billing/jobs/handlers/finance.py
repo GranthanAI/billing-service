@@ -5,7 +5,8 @@ from typing import Any
 
 import structlog
 
-from billing.app.settlements import RevenueService, SettlementService
+from billing.app.revenue import RevenueService
+from billing.app.settlements import SettlementService
 from billing.domain.calendar import ist_day
 from billing.jobs.runner import JobContext, job_handler
 from billing.jobs.scheduler import Recurring

@@ -155,6 +155,12 @@ class SqlInvoiceRepo:
         r = (await self._c.execute(sa.select(t).where(t.c.id == invoice_id))).first()
         return _record(r) if r else None
 
+    async def credited_taxable(self, payment_id: UUID) -> Paise:
+        q = sa.select(sa.func.coalesce(sa.func.sum(t.c.taxable_paise), 0)).where(
+            t.c.payment_id == payment_id, t.c.kind == "credit_note"
+        )
+        return Paise(int((await self._c.execute(q)).scalar_one()))
+
     async def by_payment(self, payment_id: UUID) -> InvoiceRecord | None:
         q = sa.select(t).where(t.c.payment_id == payment_id, t.c.kind != "credit_note")
         r = (await self._c.execute(q)).first()

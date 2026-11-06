@@ -424,3 +424,55 @@ async def test_manual_settlement_and_reconciliation_reads(env: Env) -> None:
     )
     assert bank == PRO_MONTH - 998 - 180
     assert UUID(payment)
+
+
+async def test_an_admin_refund_uses_the_interval_of_the_refunded_payment(env: Env) -> None:
+    await env.activate("pro", 499000, Interval.YEAR)
+    payment = str(await env.scalar("SELECT id FROM billing.payments"))
+    async with env.migrator_engine.begin() as conn:  # the subscription has since moved to monthly
+        await conn.execute(sa.text("UPDATE billing.subscriptions SET interval = 'month'"))
+    async with env.api() as http:
+        r = await http.post(
+            f"{ADMIN}/refunds",
+            json={"payment_id": payment, "amount_paise": 10000, "reason": "goodwill"},
+            headers=staff(),
+        )
+        assert r.status_code == 201
+    queued = (await env.sql("SELECT payload FROM billing.jobs WHERE kind = 'refund.issue'"))[0][0]
+    assert queued["interval"] == "year"  # from the invoice's 12-month period, not the subscription
+    await env.run_jobs()
+    reversed_ = await env.sql(
+        "SELECT a.code, sum(e.amount_paise) FROM billing.ledger_entries e "
+        "JOIN billing.ledger_transactions t ON t.id = e.transaction_id "
+        "JOIN billing.ledger_accounts a ON a.id = e.account_id "
+        "WHERE t.kind = 'subscription_refund' GROUP BY a.code"
+    )
+    codes = {r[0]: int(r[1]) for r in reversed_}
+    assert codes["liability:deferred_revenue"] > 0  # the yearly charge sat in deferred revenue
+    assert "revenue:subscription" not in codes
+    assert sum(codes.values()) == 0
+
+
+async def test_a_monthly_payment_refund_is_booked_against_revenue(env: Env) -> None:
+    await env.activate()
+    payment = str(await env.scalar("SELECT id FROM billing.payments"))
+    async with env.api() as http:
+        await http.post(
+            f"{ADMIN}/refunds",
+            json={"payment_id": payment, "amount_paise": 10000, "reason": "goodwill"},
+            headers=staff(),
+        )
+    assert (await env.sql("SELECT payload FROM billing.jobs WHERE kind = 'refund.issue'"))[0][0][
+        "interval"
+    ] == "month"
+    await env.run_jobs()
+    codes = {
+        r[0]
+        for r in await env.sql(
+            "SELECT a.code FROM billing.ledger_entries e "
+            "JOIN billing.ledger_transactions t ON t.id = e.transaction_id "
+            "JOIN billing.ledger_accounts a ON a.id = e.account_id "
+            "WHERE t.kind = 'subscription_refund'"
+        )
+    }
+    assert "revenue:subscription" in codes and "liability:deferred_revenue" not in codes

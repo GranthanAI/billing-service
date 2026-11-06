@@ -8,8 +8,9 @@ from billing.app.config import BillingContext
 from billing.app.effects import EffectContext, run_effects
 from billing.app.ports import UnitOfWork
 from billing.app.records import SubscriptionHistoryEntry, SubscriptionRecord
-from billing.domain.catalog import OwnerType
-from billing.domain.subscription import IllegalTransition, Trigger, transition
+from billing.app.revenue import release_deferred
+from billing.domain.catalog import Interval, OwnerType
+from billing.domain.subscription import IllegalTransition, SubStatus, Trigger, transition
 
 log = structlog.get_logger()
 
@@ -36,6 +37,14 @@ async def apply_transition(
     account = await uow.accounts.get(sub.billing_account_id)
     assert account is not None
     await run_effects(uow, result.effects, sub, saved, account, ctx or EffectContext(), now)
+    if (
+        saved.state.status is SubStatus.ENDED
+        and sub.state.status is not SubStatus.ENDED
+        and sub.state.interval is Interval.YEAR
+    ):  # nothing more is delivered for this payment: the rest of its deferred revenue is earned
+        latest = await uow.payments.latest_for_subscription(sub.id)
+        if latest is not None:
+            await release_deferred(uow, latest, now)
     if account.owner_type is OwnerType.USER:
         owner_id = account.owner_id
         uow.after_commit(lambda: bctx.invalidate_entitlement(owner_id))

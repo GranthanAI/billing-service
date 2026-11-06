@@ -15,6 +15,7 @@ from billing.app.settlements import SettlementService
 from billing.domain.calendar import IST
 from billing.domain.catalog import Interval, ModelGroup, OwnerType
 from billing.domain.money import Paise
+from billing.domain.proration import period_interval
 
 LIMITS_ONLY_ACTION = "catalog.limits_only_change"
 MIN_REASON = 3
@@ -154,11 +155,13 @@ class AdminService:
             remaining = int(payment.amount_paise) - int(done)
             if amount > remaining:
                 raise ValidationFailed(f"at most {remaining} paise can still be refunded")
+            # what the payment paid for, read off its invoice: the subscription may have moved
+            # to another interval since (an upgrade, a downgrade), and a yearly charge sits in
+            # deferred revenue while a monthly one does not
+            invoice = await uow.invoices.by_payment(payment_id)
             interval = Interval.MONTH
-            if payment.subscription_id is not None:
-                sub = await uow.subscriptions.get(payment.subscription_id)
-                if sub is not None:
-                    interval = sub.state.interval
+            if invoice is not None and invoice.period_start and invoice.period_end:
+                interval = period_interval(invoice.period_start, invoice.period_end)
             key = f"admin:{uuid4()}"
             await uow.jobs.enqueue(
                 REFUND_JOB,

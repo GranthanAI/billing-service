@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -113,6 +114,19 @@ class SqlLedgerRepo:
             q = q.with_for_update(of=ledger_balances)
         value = (await self._c.execute(q)).scalar_one_or_none()
         return int(value) if value is not None else 0
+
+    async def recognised_for_payment(self, payment_id: UUID) -> int:
+        result = await self._c.execute(
+            sa.text(
+                "SELECT coalesce(sum(e.amount_paise), 0)::bigint FROM billing.ledger_entries e "
+                "JOIN billing.ledger_transactions t ON t.id = e.transaction_id "
+                "JOIN billing.ledger_accounts a ON a.id = e.account_id "
+                "WHERE a.code = 'liability:deferred_revenue' AND t.kind = 'revenue_recognition' "
+                "AND (t.idempotency_key LIKE :slices OR t.idempotency_key = :release)"
+            ),
+            {"slices": f"recognise:%:{payment_id}:%", "release": f"release:{payment_id}"},
+        )
+        return int(result.scalar_one())
 
     async def balance(self, code: str) -> int:
         return await self._balance(code, lock=False)

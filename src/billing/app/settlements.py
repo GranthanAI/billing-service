@@ -1,19 +1,18 @@
-"""Settlements (bank, gateway fees) and monthly revenue recognition.
+"""Settlements (bank, gateway fees).
 
-Both post to the ledger with fixed idempotency keys, so a rerun, or the manual fallback after the
-daily sync, never posts a payment twice.
+Posts to the ledger with fixed idempotency keys, so a rerun, or the manual fallback after the daily
+sync, never posts a payment twice.
 """
 
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date
 from uuid import UUID
 
 import structlog
 
 from billing.app.ports import Clock, PaymentGateway, SettlementItem, UnitOfWork
-from billing.domain.calendar import IST, ist_day
-from billing.domain.ledger import refund_settlement, revenue_recognition, settlement
+from billing.domain.ledger import refund_settlement, settlement
 from billing.domain.money import Paise
 
 log = structlog.get_logger()
@@ -115,53 +114,3 @@ class SettlementService:
                 raise LookupError(f"payment {payment_id} not found")
             tx = settlement(payment.amount_paise, fee, fee_gst, settle_key(payment.id))
             return await uow.ledger.post(tx, "settlement", str(payment.id), self._clock.now())
-
-
-# --- revenue recognition --------------------------------------------------------------------
-
-
-def month_index(dt: datetime) -> int:
-    local = dt.astimezone(IST)
-    return local.year * 12 + local.month - 1
-
-
-def slice_for(taxable: Paise, n: int) -> Paise:
-    """The n-th of 12 monthly slices; the last one takes the rounding remainder."""
-    base = int(taxable) // 12
-    return Paise(int(taxable) - 11 * base if n == 12 else base)
-
-
-class RevenueService:
-    def __init__(self, uow_factory: Callable[[], UnitOfWork], clock: Clock) -> None:
-        self._uow = uow_factory
-        self._clock = clock
-
-    async def recognise(self, now: datetime | None = None) -> int:
-        """Run on the 1st of a month: move one twelfth of each live yearly subscription's current
-        period from deferred to recognised revenue. The n-th run after the period began posts the
-        n-th slice (n = 1..12), keyed by subscription and month, so a rerun posts nothing."""
-        now = now or self._clock.now()
-        run_month = month_index(now)
-        key_month = f"{ist_day(now):%Y%m}"
-        async with self._uow() as uow:
-            subs = list(await uow.subscriptions.list_live_yearly())
-        posted = 0
-        for sub in subs:
-            start = sub.state.current_period_start
-            if start is None:
-                continue
-            n = run_month - month_index(start)
-            if not 1 <= n <= 12:
-                continue
-            async with self._uow() as uow:
-                payment = await uow.payments.latest_for_subscription(sub.id)
-                invoice = await uow.invoices.by_payment(payment.id) if payment else None
-                if invoice is None:
-                    continue
-                amount = slice_for(invoice.taxable_paise, n)
-                if amount <= 0:
-                    continue
-                tx = revenue_recognition(amount, f"recognise:{sub.id}:{key_month}")
-                if await uow.ledger.post(tx, "subscription", str(sub.id), now):
-                    posted += 1
-        return posted

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 
 from billing.domain.calendar import require_aware
@@ -29,6 +29,14 @@ def unused_credit(
         raise ValueError("period_end must be after period_start")
     remaining = min(max(int((period_end - now).total_seconds()), 0), total)
     return Paise(round_half_up(paid * remaining, total))
+
+
+def period_interval(period_start: datetime, period_end: datetime) -> Interval:
+    """Month or year, from the length of a billing period (more than 31 days is a year). This is
+    what a payment's invoice says it paid for, whatever the subscription's interval is now."""
+    require_aware(period_start)
+    require_aware(period_end)
+    return Interval.YEAR if period_end - period_start > timedelta(days=31) else Interval.MONTH
 
 
 def classify_change(

@@ -6,13 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from billing.app.settlements import (
-    RevenueService,
-    SettlementService,
-    month_index,
-    slice_for,
-    split_deductions,
-)
+from billing.app.revenue import RevenueService, month_index, slice_for
+from billing.app.settlements import SettlementService, split_deductions
 from billing.domain.catalog import Interval
 from billing.domain.money import Paise, taxable_of
 from tests.integration.billing_env import MAX_MONTH, PRO_MONTH, Env
