@@ -1,6 +1,6 @@
 export BILLING_MIGRATION_DATABASE_URL ?= postgresql+asyncpg://billing_migrator:billing_migrator@localhost:5433/billing_db
 
-.PHONY: audit alerts-check proto-check loadtest topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
+.PHONY: test-integration test-all audit alerts-check proto-check loadtest topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
 
 sync:
 	uv sync
@@ -32,8 +32,15 @@ fmt:
 	uv run ruff format src tests
 	uv run ruff check --fix src tests
 
+# Fast: unit and property tests only, no Docker (about 2 minutes on a slow laptop).
 test:
-	uv run pytest --cov=billing.domain --cov-fail-under=95
+	uv run pytest tests/unit tests/property tests/test_health.py --cov=billing.domain --cov-fail-under=95
+
+# Slow: real Postgres, Valkey and Kafka through Testcontainers (needs Docker, about 7 minutes).
+test-integration:
+	uv run pytest tests/integration
+
+test-all: test test-integration
 
 migrate:
 	uv run alembic upgrade head

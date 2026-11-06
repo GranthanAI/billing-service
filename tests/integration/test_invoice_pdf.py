@@ -2,7 +2,7 @@
 
 import io
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pypdf
 import pytest
@@ -167,3 +167,25 @@ async def test_rendering_a_missing_invoice_fails(env: Env) -> None:
 
     with pytest.raises(LookupError):
         await env.invoices.render(uuid4())
+
+
+async def test_the_backfill_command_queues_the_job_and_the_worker_renders(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from billing import cli
+
+    await env.activate()
+    async with env.migrator_engine.begin() as conn:
+        import sqlalchemy as sa
+
+        await conn.execute(sa.text("DELETE FROM billing.jobs WHERE kind = 'invoice.render'"))
+    url = env.app_engine.url.render_as_string(hide_password=False)
+    monkeypatch.setenv("BILLING_DATABASE_URL", url)
+    monkeypatch.setenv("BILLING_VALKEY_URL", "redis://unused")
+    assert await cli._invoices_backfill() == 0
+    assert (
+        await env.scalar("SELECT count(*) FROM billing.jobs WHERE kind = 'invoice.backfill'") == 1
+    )
+    env.clock.set(datetime.now(UTC) + timedelta(minutes=1))  # the CLI uses the real clock
+    await env.run_jobs()  # backfill queues the render, the render runs
+    assert await env.scalar("SELECT pdf_object_key FROM billing.invoices") == KEY

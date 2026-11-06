@@ -113,6 +113,23 @@ async def _valkey_rebuild(day: date | None) -> int:
     return 0
 
 
+async def _invoices_backfill() -> int:
+    """Queue the one-off `invoice.backfill` job (the worker does the rendering)."""
+    settings = RebuildSettings()  # type: ignore[call-arg]
+    engine = make_engine(settings.billing_database_url, pool_size=2)
+    clock = SystemClock()
+    try:
+        async with SqlUnitOfWork(engine, Uuid7Generator()) as uow:
+            now = clock.now()
+            await uow.jobs.enqueue(
+                "invoice.backfill", {}, now, f"invoice.backfill:{now.isoformat()}"
+            )
+    finally:
+        await engine.dispose()
+    print("queued invoice.backfill; the worker will render the missing PDFs")
+    return 0
+
+
 async def _costs_import(provider: str, path: Path) -> int:
     """Load `day,cost_inr` rows into provider_costs (an upsert: re-importing a day replaces it)."""
     from billing.app.reconciliation import parse_cost_csv
@@ -188,6 +205,9 @@ def main(argv: list[str] | None = None) -> int:
     replay_cmd.add_argument("--topic", required=True, help="e.g. billing.usage.dlq")
     replay_cmd.add_argument("--limit", type=int, default=None, help="at most this many messages")
 
+    invoices = top.add_parser("invoices").add_subparsers(dest="cmd", required=True)
+    invoices.add_parser("backfill", help="queue a PDF render for every invoice without one")
+
     costs = top.add_parser("costs").add_subparsers(dest="cmd", required=True)
     cost_import = costs.add_parser("import", help="import a provider's daily cost export (CSV)")
     cost_import.add_argument("--provider", required=True, help="e.g. anthropic, groq, google")
@@ -199,6 +219,8 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     try:
+        if args.group == "invoices":
+            return asyncio.run(_invoices_backfill())
         if args.group == "costs":
             return asyncio.run(_costs_import(args.provider, args.file))
         if args.group == "dlq":
