@@ -179,6 +179,17 @@ class ValkeyCounters:
         data: dict[str, str] = await aw(self._c.hgetall(keys.day_counters_for(user_id, day)))
         return {k: int(v) for k, v in data.items()}
 
+    async def erase_user(self, user_id: UUID) -> int:
+        removed = 0
+        async for key in self._c.scan_iter(match=f"*{{{user_id}}}*", count=500):
+            removed += int(await self._c.delete(key))
+        due = [
+            m for m in await self._c.zrange(keys.HOLDS_DUE, 0, -1) if m.startswith(f"{user_id}:")
+        ]
+        if due:
+            await self._c.zrem(keys.HOLDS_DUE, *due)
+        return removed
+
     async def day_counts_all(self, day: date) -> dict[UUID, dict[str, int]]:
         out: dict[UUID, dict[str, int]] = {}
         async for key in self._c.scan_iter(match=f"use:{{*}}:d:{day:%Y%m%d}", count=500):

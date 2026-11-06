@@ -87,6 +87,14 @@ class SqlAccountRepo:
             )
         )
 
+    async def anonymise(self, account_id: UUID) -> None:
+        """Drop what identifies the person; the state code and GSTIN stay as tax records."""
+        await self._c.execute(
+            sa.update(t)
+            .where(t.c.id == account_id)
+            .values(billing_email=None, legal_name=None, gateway_customer_id=None)
+        )
+
     async def set_state_code(self, account_id: UUID, code: str) -> None:
         await self._c.execute(sa.update(t).where(t.c.id == account_id).values(state_code=code))
 

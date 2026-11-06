@@ -258,6 +258,11 @@ class Counters(Protocol):
 
     async def day_counts(self, user_id: UUID, day: date) -> dict[str, int]: ...
 
+    async def erase_user(self, user_id: UUID) -> int:
+        """Delete every Valkey key of the user (counters, holds, idempotency, thresholds); returns
+        how many keys were removed."""
+        ...
+
     async def day_counts_all(self, day: date) -> dict[UUID, dict[str, int]]:
         """Every user's counters for one IST day (a key scan: for the daily reconciliation)."""
         ...
@@ -330,6 +335,10 @@ class AccountRepo(Protocol):
 
     async def set_blocked(self, account_id: UUID, reason: str | None, now: datetime) -> None:
         """Block (reason given) or unblock (reason None) the account."""
+        ...
+
+    async def anonymise(self, account_id: UUID) -> None:
+        """Email, legal name and gateway customer id removed; state code and GSTIN kept."""
         ...
 
     async def set_state_code(self, account_id: UUID, code: str) -> None: ...
@@ -432,6 +441,10 @@ class SubscriptionRepo(Protocol):
         self, start: datetime, end: datetime, limit: int
     ) -> Sequence[SubscriptionRecord]:
         """`active` subscriptions whose period ends in [start, end)."""
+        ...
+
+    async def list_open_for_account(self, billing_account_id: UUID) -> Sequence[SubscriptionRecord]:
+        """Every subscription of the account that has not ended."""
         ...
 
     async def list_live_yearly(self) -> Sequence[SubscriptionRecord]:

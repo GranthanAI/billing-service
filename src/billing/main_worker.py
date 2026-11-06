@@ -19,6 +19,7 @@ from billing.adapters.kafka.consumer import KafkaEventConsumer
 from billing.adapters.kafka.outbox_relay import OutboxRelay
 from billing.adapters.kafka.producer import KafkaProducer
 from billing.adapters.kafka.usage_consumer import make_usage_consumer
+from billing.adapters.kafka.user_consumer import make_user_consumer
 from billing.adapters.pdf import WeasyPrintRenderer
 from billing.adapters.valkey.client import make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
@@ -26,6 +27,7 @@ from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
 from billing.app.entitlements import EntitlementService
 from billing.app.invoices import InvoiceService
 from billing.app.usage import UsageService
+from billing.app.user_deletion import UserDeletionService
 from billing.app.webhooks import EventApplier
 from billing.jobs.handlers import billing as billing_jobs
 from billing.jobs.handlers import finance as finance_jobs
@@ -96,6 +98,7 @@ async def run_worker(
     health_port: int | None = HEALTH_PORT,
     drain_seconds: float = DRAIN_SECONDS,
     usage_consumer: bool = True,
+    user_consumer: bool = True,
 ) -> None:
     engine = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
     ids, clock = Uuid7Generator(), SystemClock()
@@ -145,6 +148,15 @@ async def run_worker(
         all_consumers.append(
             make_usage_consumer(
                 usage,
+                bootstrap_servers=settings.kafka_bootstrap_servers,
+                client_id=settings.kafka_client_id,
+                producer=producer,
+            )  # type: ignore[arg-type]
+        )
+    if user_consumer:
+        all_consumers.append(
+            make_user_consumer(
+                UserDeletionService(bctx, counters),
                 bootstrap_servers=settings.kafka_bootstrap_servers,
                 client_id=settings.kafka_client_id,
                 producer=producer,

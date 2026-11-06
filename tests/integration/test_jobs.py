@@ -206,7 +206,9 @@ async def test_stop_signal_lets_a_running_job_finish_and_exits_cleanly(
             {"i": job_id},
         )
     stop = asyncio.Event()
-    worker = asyncio.create_task(run_worker(settings, stop, health_port=None, usage_consumer=False))
+    worker = asyncio.create_task(
+        run_worker(settings, stop, health_port=None, usage_consumer=False, user_consumer=False)
+    )
     try:
         await wait_until(lambda: bool(SLOW_STARTED), 30)
         stop.set()  # what SIGTERM does

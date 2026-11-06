@@ -177,6 +177,12 @@ class SqlSubscriptionRepo:
         )
         return await self._many(q)
 
+    async def list_open_for_account(self, billing_account_id: UUID) -> Sequence[SubscriptionRecord]:
+        q = sa.select(t).where(
+            t.c.billing_account_id == billing_account_id, t.c.status != SubStatus.ENDED.value
+        )
+        return await self._many(q)
+
     async def list_live_yearly(self) -> Sequence[SubscriptionRecord]:
         q = (
             sa.select(t)
