@@ -191,6 +191,8 @@ def main() -> int:
         "-e",
         "RAZORPAY_WEBHOOK_SECRET=w",
         "-e",
+        "GATEWAY_SHARED_SECRET=loadtest-gateway",
+        "-e",
         "SERVICE_TOKEN_KEYS=loadtest-token",
         "-e",
         "SUPPLIER_STATE_CODE=10",

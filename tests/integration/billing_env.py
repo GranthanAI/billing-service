@@ -45,6 +45,7 @@ START = datetime(2026, 11, 1, 4, 45, tzinfo=UTC)  # 10:15 IST on 1 Nov 2026: fin
 STATE_BIHAR = "10"
 PRO_MONTH = 49900
 MAX_MONTH = 149900
+GATEWAY_SECRET = "test-gateway-secret"
 
 
 def config(**overrides: object) -> BillingConfig:
@@ -186,8 +187,13 @@ class Env:
                 self.entitlements.invalidate,
             ),
         )
+        app.state.gateway_secrets = (GATEWAY_SECRET,)
         transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
-        return httpx.AsyncClient(transport=transport, base_url="http://test")
+        return httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={"X-Gateway-Secret": GATEWAY_SECRET},
+        )
 
 
 def build_env(

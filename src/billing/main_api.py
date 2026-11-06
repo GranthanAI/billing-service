@@ -27,6 +27,7 @@ from billing.api.grpc.internal import start_grpc_server
 from billing.api.rest import errors as rest_errors
 from billing.api.rest.admin import router as admin_router
 from billing.api.rest.billing import router as billing_router
+from billing.api.rest.gateway_auth import GatewayAuthMiddleware
 from billing.api.rest.idempotency import IdempotencyMiddleware
 from billing.api.rest.me import router as me_router
 from billing.api.rest.models import router as models_router
@@ -47,7 +48,7 @@ from billing.observability import (
     init_sentry,
     metrics_payload,
 )
-from billing.settings import Settings, get_settings, webhook_secrets
+from billing.settings import Settings, gateway_secrets, get_settings, webhook_secrets
 from billing.wiring import config_from_settings, install_billing, make_context, make_storage
 
 configure_logging()
@@ -89,6 +90,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.engine = owned_engine
         app.state.payg_enabled = settings.payg_enabled
         app.state.kafka_probe = KafkaProbe(settings.kafka_bootstrap_servers)
+        app.state.gateway_secrets = gateway_secrets(settings)
         init_sentry(settings.sentry_dsn, settings.environment)
         AI_BUDGET.set(settings.daily_ai_budget_inr * 1_000_000)
         try:
@@ -193,6 +195,8 @@ app.include_router(webhook_router)
 rest_errors.install(app)
 # Added before the correlation-id middleware below, so it runs inside it and sees the id.
 app.add_middleware(IdempotencyMiddleware)
+# Added after it, so it runs first: an unauthenticated request never reaches the idempotency table.
+app.add_middleware(GatewayAuthMiddleware)
 
 
 @app.middleware("http")

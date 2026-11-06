@@ -89,6 +89,7 @@ def settings(**kw: str) -> Settings:
         billing_database_url="x", billing_migration_database_url="x", billing_valkey_url="x",
         kafka_bootstrap_servers="x", razorpay_key_id="k", razorpay_key_secret="s",
         razorpay_webhook_secret="primary", service_token_keys="t", supplier_state_code="10",
+        gateway_shared_secret="g",
     )  # fmt: skip
     return Settings(**{**base, **kw})  # type: ignore[arg-type]
 

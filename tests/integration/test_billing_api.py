@@ -4,6 +4,7 @@ import hashlib
 import json
 from uuid import uuid4
 
+import httpx
 import pytest
 
 from billing.app.errors import GatewayRejected, GatewayUnavailable
@@ -237,3 +238,64 @@ async def test_full_flow_over_http(env: Env) -> None:
             "/billing/v1/subscription/resume", headers=headers(env, str(uuid4()))
         )
         assert resume.status_code == 201 and resume.json()["change"]["kind"] == "resume"
+
+
+# --- the trust boundary --------------------------------------------------------------------------
+
+
+async def test_the_gateway_secret_guards_the_real_routes_and_nothing_runs_without_it(
+    env: Env,
+) -> None:
+    from billing.main_api import app
+    from tests.integration.billing_env import GATEWAY_SECRET
+
+    staff_headers = {"X-User-Id": str(uuid4()), "X-Staff-Role": "billing_admin"}
+    user_headers = {"X-User-Id": str(env.user), "Idempotency-Key": str(uuid4())}
+    calls = [
+        ("GET", "/billing/v1/me", user_headers, None),
+        ("GET", "/billing/v1/me/models", user_headers, None),
+        ("GET", "/billing/v1/invoices", user_headers, None),
+        ("POST", "/billing/v1/checkout", user_headers, CHECKOUT),
+        ("POST", "/billing/v1/subscription/cancel", user_headers, None),
+        ("GET", "/admin/billing/v1/accounts?q=a", staff_headers, None),
+        ("POST", f"/admin/billing/v1/accounts/{uuid4()}/block",
+         {**staff_headers, "Idempotency-Key": str(uuid4())}, {"reason": "fraud"}),
+        ("PUT", "/admin/billing/v1/fx-rates", staff_headers,
+         {"effective_from": "2026-11-10", "usd_inr": "96", "reason": "weekly"}),
+    ]  # fmt: skip
+    async with env.api() as authed:  # installs the services and the secret on the app
+        raw = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://test",
+        )
+        async with raw:
+            for extra in ({}, {"X-Gateway-Secret": "wrong"}, {"X-Gateway-Secret": ""}):
+                for method, path, headers, body in calls:
+                    r = await raw.request(method, path, headers={**headers, **extra}, json=body)
+                    assert r.status_code == 401, (method, path, extra)
+                    assert r.json()["code"] == "UNAUTHENTICATED"
+            # a staff role sent by a client without the secret gets nothing, whatever it claims
+            forged = await raw.get(
+                "/admin/billing/v1/accounts?q=a",
+                headers={"X-User-Id": str(uuid4()), "X-Staff-Role": "billing_admin"},
+            )
+            assert forged.status_code == 401
+
+            # public routes still work without it
+            assert (await raw.get("/healthz")).status_code == 200
+            hook = await raw.post("/billing/v1/webhooks/razorpay", content=b"{}")
+            assert hook.status_code == 400 and hook.json()["code"] == "INVALID_SIGNATURE"
+            assert (await raw.get("/billing/v1/plans")).status_code != 401
+            assert (await raw.get("/billing/v1/models")).status_code != 401
+
+        # nothing ran behind the 401s
+        assert await env.scalar("SELECT count(*) FROM billing.idempotency_keys") == 0
+        assert await env.scalar("SELECT count(*) FROM billing.billing_accounts") == 0
+        assert await env.scalar("SELECT count(*) FROM billing.admin_audit") == 0
+        assert env.gateway.called("create_subscription") == []
+
+        # with the secret the same routes are served
+        assert (await authed.get("/billing/v1/me", headers=user_headers)).status_code == 200
+        listed = await authed.get("/admin/billing/v1/accounts?q=a", headers=staff_headers)
+        assert listed.status_code == 200
+        assert GATEWAY_SECRET not in listed.text

@@ -11,6 +11,7 @@ import valkey.asyncio as valkey_asyncio
 from billing.app.model_picker import ModelPicker
 from billing.domain.catalog import ModelGroup
 from billing.main_api import app
+from tests.integration.billing_env import GATEWAY_SECRET
 from tests.integration.conftest import FreshDb
 from tests.integration.hot_support import Stack, make_stack, make_user, msg
 
@@ -23,7 +24,12 @@ def client_for(stack: Stack, hot: FreshDb, *, payg: bool = False) -> httpx.Async
         stack.clock,
         payg_enabled=payg,
     )
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    app.state.gateway_secrets = (GATEWAY_SECRET,)
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-Gateway-Secret": GATEWAY_SECRET},
+    )
 
 
 @pytest_asyncio.fixture

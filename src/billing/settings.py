@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     razorpay_webhook_secret: str = Field(...)
     # Extra secrets accepted while rotating, comma-separated (secrets must not contain commas).
     razorpay_webhook_secrets: str = ""
+    # api-gateway proves itself to the REST routes with X-Gateway-Secret; comma-separated to rotate
+    gateway_shared_secret: str = Field(..., min_length=1)
     sentry_dsn: str = ""
     service_token_keys: str = Field(...)
     supplier_gstin: str = ""
@@ -63,6 +65,12 @@ def webhook_secrets(s: "Settings") -> str:
     """The primary webhook secret plus any rotation secrets, as one comma-joined string."""
     extra = [x.strip() for x in s.razorpay_webhook_secrets.split(",") if x.strip()]
     return ",".join(dict.fromkeys([s.razorpay_webhook_secret, *extra]))
+
+
+def gateway_secrets(s: "Settings") -> tuple[str, ...]:
+    """The accepted X-Gateway-Secret values (more than one while rotating)."""
+    parts = (x.strip() for x in s.gateway_shared_secret.split(","))
+    return tuple(dict.fromkeys(p for p in parts if p))
 
 
 @lru_cache

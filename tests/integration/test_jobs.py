@@ -194,6 +194,7 @@ async def test_stop_signal_lets_a_running_job_finish_and_exits_cleanly(
         razorpay_key_id="k",
         razorpay_key_secret="s",
         razorpay_webhook_secret="w",
+        gateway_shared_secret="g",
         service_token_keys="t",
         supplier_state_code="10",
         job_concurrency=2,
