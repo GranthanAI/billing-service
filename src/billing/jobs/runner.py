@@ -13,6 +13,7 @@ import structlog
 
 from billing.adapters.db.uow import SqlUnitOfWork
 from billing.app.config import BillingContext
+from billing.app.invoices import InvoiceService
 from billing.app.ports import Clock, Counters, IdGenerator, PlanGateway
 from billing.app.records import Job, JobStatus
 from billing.app.webhooks import EventApplier
@@ -30,6 +31,7 @@ class JobContext:
     counters: Counters | None = None
     billing: BillingContext | None = None
     applier: EventApplier | None = None
+    invoices: InvoiceService | None = None
 
 
 Handler = Callable[[dict[str, Any], JobContext], Awaitable[None]]

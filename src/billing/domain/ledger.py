@@ -82,6 +82,15 @@ def subscription_refund(split: GstSplit, interval: Interval, key: str) -> Ledger
     return assert_balanced(LedgerTransaction(LedgerKind.SUBSCRIPTION_REFUND, key, reversed_))
 
 
+def refund_settlement(gross: Paise, key: str) -> LedgerTransaction:
+    """Razorpay took a refund out of a settlement: the cash left the bank while the clearing
+    account still held the (already reversed) charge."""
+    if gross <= 0:
+        raise ValueError("a refund settlement must be positive")
+    postings = (Posting(CLEARING, gross), Posting(BANK, -gross))
+    return assert_balanced(LedgerTransaction(LedgerKind.SETTLEMENT, key, postings))
+
+
 def revenue_recognition(amount: Paise, key: str) -> LedgerTransaction:
     postings = (Posting(DEFERRED_REVENUE, amount), Posting(REVENUE_SUBSCRIPTION, -amount))
     return assert_balanced(LedgerTransaction(LedgerKind.REVENUE_RECOGNITION, key, postings))

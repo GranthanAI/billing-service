@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ d.title }} {{ d.number }}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 10pt; color: #111; }
+  h1 { font-size: 18pt; margin: 0 0 4mm 0; }
+  .meta, .parties { width: 100%; margin-bottom: 6mm; border-collapse: collapse; }
+  .meta td { padding: 1mm 0; }
+  .parties td { vertical-align: top; width: 50%; padding-right: 6mm; }
+  .label { color: #555; font-size: 8pt; text-transform: uppercase; }
+  table.lines { width: 100%; border-collapse: collapse; margin-top: 4mm; }
+  table.lines th, table.lines td { border-bottom: 1px solid #bbb; padding: 2mm 1.5mm; text-align: left; }
+  table.lines th.num, table.lines td.num { text-align: right; }
+  table.totals { margin-left: auto; margin-top: 4mm; border-collapse: collapse; min-width: 70mm; }
+  table.totals td { padding: 1mm 1.5mm; }
+  table.totals td.num { text-align: right; }
+  tr.grand td { font-weight: bold; border-top: 1px solid #111; }
+  .words { margin-top: 5mm; }
+  .foot { margin-top: 12mm; font-size: 8pt; color: #555; }
+</style>
+</head>
+<body>
+<h1>{{ d.title }}</h1>
+<table class="meta">
+  <tr><td><span class="label">Number</span><br>{{ d.number }}</td>
+      <td><span class="label">Date</span><br>{{ d.issued_on }}</td>
+      {% if d.period %}<td><span class="label">Service period</span><br>{{ d.period }}</td>{% endif %}</tr>
+  {% if d.original_number %}
+  <tr><td colspan="3"><span class="label">Against invoice</span><br>{{ d.original_number }} dated {{ d.original_date }}</td></tr>
+  {% endif %}
+</table>
+<table class="parties">
+  <tr>
+    <td>
+      <span class="label">Supplier</span><br>
+      <strong>{{ d.supplier_name }}</strong><br>
+      {{ d.supplier_address }}<br>
+      {% if d.supplier_gstin %}GSTIN: {{ d.supplier_gstin }}<br>{% endif %}
+      State: {{ d.supplier_state }}
+    </td>
+    <td>
+      <span class="label">Recipient</span><br>
+      <strong>{{ d.recipient_name }}</strong><br>
+      {% if d.recipient_gstin %}GSTIN: {{ d.recipient_gstin }}<br>{% endif %}
+      State: {{ d.recipient_state }}<br>
+      Place of supply: {{ d.place_of_supply }}
+    </td>
+  </tr>
+</table>
+<table class="lines">
+  <thead><tr><th>#</th><th>Description</th><th>SAC</th><th class="num">Qty</th><th class="num">Taxable value (INR)</th></tr></thead>
+  <tbody>
+  {% for l in d.lines %}
+    <tr><td>{{ l.number }}</td><td>{{ l.description }}</td><td>{{ l.sac_code }}</td>
+        <td class="num">{{ l.quantity }}</td><td class="num">{{ l.taxable }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<table class="totals">
+  <tr><td>Taxable value</td><td></td><td class="num">{{ d.taxable_total }}</td></tr>
+  {% for t in d.taxes %}
+  <tr><td>{{ t.name }}</td><td class="num">{{ t.rate }}</td><td class="num">{{ t.amount }}</td></tr>
+  {% endfor %}
+  <tr class="grand"><td>Total (INR)</td><td></td><td class="num">{{ d.total }}</td></tr>
+</table>
+<p class="words"><strong>Amount in words:</strong> {{ d.total_words }}</p>
+{% if not d.taxes %}<p>Bill of supply: no tax is charged on this document.</p>{% endif %}
+<p class="foot">Computer-generated document; no signature required.</p>
+</body>
+</html>

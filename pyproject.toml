@@ -26,6 +26,9 @@ dependencies = [
     "tzdata>=2024.1",
     "pyyaml>=6.0",
     "uvloop>=0.19 ; sys_platform != 'win32'",
+    "weasyprint>=70.0",
+    "pypdf>=7.0.0",
+    "aioboto3>=15.5.0",
 ]
 
 [dependency-groups]

@@ -6,6 +6,7 @@ import pytest
 from billing.domain.catalog import Interval
 from billing.domain.money import Paise
 from billing.domain.subscription import (
+    AccountDeleted,
     AuthorisationTimedOut,
     CancelledExternally,
     CancelMandate,
@@ -233,6 +234,16 @@ def test_next_mandate_failing_needs_a_next_mandate() -> None:
         transition(st(SubStatus.ACTIVE), NextMandateFailed(), T0)
 
 
+def test_account_deleted_ends_everything_and_cancels_both_mandates() -> None:
+    state = st(SubStatus.ACTIVE, next_id="sub_next", pending=MAX)
+    result = transition(state, AccountDeleted(), T0)
+    assert result.state.status is SubStatus.ENDED
+    assert result.state.next_gateway_subscription_id is None
+    assert result.effects == (CancelMandate("sub_1", False), CancelMandate("sub_next", False), CH)
+    plain = transition(st(SubStatus.PAST_DUE), AccountDeleted(), T0)
+    assert plain.state.grace_until is None and plain.effects[-1] == CH
+
+
 def test_next_mandate_needs_next_id() -> None:
     with pytest.raises(IllegalTransition):
         transition(st(SubStatus.ACTIVE), NextMandateCharged(T0, T0, Paise(1)), T0)
@@ -251,10 +262,11 @@ ALL_TRIGGERS = [
     DowngradeScheduled(FREE_ID, "x"),
     NextMandateCharged(T0, T0, Paise(1)),
     NextMandateFailed(),
+    AccountDeleted(),
     Resumed("x"),
 ]
 LEGAL = {
-    SubStatus.INCOMPLETE: {"ChargeCaptured", "AuthorisationTimedOut"},
+    SubStatus.INCOMPLETE: {"AccountDeleted", "ChargeCaptured", "AuthorisationTimedOut"},
     SubStatus.ACTIVE: {
         "ChargeCaptured",
         "ChargeFailed",
@@ -264,16 +276,23 @@ LEGAL = {
         "DowngradeScheduled",
         "NextMandateCharged",
         "NextMandateFailed",
+        "AccountDeleted",
     },
     SubStatus.PAST_DUE: {
+        "AccountDeleted",
         "ChargeCaptured",
         "GraceExpired",
         "GatewayHalted",
         "UserCancelled",
         "CancelledExternally",
     },
-    SubStatus.SUSPENDED: {"ChargeCaptured", "GatewayHalted", "CancelledExternally"},
-    SubStatus.CANCELLING: {"PeriodEnded", "Resumed", "NextMandateCharged"},
+    SubStatus.SUSPENDED: {
+        "AccountDeleted",
+        "ChargeCaptured",
+        "GatewayHalted",
+        "CancelledExternally",
+    },
+    SubStatus.CANCELLING: {"AccountDeleted", "PeriodEnded", "Resumed", "NextMandateCharged"},
     SubStatus.ENDED: set(),
 }
 

@@ -19,6 +19,8 @@ def config_from_settings(s: Settings) -> BillingConfig:
         supplier_gstin=s.supplier_gstin,
         gst_registered=s.gst_registered,
         sac_code=s.invoice_sac_code,
+        supplier_legal_name=s.supplier_legal_name,
+        supplier_address=s.supplier_address,
         invoice_series=s.invoice_series,
         credit_note_series=s.credit_note_series,
         bill_of_supply_series=s.bill_of_supply_series,

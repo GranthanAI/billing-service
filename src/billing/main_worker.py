@@ -19,14 +19,19 @@ from billing.adapters.kafka.consumer import KafkaEventConsumer
 from billing.adapters.kafka.outbox_relay import OutboxRelay
 from billing.adapters.kafka.producer import KafkaProducer
 from billing.adapters.kafka.usage_consumer import make_usage_consumer
+from billing.adapters.pdf import WeasyPrintRenderer
+from billing.adapters.storage import InMemoryStorage, S3Storage
 from billing.adapters.valkey.client import make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
 from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
 from billing.app.entitlements import EntitlementService
+from billing.app.invoices import InvoiceService
+from billing.app.ports import ObjectStorage
 from billing.app.usage import UsageService
 from billing.app.webhooks import EventApplier
 from billing.jobs.handlers import billing as billing_jobs
 from billing.jobs.handlers import holds as holds_job
+from billing.jobs.handlers import invoices as invoice_jobs  # noqa: F401  (registers handlers)
 from billing.jobs.handlers import lifecycle as lifecycle_jobs
 from billing.jobs.handlers import partitions as partitions_job
 from billing.jobs.handlers import usage as usage_jobs
@@ -122,6 +127,18 @@ async def run_worker(
         ValkeyEntitlementCache(valkey_client).delete,
     )
     applier = EventApplier(bctx)
+    storage: ObjectStorage = (
+        S3Storage(
+            endpoint_url=settings.object_store_endpoint,
+            bucket=settings.object_store_bucket,
+            access_key=settings.object_store_access_key,
+            secret_key=settings.object_store_secret_key,
+            region=settings.object_store_region,
+        )
+        if settings.object_store_bucket and settings.object_store_access_key
+        else InMemoryStorage()  # development without an object store; PDFs are lost on restart
+    )
+    invoices = InvoiceService(uow_factory, WeasyPrintRenderer(), storage, clock, bctx.config)
     await producer.start()
     all_consumers: list[KafkaEventConsumer[object]] = list(consumers)
     if usage_consumer:
@@ -153,6 +170,7 @@ async def run_worker(
                 counters=counters,
                 billing=bctx,
                 applier=applier,
+                invoices=invoices,
             ),
             concurrency=settings.job_concurrency,
         )

@@ -461,3 +461,28 @@ admin_audit = sa.Table(
     sa.Column("after", pg.JSONB),
     _ts("at", nullable=False, server_default=_NOW),
 )
+
+reconciliation_runs = sa.Table(
+    "reconciliation_runs",
+    metadata,
+    sa.Column("id", sa.BigInteger, primary_key=True, autoincrement=True),
+    sa.Column("run_date", sa.Date, nullable=False),
+    sa.Column("check", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("difference_paise", sa.BigInteger, nullable=False, server_default=sa.text("0")),
+    sa.Column("details", pg.JSONB, nullable=False, server_default=sa.text("'{}'")),
+    _ts("created_at", nullable=False, server_default=_NOW),
+    sa.CheckConstraint("status IN ('ok','difference','error')"),
+    sa.Index("reconciliation_runs_date", "run_date", "check"),
+)
+
+provider_costs = sa.Table(
+    "provider_costs",
+    metadata,
+    sa.Column("provider", sa.Text, primary_key=True),
+    sa.Column("day", sa.Date, primary_key=True),
+    sa.Column("cost_micro_inr", sa.BigInteger, nullable=False),
+    sa.Column("source", sa.Text, nullable=False),
+    _ts("imported_at", nullable=False, server_default=_NOW),
+    sa.CheckConstraint("cost_micro_inr >= 0"),
+)

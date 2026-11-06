@@ -103,10 +103,50 @@ class SqlInvoiceRepo:
                 ],
             )
 
-    async def set_pdf(self, invoice_id: UUID, object_key: str) -> None:
-        await self._c.execute(
-            sa.update(t).where(t.c.id == invoice_id).values(pdf_object_key=object_key)
+    async def set_pdf(self, invoice_id: UUID, object_key: str) -> bool:
+        result = await self._c.execute(
+            sa.update(t)
+            .where(t.c.id == invoice_id, t.c.pdf_object_key.is_(None))
+            .values(pdf_object_key=object_key)
         )
+        return result.rowcount == 1
+
+    async def lines(self, invoice_id: UUID) -> list[InvoiceLineRecord]:
+        q = (
+            sa.select(invoice_lines)
+            .where(invoice_lines.c.invoice_id == invoice_id)
+            .order_by(invoice_lines.c.line_no)
+        )
+        return [
+            InvoiceLineRecord(
+                invoice_id=r.invoice_id,
+                line_no=r.line_no,
+                description=r.description,
+                sac_code=r.sac_code,
+                quantity=r.quantity,
+                unit_price_paise=Paise(r.unit_price_paise),
+                taxable_paise=Paise(r.taxable_paise),
+            )
+            for r in (await self._c.execute(q)).all()
+        ]
+
+    async def without_pdf(self, limit: int) -> list[UUID]:
+        q = (
+            sa.select(t.c.id)
+            .where(t.c.pdf_object_key.is_(None))
+            .order_by(t.c.issued_at, t.c.number)
+            .limit(limit)
+        )
+        return [r[0] for r in (await self._c.execute(q)).all()]
+
+    async def for_account(self, billing_account_id: UUID, limit: int) -> list[InvoiceRecord]:
+        q = (
+            sa.select(t)
+            .where(t.c.billing_account_id == billing_account_id)
+            .order_by(t.c.issued_at.desc(), t.c.number.desc())
+            .limit(limit)
+        )
+        return [_record(r) for r in (await self._c.execute(q)).all()]
 
     async def mark_paid(self, invoice_id: UUID) -> None:
         await self._c.execute(sa.update(t).where(t.c.id == invoice_id).values(status="paid"))

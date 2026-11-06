@@ -106,6 +106,11 @@ class NextMandateCharged:
 
 
 @dataclass(frozen=True, slots=True)
+class AccountDeleted:
+    """The user deleted their account: end whatever they have and stop every mandate."""
+
+
+@dataclass(frozen=True, slots=True)
 class NextMandateFailed:
     """The first charge of the next mandate (a downgrade or a resume) failed."""
 
@@ -128,6 +133,7 @@ Trigger = (
     | DowngradeScheduled
     | NextMandateCharged
     | NextMandateFailed
+    | AccountDeleted
     | Resumed
 )
 
@@ -301,6 +307,21 @@ def transition(
                     next_gateway_subscription_id=trigger.next_gateway_subscription_id,
                 )
                 return TransitionResult(new, _cancel(state, True))
+        case AccountDeleted():
+            if s is not SubStatus.ENDED:
+                effects = list(_cancel(state, False))
+                if state.next_gateway_subscription_id is not None:
+                    effects.append(CancelMandate(state.next_gateway_subscription_id, False))
+                effects.append(_CHANGED)
+                new = replace(
+                    state,
+                    status=SubStatus.ENDED,
+                    grace_until=None,
+                    next_gateway_subscription_id=None,
+                    pending_plan_version_id=None,
+                    pending_interval=None,
+                )
+                return TransitionResult(new, tuple(effects))
         case NextMandateFailed():
             if s is SubStatus.ACTIVE and state.next_gateway_subscription_id is not None:
                 # the period ended and the next mandate is the contract now, already failing

@@ -23,6 +23,8 @@ class BillingConfig:
     total_count_month: int = 120
     total_count_year: int = 10
     brand_name: str = "GranthanAI"
+    supplier_legal_name: str = "GranthanAI"
+    supplier_address: str = ""
 
     def total_count(self, interval: Interval) -> int:
         return self.total_count_month if interval is Interval.MONTH else self.total_count_year

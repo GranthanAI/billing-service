@@ -14,6 +14,7 @@ from uuid import UUID
 
 from billing.app.catalog_spec import ModelEntry
 from billing.app.events import OutboxEvent
+from billing.app.invoice_doc import InvoiceDocument
 from billing.app.records import (
     Begin,
     BillingAccount,
@@ -262,6 +263,10 @@ class EntitlementCache(Protocol):
 # --- storage ---------------------------------------------------------------------------
 
 
+class InvoiceRenderer(Protocol):
+    async def render(self, doc: InvoiceDocument) -> bytes: ...
+
+
 class ObjectStorage(Protocol):
     async def put(self, key: str, data: bytes, content_type: str) -> None: ...
 
@@ -489,7 +494,19 @@ class InvoiceRepo(Protocol):
 
     async def insert(self, invoice: InvoiceRecord, lines: Sequence[InvoiceLineRecord]) -> None: ...
 
-    async def set_pdf(self, invoice_id: UUID, object_key: str) -> None: ...
+    async def set_pdf(self, invoice_id: UUID, object_key: str) -> bool:
+        """False when the invoice already has a PDF (only the first render counts)."""
+        ...
+
+    async def lines(self, invoice_id: UUID) -> list[InvoiceLineRecord]: ...
+
+    async def without_pdf(self, limit: int) -> list[UUID]:
+        """Ids of invoices and credit notes whose PDF has not been rendered, oldest first."""
+        ...
+
+    async def for_account(self, billing_account_id: UUID, limit: int) -> list[InvoiceRecord]:
+        """Invoices and credit notes of an account, newest first."""
+        ...
 
     async def mark_paid(self, invoice_id: UUID) -> None: ...
 

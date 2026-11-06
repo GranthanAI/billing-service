@@ -15,14 +15,18 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from billing.adapters.db.uow import SqlUnitOfWork
 from billing.adapters.ids import Uuid7Generator
+from billing.adapters.pdf import WeasyPrintRenderer
+from billing.adapters.storage import InMemoryStorage
 from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
 from billing.app.config import BillingConfig, BillingContext
 from billing.app.entitlements import EntitlementService
+from billing.app.invoices import InvoiceService
 from billing.app.subscriptions import CheckoutOptions, SubscriptionService
 from billing.app.webhooks import EventApplier
 from billing.domain.catalog import Interval
 from billing.domain.entitlements import Entitlement
 from billing.jobs.handlers import billing as billing_jobs  # noqa: F401  (registers handlers)
+from billing.jobs.handlers import invoices as invoice_jobs  # noqa: F401
 from billing.jobs.handlers import lifecycle as lifecycle_jobs  # noqa: F401
 from billing.jobs.runner import JobContext, JobRunner
 from billing.jobs.webhooks import WebhookProcessor
@@ -59,6 +63,8 @@ class Env:
     processor: WebhookProcessor
     runner: JobRunner
     entitlements: EntitlementService
+    storage: InMemoryStorage
+    invoices: InvoiceService
     invalidated: list[UUID] = field(default_factory=list)
     user: UUID = field(default_factory=uuid4)
     _job_seq: int = 0
@@ -141,6 +147,9 @@ class Env:
         self.applier = EventApplier(self.bctx)
         self.service = SubscriptionService(self.bctx, self.applier)
         self.processor = WebhookProcessor(self.bctx, self.applier)
+        self.invoices = InvoiceService(
+            self.bctx.uow_factory, WeasyPrintRenderer(), self.storage, self.clock, cfg
+        )
         self.runner = JobRunner(
             JobContext(
                 self.bctx.uow_factory,
@@ -149,6 +158,7 @@ class Env:
                 gateway=self.gateway,
                 billing=self.bctx,
                 applier=self.applier,
+                invoices=self.invoices,
             ),
             poll_interval=0.01,
         )
@@ -186,6 +196,8 @@ def build_env(
 
     bctx = BillingContext(uow_factory, gateway, clock, ids, cfg or config(), invalidate)
     applier = EventApplier(bctx)
+    storage = InMemoryStorage()
+    invoices = InvoiceService(uow_factory, WeasyPrintRenderer(), storage, clock, bctx.config)
     return Env(
         app_engine=app_engine,
         migrator_engine=migrator_engine,
@@ -196,9 +208,19 @@ def build_env(
         service=SubscriptionService(bctx, applier),
         processor=WebhookProcessor(bctx, applier),
         runner=JobRunner(
-            JobContext(uow_factory, clock, ids, gateway=gateway, billing=bctx, applier=applier),
+            JobContext(
+                uow_factory,
+                clock,
+                ids,
+                gateway=gateway,
+                billing=bctx,
+                applier=applier,
+                invoices=invoices,
+            ),
             poll_interval=0.01,
         ),
         entitlements=entitlements,
+        storage=storage,
+        invoices=invoices,
         invalidated=invalidated,
     )

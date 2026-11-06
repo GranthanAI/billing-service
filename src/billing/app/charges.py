@@ -22,6 +22,7 @@ from billing.domain.ledger import subscription_charge, subscription_refund
 from billing.domain.money import GstSplit, Paise, round_half_up, split_gst
 
 log = structlog.get_logger()
+RENDER_JOB = "invoice.render"
 
 
 def _date(dt: datetime) -> str:
@@ -140,6 +141,12 @@ async def record_charge(
             )
         ],
     )
+    await uow.jobs.enqueue(
+        RENDER_JOB,
+        {"invoice_id": str(invoice_id)},
+        payment.created_at,
+        f"{RENDER_JOB}:{invoice_id}",
+    )
     return True
 
 
@@ -226,4 +233,7 @@ async def issue_refund(bctx: BillingContext, payload: Mapping[str, Any]) -> None
                     taxable_paise=split.taxable,
                 )
             ],
+        )
+        await uow.jobs.enqueue(
+            RENDER_JOB, {"invoice_id": str(note_id)}, now, f"{RENDER_JOB}:{note_id}"
         )

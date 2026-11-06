@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     razorpay_webhook_secret: str = Field(...)
     service_token_keys: str = Field(...)
     supplier_gstin: str = ""
+    supplier_legal_name: str = "GranthanAI"
+    supplier_address: str = ""
+    object_store_endpoint: str = ""
+    object_store_bucket: str = "billing-invoices"
+    object_store_access_key: str = ""
+    object_store_secret_key: str = ""
+    object_store_region: str = "us-east-1"
     supplier_state_code: str = Field(..., pattern=r"^\d{2}$")
     gst_registered: bool = True
     invoice_sac_code: str = "998319"
