@@ -185,7 +185,7 @@ class FakeGateway(InMemoryGateway):
             status="captured",
             method=method,
             fee=fee,
-            tax=fee * 18 // 100,
+            tax=round(fee * 18 / 118),  # Razorpay's fee includes its 18% GST
             created_at=int(now.timestamp()),
             invoice_id=f"inv_{pay_id}",
             notes=[],

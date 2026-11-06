@@ -83,6 +83,17 @@ class SettlementService:
                 if payment is None:
                     return "unknown"
                 fee, gst = split_deductions(payment.amount_paise, item.credit, item.tax)
+                if payment.fee_paise is not None and payment.fee_gst_paise is not None:
+                    stored = int(payment.fee_paise) + int(payment.fee_gst_paise)
+                    if abs(stored - (int(fee) + int(gst))) > 1:
+                        log.warning(
+                            "settlement_fee_disagrees",
+                            payment_id=str(payment.id),
+                            gateway_payment_id=payment.gateway_payment_id,
+                            bank_credit_deduction=int(fee) + int(gst),
+                            stored_fee=int(payment.fee_paise),
+                            stored_fee_gst=int(payment.fee_gst_paise),
+                        )
                 tx = settlement(payment.amount_paise, fee, gst, settle_key(payment.id))
                 done = await uow.ledger.post(tx, "settlement", str(payment.id), when)
                 return "payment" if done else "already"

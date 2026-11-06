@@ -309,3 +309,11 @@ def test_description_uses_ist_dates() -> None:
         "GranthanAI", "max", Interval.YEAR, start, datetime(2028, 3, 31, 20, 0, tzinfo=UTC)
     )
     assert text == "GranthanAI Max · yearly · 1 Apr 2027 – 1 Apr 2028"
+
+
+async def test_the_fee_is_stored_without_the_gst_it_includes() -> None:
+    uow = FakeUow(acct=account())
+    await charge(uow, cfg())  # the helper payment: fee 998 including 180 of GST
+    stored = uow.payments_["pay_1"]
+    assert (stored.fee_paise, stored.fee_gst_paise) == (818, 180)
+    assert stored.fee_paise + stored.fee_gst_paise == 998  # what Razorpay deducts

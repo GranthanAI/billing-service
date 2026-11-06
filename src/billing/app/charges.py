@@ -48,6 +48,15 @@ def _invoice_amounts(split: GstSplit) -> dict[str, Any]:
     }
 
 
+def fee_without_gst(fee: Paise | None, tax: Paise | None) -> Paise | None:
+    """Razorpay's payment `fee` is "Fee (including GST) charged by Razorpay" and `tax` is the GST in
+    it, so the fee proper is fee - tax. Stored that way, `fee_paise + fee_gst_paise` is what
+    Razorpay deducts, and the settlement posting (fee expense + GST input) uses the same split."""
+    if fee is None:
+        return None
+    return Paise(max(0, int(fee) - int(tax or 0)))
+
+
 async def record_charge(
     uow: UnitOfWork,
     subscription: SubscriptionRecord,
@@ -84,7 +93,7 @@ async def record_charge(
             subscription_id=subscription.id,
             gateway_order_id=payment.order_id,
             method=payment.method,
-            fee_paise=payment.fee,
+            fee_paise=fee_without_gst(payment.fee, payment.tax),
             fee_gst_paise=payment.tax,
         )
     )
