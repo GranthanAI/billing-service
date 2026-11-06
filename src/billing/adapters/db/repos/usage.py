@@ -44,6 +44,7 @@ class SqlUsageRepo:
                 price_paise=record.price_paise,
                 fx_usd_inr=record.fx_usd_inr,
                 hold_id=record.hold_id,
+                provider_costs=dict(record.provider_costs) if record.provider_costs else None,
             )
             .on_conflict_do_nothing(index_elements=["kind", "source_id", "occurred_at"])
         )

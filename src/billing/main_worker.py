@@ -20,13 +20,11 @@ from billing.adapters.kafka.outbox_relay import OutboxRelay
 from billing.adapters.kafka.producer import KafkaProducer
 from billing.adapters.kafka.usage_consumer import make_usage_consumer
 from billing.adapters.pdf import WeasyPrintRenderer
-from billing.adapters.storage import InMemoryStorage, S3Storage
 from billing.adapters.valkey.client import make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
 from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
 from billing.app.entitlements import EntitlementService
 from billing.app.invoices import InvoiceService
-from billing.app.ports import ObjectStorage
 from billing.app.usage import UsageService
 from billing.app.webhooks import EventApplier
 from billing.jobs.handlers import billing as billing_jobs
@@ -41,7 +39,7 @@ from billing.jobs.scheduler import Recurring, Scheduler
 from billing.jobs.webhooks import WebhookProcessor
 from billing.observability import configure_logging, metrics_payload
 from billing.settings import Settings, get_settings
-from billing.wiring import config_from_settings, make_context
+from billing.wiring import config_from_settings, make_context, make_storage
 
 log = structlog.get_logger()
 SCHEDULE: tuple[Recurring, ...] = (
@@ -129,17 +127,7 @@ async def run_worker(
         ValkeyEntitlementCache(valkey_client).delete,
     )
     applier = EventApplier(bctx)
-    storage: ObjectStorage = (
-        S3Storage(
-            endpoint_url=settings.object_store_endpoint,
-            bucket=settings.object_store_bucket,
-            access_key=settings.object_store_access_key,
-            secret_key=settings.object_store_secret_key,
-            region=settings.object_store_region,
-        )
-        if settings.object_store_bucket and settings.object_store_access_key
-        else InMemoryStorage()  # development without an object store; PDFs are lost on restart
-    )
+    storage = make_storage(settings)
     invoices = InvoiceService(uow_factory, WeasyPrintRenderer(), storage, clock, bctx.config)
     await producer.start()
     all_consumers: list[KafkaEventConsumer[object]] = list(consumers)

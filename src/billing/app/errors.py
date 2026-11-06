@@ -51,6 +51,16 @@ class Unauthenticated(BillingError):
     title = "X-User-Id is missing or not a UUID"
 
 
+class NotFound(BillingError):
+    code = "NOT_FOUND"
+    title = "Not found"
+
+
+class Forbidden(BillingError):
+    code = "FORBIDDEN"
+    title = "This action needs a different staff role"
+
+
 class GatewayUnavailable(BillingError):
     """Razorpay timed out, was unreachable, or kept answering 429/5xx."""
 

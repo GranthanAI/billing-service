@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -75,6 +76,16 @@ class SqlAccountRepo:
         if gstin is not None:
             values["gstin"] = gstin
         await self._c.execute(sa.update(t).where(t.c.id == account_id).values(**values))
+
+    async def set_blocked(self, account_id: UUID, reason: str | None, now: datetime) -> None:
+        await self._c.execute(
+            sa.update(t)
+            .where(t.c.id == account_id)
+            .values(
+                blocked_at=now if reason is not None else None,
+                blocked_reason=reason,
+            )
+        )
 
     async def set_state_code(self, account_id: UUID, code: str) -> None:
         await self._c.execute(sa.update(t).where(t.c.id == account_id).values(state_code=code))

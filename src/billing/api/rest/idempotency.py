@@ -17,6 +17,7 @@ from billing.app.ports import UnitOfWork
 from billing.app.records import InProgress, Mismatch, Replay
 
 PREFIX = "/billing/v1/"
+ADMIN_PREFIX = "/admin/billing/v1/"
 WEBHOOK_PATH = "/billing/v1/webhooks/razorpay"
 MAX_BODY = 1_000_000
 LOCK_SECONDS = 30
@@ -38,7 +39,7 @@ class IdempotencyMiddleware:
         if (
             scope["type"] != "http"
             or scope["method"] != "POST"
-            or not path.startswith(PREFIX)
+            or not path.startswith((PREFIX, ADMIN_PREFIX))
             or path == WEBHOOK_PATH
         ):
             await self.app(scope, receive, send)
@@ -72,7 +73,8 @@ class IdempotencyMiddleware:
             scope["method"].encode() + b"\n" + path.encode() + b"\n" + body
         ).hexdigest()
         uow_factory: Callable[[], UnitOfWork] = scope["app"].state.uow_factory
-        scope_name, key_text = str(user), str(key)
+        scope_name = f"admin:{user}" if path.startswith(ADMIN_PREFIX) else str(user)
+        key_text = str(key)
         async with uow_factory() as uow:
             begun = await uow.idempotency.begin(scope_name, key_text, request_hash, LOCK_SECONDS)
         if isinstance(begun, Mismatch):

@@ -26,6 +26,9 @@ STATEMENTS = [
   imported_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (provider, day)
 )""",
+    # cost per provider (micro-rupees) for the provider-cost reconciliation: the helper calls of
+    # a message can come from another provider than its answer
+    "ALTER TABLE usage_events ADD COLUMN provider_costs jsonb",
     "GRANT SELECT, INSERT ON reconciliation_runs TO billing_app",
     "GRANT SELECT, INSERT, UPDATE ON provider_costs TO billing_app",
 ]
@@ -38,5 +41,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("ALTER TABLE billing.usage_events DROP COLUMN IF EXISTS provider_costs")
     op.execute("DROP TABLE IF EXISTS billing.provider_costs")
     op.execute("DROP TABLE IF EXISTS billing.reconciliation_runs")

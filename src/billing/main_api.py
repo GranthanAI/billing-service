@@ -24,18 +24,23 @@ from billing.adapters.valkey.counters import ValkeyCounters
 from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
 from billing.api.grpc.internal import start_grpc_server
 from billing.api.rest import errors as rest_errors
+from billing.api.rest.admin import router as admin_router
 from billing.api.rest.billing import router as billing_router
 from billing.api.rest.idempotency import IdempotencyMiddleware
+from billing.api.rest.me import router as me_router
 from billing.api.rest.models import router as models_router
 from billing.api.rest.public import router as public_router
 from billing.api.rest.webhooks import router as webhook_router
+from billing.app.account_views import AccountViews
+from billing.app.admin import AdminService
 from billing.app.context import correlation_id_var
 from billing.app.entitlements import EntitlementService, ModelCatalog
 from billing.app.model_picker import ModelPicker
 from billing.app.reserve import ReserveService
+from billing.app.settlements import SettlementService
 from billing.observability import HOLDS_OPEN, LOOP_LAG, configure_logging, metrics_payload
 from billing.settings import Settings, get_settings
-from billing.wiring import config_from_settings, install_billing, make_context
+from billing.wiring import config_from_settings, install_billing, make_context, make_storage
 
 configure_logging()
 log = structlog.get_logger()
@@ -105,6 +110,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             webhook_secret=settings.razorpay_webhook_secret,
             clock=clock,
         )
+        storage = make_storage(settings)
         install_billing(
             app,
             make_context(
@@ -113,6 +119,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 gateway,
                 clock,
                 ids,
+                entitlements.invalidate,
+            ),
+            views=AccountViews(uow_factory, entitlements, counters, storage, clock),
+            admin=AdminService(
+                uow_factory,
+                clock,
+                ids,
+                SettlementService(uow_factory, gateway, clock),
                 entitlements.invalidate,
             ),
         )
@@ -162,6 +176,8 @@ app = FastAPI(title="billing-api", lifespan=lifespan)
 app.include_router(public_router)
 app.include_router(billing_router)
 app.include_router(models_router)
+app.include_router(me_router)
+app.include_router(admin_router)
 app.include_router(webhook_router)
 rest_errors.install(app)
 # Added before the correlation-id middleware below, so it runs inside it and sees the id.

@@ -324,6 +324,10 @@ class AccountRepo(Protocol):
         """Checkout always refreshes state and email; name and GSTIN only when given."""
         ...
 
+    async def set_blocked(self, account_id: UUID, reason: str | None, now: datetime) -> None:
+        """Block (reason given) or unblock (reason None) the account."""
+        ...
+
     async def set_state_code(self, account_id: UUID, code: str) -> None: ...
 
     async def set_gstin(
@@ -452,6 +456,8 @@ class OverrideRepo(Protocol):
     async def insert(self, record: OverrideRecord) -> None: ...
 
     async def end(self, override_id: UUID, now: datetime) -> None: ...
+
+    async def get(self, override_id: UUID) -> OverrideRecord | None: ...
 
 
 class UsageRepo(Protocol):
@@ -622,6 +628,30 @@ class JobRepo(Protocol):
         ...
 
 
+class AdminRepo(Protocol):
+    """Read models for the admin console and the user's own views: JSON-ready rows."""
+
+    async def search_accounts(self, q: str, limit: int = 50) -> list[dict[str, Any]]: ...
+
+    async def account_detail(
+        self, account_id: UUID, month_start: datetime, month_end: datetime
+    ) -> dict[str, Any] | None: ...
+
+    async def costs(self, start: datetime, end: datetime, by: str) -> list[dict[str, Any]]: ...
+
+    async def provider_costs_between(
+        self, start: datetime, end: datetime
+    ) -> list[dict[str, Any]]: ...
+
+    async def latest_reconciliation(self, run_date: date) -> list[dict[str, Any]]: ...
+
+    async def daily_usage(self, user_id: UUID, start: date, end: date) -> list[dict[str, Any]]: ...
+
+    async def audit_row(self, audit_id: int) -> dict[str, Any] | None: ...
+
+    async def repoint_plan_version(self, old: UUID, new: UUID) -> list[dict[str, Any]]: ...
+
+
 class HousekeepingRepo(Protocol):
     async def prune(self, now: datetime) -> dict[str, int]:
         """Delete what has outlived its retention window; returns rows removed per table."""
@@ -695,6 +725,9 @@ class UnitOfWork(Protocol):
 
     @property
     def housekeeping(self) -> HousekeepingRepo: ...
+
+    @property
+    def admin(self) -> AdminRepo: ...
 
     def after_commit(self, callback: Callable[[], Awaitable[None]]) -> None:
         """Run `callback` once the transaction has committed; dropped on rollback. A callback

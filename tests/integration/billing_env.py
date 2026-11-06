@@ -17,10 +17,14 @@ from billing.adapters.db.uow import SqlUnitOfWork
 from billing.adapters.ids import Uuid7Generator
 from billing.adapters.pdf import WeasyPrintRenderer
 from billing.adapters.storage import InMemoryStorage
+from billing.adapters.valkey.counters import ValkeyCounters
 from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
+from billing.app.account_views import AccountViews
+from billing.app.admin import AdminService
 from billing.app.config import BillingConfig, BillingContext
 from billing.app.entitlements import EntitlementService
 from billing.app.invoices import InvoiceService
+from billing.app.settlements import SettlementService
 from billing.app.subscriptions import CheckoutOptions, SubscriptionService
 from billing.app.webhooks import EventApplier
 from billing.domain.catalog import Interval
@@ -65,6 +69,7 @@ class Env:
     runner: JobRunner
     entitlements: EntitlementService
     storage: InMemoryStorage
+    counters: ValkeyCounters
     invoices: InvoiceService
     invalidated: list[UUID] = field(default_factory=list)
     user: UUID = field(default_factory=uuid4)
@@ -165,7 +170,20 @@ class Env:
         )
 
     def api(self) -> httpx.AsyncClient:
-        install_billing(app, self.bctx)
+        install_billing(
+            app,
+            self.bctx,
+            views=AccountViews(
+                self.bctx.uow_factory, self.entitlements, self.counters, self.storage, self.clock
+            ),
+            admin=AdminService(
+                self.bctx.uow_factory,
+                self.clock,
+                self.bctx.ids,
+                SettlementService(self.bctx.uow_factory, self.gateway, self.clock),
+                self.entitlements.invalidate,
+            ),
+        )
         transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
         return httpx.AsyncClient(transport=transport, base_url="http://test")
 
@@ -222,6 +240,7 @@ def build_env(
         ),
         entitlements=entitlements,
         storage=storage,
+        counters=ValkeyCounters(vk),
         invoices=invoices,
         invalidated=invalidated,
     )

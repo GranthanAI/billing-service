@@ -89,6 +89,7 @@ class UsageEventRecord:
     aux_output_tokens: int = 0
     price_paise: Paise = Paise(0)
     hold_id: str | None = None
+    provider_costs: Mapping[str, int] | None = None  # micro-rupees per provider
 
 
 @dataclass(frozen=True, slots=True)

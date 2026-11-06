@@ -10,9 +10,27 @@ from billing.app.records import OverrideRecord
 from billing.domain.catalog import OwnerType
 
 
+def _record(r: object) -> OverrideRecord:
+    return OverrideRecord(
+        id=r.id,  # type: ignore[attr-defined]
+        owner_type=OwnerType(r.owner_type),  # type: ignore[attr-defined]
+        owner_id=r.owner_id,  # type: ignore[attr-defined]
+        plan_version_id=r.plan_version_id,  # type: ignore[attr-defined]
+        reason=r.reason,  # type: ignore[attr-defined]
+        starts_at=r.starts_at,  # type: ignore[attr-defined]
+        expires_at=r.expires_at,  # type: ignore[attr-defined]
+        granted_by=r.granted_by,  # type: ignore[attr-defined]
+        ended_at=r.ended_at,  # type: ignore[attr-defined]
+    )
+
+
 class SqlOverrideRepo:
     def __init__(self, conn: AsyncConnection) -> None:
         self._c = conn
+
+    async def get(self, override_id: UUID) -> OverrideRecord | None:
+        r = (await self._c.execute(sa.select(t).where(t.c.id == override_id))).first()
+        return _record(r) if r else None
 
     async def active_for(
         self, owner_type: OwnerType, owner_id: UUID, now: datetime

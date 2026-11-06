@@ -224,6 +224,7 @@ usage_events = sa.Table(
     sa.Column("price_paise", sa.BigInteger, nullable=False, server_default=sa.text("0")),
     sa.Column("fx_usd_inr", sa.Numeric(10, 4), nullable=False),
     sa.Column("hold_id", sa.Text),
+    sa.Column("provider_costs", pg.JSONB),
     sa.Index("usage_events_account", "billing_account_id", "occurred_at"),
     sa.Index("usage_events_user", "user_id", "occurred_at"),
     postgresql_partition_by="RANGE (occurred_at)",

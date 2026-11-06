@@ -214,6 +214,20 @@ class UsageService:
         else:
             cost = calls_cost  # the provider charged for what was attempted
 
+        per_provider: dict[str, int] = {}
+        for c, d in zip(ev.calls, domain_calls, strict=True):
+            per_provider[c.provider] = per_provider.get(c.provider, 0) + int(
+                cost_micro_inr([d], book, fx)
+            )
+        extra = int(cost) - sum(per_provider.values())  # rounding, or a render/ingest estimate
+        if extra:
+            owner = (
+                "internal"
+                if ev.kind is not ReserveKind.MESSAGE
+                else next(iter(per_provider), "internal")
+            )
+            per_provider[owner] = per_provider.get(owner, 0) + extra
+
         aux_in = aux_out = 0
         for c in ev.calls:
             if c is not primary:
@@ -242,14 +256,12 @@ class UsageService:
                 aux_output_tokens=aux_out,
                 price_paise=price,
                 hold_id=ev.hold_id,
+                provider_costs=per_provider,
             )
         )
 
-        by_provider: dict[tuple[str, str], int] = {}
         label = group.value if group else KIND_NAMES[ev.kind]
-        for c, d in zip(ev.calls, domain_calls, strict=True):
-            one = cost_micro_inr([d], book, fx)
-            by_provider[(c.provider, label)] = by_provider.get((c.provider, label), 0) + int(one)
+        by_provider = {(provider, label): value for provider, value in per_provider.items()}
         return Recorded(account_id, plan_code, by_provider, success)
 
     # --- settling the hold ------------------------------------------------------------------
