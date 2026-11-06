@@ -33,6 +33,7 @@ from billing.jobs.handlers import holds as holds_job
 from billing.jobs.handlers import invoices as invoice_jobs  # noqa: F401  (registers handlers)
 from billing.jobs.handlers import lifecycle as lifecycle_jobs
 from billing.jobs.handlers import partitions as partitions_job
+from billing.jobs.handlers import reconcile as reconcile_jobs
 from billing.jobs.handlers import usage as usage_jobs
 from billing.jobs.runner import JobContext, JobRunner
 from billing.jobs.scheduler import Recurring, Scheduler
@@ -49,6 +50,7 @@ SCHEDULE: tuple[Recurring, ...] = (
     usage_jobs.SCHEDULE,
     *lifecycle_jobs.SCHEDULES,
     *finance_jobs.SCHEDULES,
+    reconcile_jobs.SCHEDULE,
 )
 DRAIN_SECONDS = 30.0
 HEALTH_PORT = 9100

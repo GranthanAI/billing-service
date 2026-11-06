@@ -80,3 +80,9 @@ USAGE_LATE_COMMIT = Counter(
     "billing_usage_late_commit_total",
     "Usage that arrived after its hold had expired (or with no hold) and was counted then",
 )
+
+RECON_DIFFERENCE = Gauge(
+    "billing_reconciliation_difference_paise",
+    "Difference found by the last reconciliation, per check (units, not paise, for counters)",
+    ["check"],
+)

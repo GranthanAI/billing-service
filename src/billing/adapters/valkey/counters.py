@@ -179,6 +179,14 @@ class ValkeyCounters:
         data: dict[str, str] = await aw(self._c.hgetall(keys.day_counters_for(user_id, day)))
         return {k: int(v) for k, v in data.items()}
 
+    async def day_counts_all(self, day: date) -> dict[UUID, dict[str, int]]:
+        out: dict[UUID, dict[str, int]] = {}
+        async for key in self._c.scan_iter(match=f"use:{{*}}:d:{day:%Y%m%d}", count=500):
+            uid = UUID(key.split("{", 1)[1].split("}", 1)[0])
+            data: dict[str, str] = await aw(self._c.hgetall(key))
+            out[uid] = {k: int(v) for k, v in data.items()}
+        return out
+
     async def month_counts(self, user_id: UUID, now: datetime) -> dict[str, int]:
         data: dict[str, str] = await aw(self._c.hgetall(keys.month_counters(user_id, now)))
         return {k: int(v) for k, v in data.items()}

@@ -113,6 +113,23 @@ async def _valkey_rebuild(day: date | None) -> int:
     return 0
 
 
+async def _costs_import(provider: str, path: Path) -> int:
+    """Load `day,cost_inr` rows into provider_costs (an upsert: re-importing a day replaces it)."""
+    from billing.app.reconciliation import parse_cost_csv
+
+    rows = parse_cost_csv(path.read_text(encoding="utf-8"))
+    settings = RebuildSettings()  # type: ignore[call-arg]
+    engine = make_engine(settings.billing_database_url, pool_size=2)
+    try:
+        async with SqlUnitOfWork(engine, Uuid7Generator()) as uow:
+            for day, micro in rows:
+                await uow.admin.upsert_provider_cost(provider, day, micro, path.name)
+    finally:
+        await engine.dispose()
+    print(f"imported {len(rows)} day(s) of {provider} cost from {path.name}")
+    return 0
+
+
 class KafkaSettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
@@ -171,12 +188,19 @@ def main(argv: list[str] | None = None) -> int:
     replay_cmd.add_argument("--topic", required=True, help="e.g. billing.usage.dlq")
     replay_cmd.add_argument("--limit", type=int, default=None, help="at most this many messages")
 
+    costs = top.add_parser("costs").add_subparsers(dest="cmd", required=True)
+    cost_import = costs.add_parser("import", help="import a provider's daily cost export (CSV)")
+    cost_import.add_argument("--provider", required=True, help="e.g. anthropic, groq, google")
+    cost_import.add_argument("--file", required=True, type=Path, help="CSV with day,cost_inr")
+
     valkey = top.add_parser("valkey").add_subparsers(dest="cmd", required=True)
     rebuild = valkey.add_parser("rebuild", help="rebuild one day's counters from usage_events")
     rebuild.add_argument("--day", type=date.fromisoformat, default=None, help="IST day, YYYY-MM-DD")
 
     args = parser.parse_args(argv)
     try:
+        if args.group == "costs":
+            return asyncio.run(_costs_import(args.provider, args.file))
         if args.group == "dlq":
             return asyncio.run(_dlq_replay(args.topic, args.limit))
         if args.group == "valkey":

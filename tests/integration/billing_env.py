@@ -33,6 +33,7 @@ from billing.jobs.handlers import billing as billing_jobs  # noqa: F401  (regist
 from billing.jobs.handlers import finance as finance_jobs  # noqa: F401
 from billing.jobs.handlers import invoices as invoice_jobs  # noqa: F401
 from billing.jobs.handlers import lifecycle as lifecycle_jobs  # noqa: F401
+from billing.jobs.handlers import reconcile as reconcile_jobs  # noqa: F401
 from billing.jobs.runner import JobContext, JobRunner
 from billing.jobs.webhooks import WebhookProcessor
 from billing.main_api import app
@@ -165,6 +166,7 @@ class Env:
                 billing=self.bctx,
                 applier=self.applier,
                 invoices=self.invoices,
+                counters=self.counters,
             ),
             poll_interval=0.01,
         )
@@ -216,6 +218,7 @@ def build_env(
     bctx = BillingContext(uow_factory, gateway, clock, ids, cfg or config(), invalidate)
     applier = EventApplier(bctx)
     storage = InMemoryStorage()
+    counters = ValkeyCounters(vk)
     invoices = InvoiceService(uow_factory, WeasyPrintRenderer(), storage, clock, bctx.config)
     return Env(
         app_engine=app_engine,
@@ -235,12 +238,13 @@ def build_env(
                 billing=bctx,
                 applier=applier,
                 invoices=invoices,
+                counters=counters,
             ),
             poll_interval=0.01,
         ),
         entitlements=entitlements,
         storage=storage,
-        counters=ValkeyCounters(vk),
+        counters=counters,
         invoices=invoices,
         invalidated=invalidated,
     )

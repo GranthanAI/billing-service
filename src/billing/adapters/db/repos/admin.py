@@ -217,3 +217,78 @@ class SqlAdminRepo:
             "WHERE id = ANY(:ids)",
             ids=ids,
         )
+
+    # --- reconciliation ------------------------------------------------------------------------
+
+    async def payments_between(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
+        return await self._all(
+            "SELECT gateway_payment_id, amount_paise FROM billing.payments "
+            "WHERE captured_at >= :s AND captured_at < :e",
+            s=start,
+            e=end,
+        )
+
+    async def clearing_charged_between(self, start: datetime, end: datetime) -> int:
+        """What the ledger says was charged to customers: debits to the clearing account by
+        charge and top-up transactions."""
+        rows = await self._all(
+            "SELECT coalesce(sum(e.amount_paise), 0)::bigint AS total "
+            "FROM billing.ledger_entries e "
+            "JOIN billing.ledger_transactions t ON t.id = e.transaction_id "
+            "JOIN billing.ledger_accounts a ON a.id = e.account_id "
+            "WHERE a.code = 'asset:razorpay_clearing' AND e.amount_paise > 0 "
+            "AND t.kind IN ('subscription_charge', 'wallet_topup') "
+            "AND t.occurred_at >= :s AND t.occurred_at < :e",
+            s=start,
+            e=end,
+        )
+        return int(rows[0]["total"])
+
+    async def ledger_integrity(self) -> dict[str, Any]:
+        unbalanced = await self._all(
+            "SELECT transaction_id::text AS transaction_id, sum(amount_paise)::bigint AS total "
+            "FROM billing.ledger_entries GROUP BY transaction_id HAVING sum(amount_paise) <> 0 "
+            "LIMIT 100"
+        )
+        mismatched = await self._all(
+            "SELECT a.code, coalesce(b.balance_paise, 0)::bigint AS balance, "
+            "coalesce(e.total, 0)::bigint AS entries "
+            "FROM billing.ledger_accounts a "
+            "LEFT JOIN billing.ledger_balances b ON b.account_id = a.id "
+            "LEFT JOIN (SELECT account_id, sum(amount_paise) AS total FROM billing.ledger_entries "
+            "GROUP BY account_id) e ON e.account_id = a.id "
+            "WHERE coalesce(b.balance_paise, 0) <> coalesce(e.total, 0) ORDER BY a.code LIMIT 100"
+        )
+        return {"unbalanced": unbalanced, "balance_mismatches": mismatched}
+
+    async def imported_provider_costs(self, day: date) -> dict[str, int]:
+        rows = await self._all(
+            "SELECT provider, cost_micro_inr FROM billing.provider_costs WHERE day = :d", d=day
+        )
+        return {r["provider"]: int(r["cost_micro_inr"]) for r in rows}
+
+    async def upsert_provider_cost(
+        self, provider: str, day: date, cost_micro_inr: int, source: str
+    ) -> None:
+        await self._c.execute(
+            sa.text(
+                "INSERT INTO billing.provider_costs (provider, day, cost_micro_inr, source) "
+                "VALUES (:p, :d, :c, :s) ON CONFLICT (provider, day) DO UPDATE SET "
+                "cost_micro_inr = EXCLUDED.cost_micro_inr, source = EXCLUDED.source, "
+                "imported_at = now()"
+            ),
+            {"p": provider, "d": day, "c": cost_micro_inr, "s": source},
+        )
+
+    async def record_reconciliation(
+        self, run_date: date, check: str, status: str, difference: int, details: dict[str, Any]
+    ) -> None:
+        import json
+
+        await self._c.execute(
+            sa.text(
+                'INSERT INTO billing.reconciliation_runs (run_date, "check", status, '
+                "difference_paise, details) VALUES (:d, :c, :s, :x, CAST(:j AS jsonb))"
+            ),
+            {"d": run_date, "c": check, "s": status, "x": difference, "j": json.dumps(details)},
+        )
