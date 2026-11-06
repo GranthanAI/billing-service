@@ -5,15 +5,17 @@ import contextlib
 from typing import Any
 
 import structlog
+from opentelemetry import trace
 
 from billing.adapters.razorpay import mapping
 from billing.app.config import BillingContext
 from billing.app.ports import GatewayPayment, GatewaySubscription
 from billing.app.records import InboxRow
 from billing.app.webhooks import EventApplier, GatewayEvent
-from billing.observability import WEBHOOK_FAILED
+from billing.observability import PAYMENTS, WEBHOOK_FAILED
 
 log = structlog.get_logger()
+tracer = trace.get_tracer("billing")
 
 BATCH = 20
 LEASE_SECONDS = 300
@@ -71,10 +73,17 @@ class WebhookProcessor:
 
     async def _process(self, row: InboxRow) -> None:
         try:
-            event = await self._load(row)
-            async with self._b.uow_factory() as uow:
-                outcome = await self._applier.apply(uow, event)
-                await uow.inbox.mark(row.id, outcome)
+            with tracer.start_as_current_span("billing.webhook.process") as span:
+                span.set_attribute("webhook.event_type", row.event_type)
+                event = await self._load(row)
+                async with self._b.uow_factory() as uow:
+                    outcome = await self._applier.apply(uow, event)
+                    await uow.inbox.mark(row.id, outcome)
+            if row.event_type == "payment.failed":
+                entity = _entity(dict(row.payload), "payment") or {}
+                PAYMENTS.labels(
+                    method=str(entity.get("method") or "unknown"), status="failed"
+                ).inc()
         except Exception as exc:
             async with self._b.uow_factory() as uow:
                 status = await uow.inbox.record_failure(

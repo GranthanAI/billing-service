@@ -22,5 +22,10 @@ def verify_checkout(key_secret: str, payment_id: str, subscription_id: str, sign
 
 
 def verify_webhook(webhook_secret: str, raw_body: bytes, signature: str) -> bool:
-    expected = webhook_signature(webhook_secret, raw_body)
-    return hmac.compare_digest(expected.encode(), signature.encode())
+    """`webhook_secret` may be several secrets joined by commas (during a rotation: the new one
+    and the old one both verify). Every secret is tried, so timing does not reveal which."""
+    ok = False
+    for secret in (s for s in webhook_secret.split(",") if s):
+        expected = webhook_signature(secret, raw_body)
+        ok |= hmac.compare_digest(expected.encode(), signature.encode())
+    return ok

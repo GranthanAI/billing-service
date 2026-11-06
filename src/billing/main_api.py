@@ -19,6 +19,7 @@ from billing.adapters.db.migrations import schema_problem
 from billing.adapters.db.uow import SqlUnitOfWork
 from billing.adapters.gateways import make_gateway
 from billing.adapters.ids import Uuid7Generator
+from billing.adapters.kafka.health import KafkaProbe
 from billing.adapters.valkey.client import aw, config_problem, make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
 from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
@@ -38,8 +39,15 @@ from billing.app.entitlements import EntitlementService, ModelCatalog
 from billing.app.model_picker import ModelPicker
 from billing.app.reserve import ReserveService
 from billing.app.settlements import SettlementService
-from billing.observability import HOLDS_OPEN, LOOP_LAG, configure_logging, metrics_payload
-from billing.settings import Settings, get_settings
+from billing.observability import (
+    AI_BUDGET,
+    HOLDS_OPEN,
+    LOOP_LAG,
+    configure_logging,
+    init_sentry,
+    metrics_payload,
+)
+from billing.settings import Settings, get_settings, webhook_secrets
 from billing.wiring import config_from_settings, install_billing, make_context, make_storage
 
 configure_logging()
@@ -80,6 +88,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         owned_engine = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
         app.state.engine = owned_engine
         app.state.payg_enabled = settings.payg_enabled
+        app.state.kafka_probe = KafkaProbe(settings.kafka_bootstrap_servers)
+        init_sentry(settings.sentry_dsn, settings.environment)
+        AI_BUDGET.set(settings.daily_ai_budget_inr * 1_000_000)
         try:
             app.state.catalog_version = load_catalog(settings.plans_file).catalog_version
         except CatalogError:
@@ -107,7 +118,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             settings.environment,
             key_id=settings.razorpay_key_id,
             key_secret=settings.razorpay_key_secret,
-            webhook_secret=settings.razorpay_webhook_secret,
+            webhook_secret=webhook_secrets(settings),
             clock=clock,
         )
         storage = make_storage(settings)
@@ -226,7 +237,9 @@ async def readyz(request: Request) -> Response:
             return _not_ready(unsafe)
     except Exception as exc:
         return _not_ready(f"valkey unavailable: {type(exc).__name__}")
-    # The catalog checksum check arrives with the catalog work in a later phase.
+    probe = getattr(request.app.state, "kafka_probe", None)
+    if probe is not None and (problem := await probe()):
+        return _not_ready(problem)
     return JSONResponse({"status": "ready"})
 
 

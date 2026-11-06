@@ -20,6 +20,7 @@ from billing.domain.calendar import IST, financial_year_code
 from billing.domain.catalog import Interval
 from billing.domain.ledger import subscription_charge, subscription_refund
 from billing.domain.money import GstSplit, Paise, round_half_up, split_gst
+from billing.observability import PAYMENTS
 
 log = structlog.get_logger()
 RENDER_JOB = "invoice.render"
@@ -89,6 +90,7 @@ async def record_charge(
     )
     if not inserted:
         return False
+    PAYMENTS.labels(method=payment.method or "unknown", status="captured").inc()
 
     account = await uow.accounts.get(subscription.billing_account_id)
     if account is None or account.state_code is None:

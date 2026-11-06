@@ -1,7 +1,23 @@
 import logging
 
+import sentry_sdk
 import structlog
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+
+from billing.redaction import sentry_before_send, structlog_processor  # noqa: E402
+
+
+def init_sentry(dsn: str, environment: str) -> bool:
+    """Send errors to Sentry with personal data stripped. A no-op without a DSN."""
+    if not dsn:
+        return False
+    sentry_sdk.init(
+        dsn=dsn,
+        environment=environment,
+        send_default_pii=False,
+        before_send=sentry_before_send,  # type: ignore[arg-type]
+    )
+    return True
 
 
 def configure_logging() -> None:
@@ -10,6 +26,7 @@ def configure_logging() -> None:
         processors=[
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
+            structlog_processor,
             structlog.processors.TimeStamper(fmt="iso", utc=True),
             structlog.processors.JSONRenderer(),
         ],
@@ -85,4 +102,17 @@ RECON_DIFFERENCE = Gauge(
     "billing_reconciliation_difference_paise",
     "Difference found by the last reconciliation, per check (units, not paise, for counters)",
     ["check"],
+)
+
+INBOX_BACKLOG = Gauge("billing_webhook_inbox_backlog", "Webhook inbox rows by status", ["status"])
+PAYMENTS = Counter("billing_payments_total", "Payment attempts seen", ["method", "status"])
+SUBSCRIPTIONS = Gauge(
+    "billing_subscriptions", "Subscriptions by plan and status", ["plan", "status"]
+)
+DLQ_MESSAGES = Counter(
+    "billing_dlq_messages_total", "Messages sent to a dead-letter topic", ["topic"]
+)
+
+AI_BUDGET = Gauge(
+    "billing_daily_ai_budget_micro_inr", "DAILY_AI_BUDGET_INR in micro-rupees (alert threshold)"
 )

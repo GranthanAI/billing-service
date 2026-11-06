@@ -16,6 +16,7 @@ from typing import Literal
 from uuid import UUID
 
 import structlog
+from opentelemetry import trace
 
 from billing.app.entitlements import EntitlementService
 from billing.app.events import UsageThresholdReachedEvent
@@ -36,6 +37,7 @@ from billing.domain.rating import (
 from billing.observability import USAGE_COST, USAGE_EVENTS, USAGE_LATE_COMMIT
 
 log = structlog.get_logger()
+tracer = trace.get_tracer("billing")
 
 CONSUMER = "billing-usage"
 THRESHOLD_PERCENTS = (80, 100)
@@ -138,6 +140,11 @@ class UsageService:
     # --- entry point -----------------------------------------------------------------------
 
     async def apply(self, ev: UsageEvent) -> Literal["applied", "duplicate"]:
+        with tracer.start_as_current_span("billing.usage.apply") as span:
+            span.set_attribute("usage.kind", KIND_NAMES[ev.kind])
+            return await self._apply(ev)
+
+    async def _apply(self, ev: UsageEvent) -> Literal["applied", "duplicate"]:
         require_aware(ev.occurred_at)
         hold = await self._counters.peek_hold(ev.user_id, ev.hold_id) if ev.hold_id else None
         ent = None if hold is not None else await self._ent.resolve(ev.user_id)

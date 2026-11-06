@@ -22,6 +22,7 @@ from aiokafka.structs import OffsetAndMetadata
 
 from billing.adapters.kafka.producer import KafkaProducer
 from billing.app.context import correlation_id_var
+from billing.observability import DLQ_MESSAGES
 
 log = structlog.get_logger()
 
@@ -77,6 +78,7 @@ class KafkaEventConsumer[T]:
             source_topic=msg.topic.encode(),
         )
         await self._producer.send_and_wait(self._dlq, msg.key, msg.value, headers)
+        DLQ_MESSAGES.labels(topic=msg.topic).inc()
         if self._on_dead_letter is not None:
             self._on_dead_letter(msg.topic)
         log.warning("dead_lettered", topic=msg.topic, offset=msg.offset, error=error[:200])

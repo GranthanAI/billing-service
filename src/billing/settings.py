@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     razorpay_key_id: str = Field(...)
     razorpay_key_secret: str = Field(...)
     razorpay_webhook_secret: str = Field(...)
+    # Extra secrets accepted while rotating, comma-separated (secrets must not contain commas).
+    razorpay_webhook_secrets: str = ""
+    sentry_dsn: str = ""
     service_token_keys: str = Field(...)
     supplier_gstin: str = ""
     supplier_legal_name: str = "GranthanAI"
@@ -54,6 +57,12 @@ class Settings(BaseSettings):
     manim_render_cost_usd: Decimal = Decimal("0.01")
     youtube_ingest_cost_inr: Decimal = Decimal("0.30")
     timezone_business: str = "Asia/Kolkata"
+
+
+def webhook_secrets(s: "Settings") -> str:
+    """The primary webhook secret plus any rotation secrets, as one comma-joined string."""
+    extra = [x.strip() for x in s.razorpay_webhook_secrets.split(",") if x.strip()]
+    return ",".join(dict.fromkeys([s.razorpay_webhook_secret, *extra]))
 
 
 @lru_cache

@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 import structlog
+from opentelemetry import trace
 
 from billing.adapters.razorpay import mapping, signatures
 from billing.app.errors import GatewayRejected, GatewayUnavailable
@@ -22,6 +23,7 @@ from billing.app.ports import (
 from billing.domain.money import Paise
 
 log = structlog.get_logger()
+tracer = trace.get_tracer("billing")
 
 BASE_URL = "https://api.razorpay.com/v1"
 TIMEOUT_SECONDS = 10.0
@@ -78,6 +80,13 @@ class RazorpayGateway:
         self, method: str, path: str, *, json: Any = None, params: Mapping[str, Any] | None = None
     ) -> dict[str, Any]:
         """Retries network errors, 429 and 5xx with backoff; any other 4xx is GatewayRejected."""
+        operation = f"razorpay.{method.lower()}_{path.strip('/').split('/')[0]}"
+        with tracer.start_as_current_span(operation):
+            return await self._request_with_retries(method, path, json, params)
+
+    async def _request_with_retries(
+        self, method: str, path: str, json: Any, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
         last = "no attempt made"
         for attempt in range(ATTEMPTS):
             if attempt:

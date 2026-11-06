@@ -1,0 +1,103 @@
+# Alert rules for billing-service (LLD "Observability > Alerts"). Checked by `make alerts-check`.
+# severity: page = wake someone; ticket = look at it in working hours.
+groups:
+  - name: billing-hot-path
+    rules:
+      - alert: BillingReserveSlow
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(billing_reserve_duration_seconds_bucket{kind="message"}[5m]))) > 0.025
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: CheckAndReserve p99 is over 25 ms for 10 minutes
+      - alert: BillingDown
+        # The callers' own "breaker open" signal lives in conversation-service; this is ours.
+        expr: up{job="billing-api"} == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: billing-api is not answering scrapes
+      - alert: BillingHoldsLeaking
+        expr: |
+          sum(increase(billing_holds_expired_total[1h]))
+            / clamp_min(sum(increase(billing_reserve_requests_total{decision="allow"}[1h])), 1) > 0.02
+        for: 5m
+        labels: {severity: ticket}
+        annotations:
+          summary: More than 2% of allowed reserves expired without usage; the usage pipeline may have stopped
+
+  - name: billing-money
+    rules:
+      - alert: BillingUsageNotBilled
+        # no `for:` on purpose: one dead letter keeps increase() above zero for only a few minutes
+        expr: |
+          increase(billing_dlq_messages_total{topic=~"chat.response.generated|chat.response.cancelled|artifact.manim.rendered|file.youtube.ingested"}[10m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: A usage event was dead-lettered, so a message went unbilled
+      - alert: BillingUsageLagging
+        expr: max(kafka_consumergroup_lag{consumergroup="billing-usage"}) > 1000
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: The billing-usage consumer is more than 1000 messages behind
+      - alert: BillingUserEventsDeadLettered
+        expr: increase(billing_dlq_messages_total{topic="user.deleted"}[5m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: A user.deleted event could not be applied
+      - alert: BillingWebhookFailed
+        expr: increase(billing_webhook_failed_total[5m]) > 0 or billing_webhook_inbox_backlog{status="failed"} > 0
+        labels: {severity: page}
+        annotations:
+          summary: A Razorpay webhook ran out of attempts
+      - alert: BillingWebhooksSilent
+        expr: |
+          sum(increase(billing_webhooks_received_total{signature_ok="true"}[24h])) == 0
+            and sum(billing_subscriptions{status=~"active|past_due|cancelling"}) > 0
+        labels: {severity: page}
+        annotations:
+          summary: No Razorpay webhook for 24 hours while subscriptions are live
+      - alert: BillingWebhookUnexpected
+        expr: increase(billing_webhook_unexpected_total[10m]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: Razorpay said a subscription completed or expired; our total counts should make that impossible
+      - alert: BillingRefundFailed
+        expr: increase(billing_refund_failed_total[10m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: Razorpay reported a failed refund
+      - alert: BillingOutboxStuck
+        expr: billing_outbox_oldest_unpublished_seconds > 60
+        labels: {severity: page}
+        annotations:
+          summary: The oldest unpublished outbox row is over 60 seconds old
+      - alert: BillingPaymentsFailing
+        expr: |
+          sum(increase(billing_payments_total{status="failed"}[1h]))
+            / clamp_min(sum(increase(billing_payments_total[1h])), 1) > 0.15
+            and sum(increase(billing_payments_total[1h])) >= 20
+        labels: {severity: ticket}
+        annotations:
+          summary: More than 15% of payment attempts failed in the last hour
+      - alert: BillingMoneyMismatch
+        expr: billing_reconciliation_difference_paise != 0
+        labels: {severity: page}
+        annotations:
+          summary: A reconciliation check found a difference
+      - alert: BillingAiSpendOverBudget
+        # a rolling 24 hours; the budget is DAILY_AI_BUDGET_INR, exported as a gauge
+        expr: |
+          sum(increase(billing_usage_cost_micro_inr_total[24h])) > max(billing_daily_ai_budget_micro_inr)
+        labels: {severity: page}
+        annotations:
+          summary: AI provider cost over the last 24 hours is above the daily budget
+      - alert: BillingJobsDying
+        expr: increase(billing_jobs_dead_total[10m]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: A background job ran out of attempts
+# "Heavy user" (one user's cost above 3x their plan's average) is not a Prometheus rule: it needs a
+# per-user series. Use GET /admin/billing/v1/costs?by=user (the 20 heaviest users).

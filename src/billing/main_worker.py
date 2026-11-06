@@ -25,6 +25,7 @@ from billing.adapters.valkey.client import make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
 from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
 from billing.app.entitlements import EntitlementService
+from billing.app.gauges import sample_gauges
 from billing.app.invoices import InvoiceService
 from billing.app.usage import UsageService
 from billing.app.user_deletion import UserDeletionService
@@ -40,8 +41,8 @@ from billing.jobs.handlers import usage as usage_jobs
 from billing.jobs.runner import JobContext, JobRunner
 from billing.jobs.scheduler import Recurring, Scheduler
 from billing.jobs.webhooks import WebhookProcessor
-from billing.observability import configure_logging, metrics_payload
-from billing.settings import Settings, get_settings
+from billing.observability import AI_BUDGET, configure_logging, init_sentry, metrics_payload
+from billing.settings import Settings, get_settings, webhook_secrets
 from billing.wiring import config_from_settings, make_context, make_storage
 
 log = structlog.get_logger()
@@ -120,7 +121,7 @@ async def run_worker(
         settings.environment,
         key_id=settings.razorpay_key_id,
         key_secret=settings.razorpay_key_secret,
-        webhook_secret=settings.razorpay_webhook_secret,
+        webhook_secret=webhook_secrets(settings),
         clock=clock,
     )
     bctx = make_context(
@@ -194,6 +195,7 @@ async def run_worker(
             group.create_task(scheduler.run(stop))
             group.create_task(runner.run(stop, drain_seconds))
             group.create_task(WebhookProcessor(bctx, applier).run(stop))
+            group.create_task(sample_gauges(uow_factory, stop))
             for consumer in all_consumers:
                 group.create_task(consumer.run(stop))
             group.create_task(watch_stop())
@@ -211,6 +213,8 @@ async def run_worker(
 async def main() -> None:
     configure_logging()
     settings = get_settings()  # fails fast when the database or Kafka settings are missing
+    init_sentry(settings.sentry_dsn, settings.environment)
+    AI_BUDGET.set(settings.daily_ai_budget_inr * 1_000_000)
     stop = asyncio.Event()
     install_signal_handlers(stop)
     log.info("worker_starting")

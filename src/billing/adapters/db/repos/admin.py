@@ -218,6 +218,25 @@ class SqlAdminRepo:
             ids=ids,
         )
 
+    async def gauge_counts(
+        self,
+    ) -> tuple[dict[str, int], dict[tuple[str, str], int]]:
+        inbox = {
+            r["status"]: int(r["n"])
+            for r in await self._all(
+                "SELECT status, count(*) AS n FROM billing.webhook_inbox GROUP BY status"
+            )
+        }
+        subs = {
+            (r["plan_code"], r["status"]): int(r["n"])
+            for r in await self._all(
+                "SELECT pv.plan_code, s.status::text AS status, count(*) AS n "
+                "FROM billing.subscriptions s JOIN billing.plan_versions pv "
+                "ON pv.id = s.plan_version_id GROUP BY 1, 2"
+            )
+        }
+        return inbox, subs
+
     # --- reconciliation ------------------------------------------------------------------------
 
     async def payments_between(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
