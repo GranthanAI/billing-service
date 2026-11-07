@@ -22,6 +22,7 @@ from billing.domain.catalog import UNLIMITED, ModelGroup, PlanVersion
 class _Snapshot:
     models: tuple[ModelEntry, ...]
     individual_plans: tuple[PlanVersion, ...]  # self-serve plans, lowest rank first
+    payg_groups: frozenset[ModelGroup]  # what Pay as you Go credits can buy
 
 
 def _or_null(limit: int) -> int | None:
@@ -55,6 +56,7 @@ class ModelPicker:
             async with self._uow() as uow:
                 models = await uow.plans.list_models()
                 plans = await uow.plans.all_current()
+                payg = await uow.plans.current("payg", None)
             individual = sorted(
                 (
                     r.plan
@@ -65,7 +67,8 @@ class ModelPicker:
                 ),
                 key=lambda p: p.rank,
             )
-            self._snap = _Snapshot(tuple(models), tuple(individual))
+            payg_groups = frozenset(payg.plan.allowed_groups) if payg is not None else frozenset()
+            self._snap = _Snapshot(tuple(models), tuple(individual), payg_groups)
             self._loaded_at = self._monotonic()
         return self._snap
 
@@ -104,11 +107,22 @@ class ModelPicker:
             real = [v for v in values if v is not None]
             return min(real) if real else None
 
+        # PAYG_ENABLED and spendable credits: a group the plan lacks but Pay as you Go offers
+        # (Ultra) is usable, paid from the wallet
+        has_credits = False
+        if self._payg and ent.overflow_wallet_account_id is not None:
+            wallet = await self._counters.wallet_get(ent.overflow_wallet_account_id)
+            has_credits = wallet.get("balance", 0) - wallet.get("held", 0) > 0
+
         groups: list[dict[str, Any]] = []
         for group in ModelGroup:
-            allowed = group in ent.allowed_groups
+            plan_allows = group in ent.allowed_groups
+            by_credits = not plan_allows and has_credits and group in snap.payg_groups
+            allowed = plan_allows or by_credits
             entry: dict[str, Any] = {"group": group.value, "allowed": allowed}
-            if not allowed:
+            if by_credits:
+                entry.update(daily_limit=None, remaining_today=None, funded_by="credits")
+            elif not allowed:
                 entry.update(daily_limit=0, remaining_today=0)
                 entry["upgrade_to"] = self._upgrade_to(group, snap)
             elif group is ModelGroup.BEST:
