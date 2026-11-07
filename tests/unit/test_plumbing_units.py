@@ -108,6 +108,7 @@ def test_topic_names_are_exactly_the_agreed_ones() -> None:
         "entitlement.personal_plan_redundant",
         "usage.threshold_reached",
         "wallet.credits_expiring",
+        "storage.payment_required",
         "invoice.issued",
         "billing.usage.dlq",
         "billing.user.dlq",

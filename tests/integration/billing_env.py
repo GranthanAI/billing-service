@@ -18,6 +18,7 @@ from billing.adapters.ids import Uuid7Generator
 from billing.adapters.orgs import FakeOrgDirectory
 from billing.adapters.pdf import WeasyPrintRenderer
 from billing.adapters.storage import InMemoryStorage
+from billing.adapters.storage_usage import FakeStorageUsage
 from billing.adapters.valkey.counters import ValkeyCounters
 from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
 from billing.app.account_views import AccountViews
@@ -81,6 +82,7 @@ class Env:
     counters: ValkeyCounters
     invoices: InvoiceService
     orgs: FakeOrgDirectory
+    storage_usage: FakeStorageUsage
     invalidated: list[UUID] = field(default_factory=list)
     user: UUID = field(default_factory=uuid4)
     _job_seq: int = 0
@@ -198,6 +200,8 @@ class Env:
                 applier=self.applier,
                 invoices=self.invoices,
                 counters=self.counters,
+                storage_usage=self.storage_usage,
+                entitlements=self.entitlements,
             ),
             poll_interval=0.01,
         )
@@ -279,6 +283,7 @@ def build_env(
     )
     applier = EventApplier(bctx)
     storage = InMemoryStorage()
+    storage_usage = FakeStorageUsage()
     invoices = InvoiceService(uow_factory, WeasyPrintRenderer(), storage, clock, bctx.config)
     return Env(
         app_engine=app_engine,
@@ -299,6 +304,8 @@ def build_env(
                 applier=applier,
                 invoices=invoices,
                 counters=counters,
+                storage_usage=storage_usage,
+                entitlements=entitlements,
             ),
             poll_interval=0.01,
         ),
@@ -307,5 +314,6 @@ def build_env(
         counters=counters,
         invoices=invoices,
         orgs=orgs,
+        storage_usage=storage_usage,
         invalidated=invalidated,
     )

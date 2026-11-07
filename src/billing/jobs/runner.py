@@ -13,8 +13,9 @@ import structlog
 
 from billing.adapters.db.uow import SqlUnitOfWork
 from billing.app.config import BillingContext
+from billing.app.entitlements import EntitlementService
 from billing.app.invoices import InvoiceService
-from billing.app.ports import Clock, Counters, IdGenerator, PlanGateway
+from billing.app.ports import Clock, Counters, IdGenerator, PlanGateway, StorageUsage
 from billing.app.records import Job, JobStatus
 from billing.app.webhooks import EventApplier
 from billing.observability import JOBS_DEAD
@@ -32,6 +33,8 @@ class JobContext:
     billing: BillingContext | None = None
     applier: EventApplier | None = None
     invoices: InvoiceService | None = None
+    storage_usage: StorageUsage | None = None
+    entitlements: EntitlementService | None = None
 
 
 Handler = Callable[[dict[str, Any], JobContext], Awaitable[None]]

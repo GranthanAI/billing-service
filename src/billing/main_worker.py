@@ -22,6 +22,7 @@ from billing.adapters.kafka.producer import KafkaProducer
 from billing.adapters.kafka.usage_consumer import make_usage_consumer
 from billing.adapters.kafka.user_consumer import make_user_consumer
 from billing.adapters.pdf import WeasyPrintRenderer
+from billing.adapters.storage_usage import HttpStorageUsage
 from billing.adapters.valkey.client import make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
 from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
@@ -157,6 +158,11 @@ async def run_worker(
     )
     applier = EventApplier(bctx)
     storage = make_storage(settings)
+    storage_usage = (
+        HttpStorageUsage(settings.file_service_url, settings.file_service_token)
+        if settings.file_service_url
+        else None
+    )
     invoices = InvoiceService(uow_factory, WeasyPrintRenderer(), storage, clock, bctx.config)
     await producer.start()
     all_consumers: list[KafkaEventConsumer[object]] = list(consumers)
@@ -209,6 +215,8 @@ async def run_worker(
                 billing=bctx,
                 applier=applier,
                 invoices=invoices,
+                storage_usage=storage_usage,
+                entitlements=entitlements,
             ),
             concurrency=settings.job_concurrency,
         )

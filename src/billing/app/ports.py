@@ -688,6 +688,12 @@ class LedgerRepo(Protocol):
     async def lock_balance(self, code: str) -> int: ...
 
 
+class StorageUsage(Protocol):
+    async def bytes_used(self, user_id: UUID) -> int:
+        """Bytes the user stores (file-service). Raises when it cannot be asked."""
+        ...
+
+
 class TopupRepo(Protocol):
     async def insert(self, request: TopupRequest) -> None: ...
 
@@ -732,6 +738,10 @@ class WalletRepo(Protocol):
     ) -> Sequence[tuple[UUID, CreditLot]]: ...
 
     async def all_balances(self) -> dict[UUID, int]: ...
+
+    async def user_wallets(self) -> list[tuple[UUID, UUID]]:
+        """(billing account id, user id) of every individual's wallet."""
+        ...
 
     async def transactions(self, account_id: UUID, limit: int) -> list[dict[str, Any]]: ...
 

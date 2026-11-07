@@ -16,6 +16,7 @@ from billing.app.events import (
     PaymentFailedEvent,
     PersonalPlanRedundantEvent,
     RenewalUpcomingEvent,
+    StoragePaymentRequiredEvent,
     SubscriptionChangedEvent,
     UsageThresholdReachedEvent,
 )
@@ -126,6 +127,17 @@ class EventCodec:
                     remaining_taxable_paise=event.remaining_taxable_paise,
                     expires_at=event.expires_at,
                 )
+            case StoragePaymentRequiredEvent():
+                topic, key = topics.STORAGE_PAYMENT_REQUIRED, str(event.user_id)
+                env, headers = self._envelope(topic)
+                msg = schemas.StoragePaymentRequiredMsg(
+                    **env,  # type: ignore[arg-type]
+                    user_id=str(event.user_id),
+                    billing_account_id=str(event.billing_account_id),
+                    over_gb=event.over_gb,
+                    shortfall_paise=event.shortfall_paise,
+                    month=event.month,
+                )
             case UsageThresholdReachedEvent():
                 topic, key = topics.USAGE_THRESHOLD_REACHED, str(event.user_id)
                 env, headers = self._envelope(topic)
@@ -207,6 +219,15 @@ def decode_event(event_type: str, payload: bytes) -> tuple[Envelope, OutboxEvent
                 remaining_paise=ce.remaining_paise,
                 remaining_taxable_paise=ce.remaining_taxable_paise,
                 expires_at=ce.expires_at,
+            )
+        case topics.STORAGE_PAYMENT_REQUIRED:
+            sp = schemas.StoragePaymentRequiredMsg.model_validate_json(payload)
+            return sp, StoragePaymentRequiredEvent(
+                user_id=UUID(sp.user_id),
+                billing_account_id=UUID(sp.billing_account_id),
+                over_gb=sp.over_gb,
+                shortfall_paise=sp.shortfall_paise,
+                month=sp.month,
             )
         case topics.USAGE_THRESHOLD_REACHED:
             u = schemas.UsageThresholdReachedMsg.model_validate_json(payload)

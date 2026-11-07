@@ -93,6 +93,11 @@ USAGE_COST = Counter(
     "Provider cost of rated usage, in micro-rupees",
     ["provider", "model_group", "plan"],
 )
+STORAGE_BILLED = Counter(
+    "billing_storage_billed_total",
+    "Users handled by the monthly storage.bill job, by outcome",
+    ["result"],  # billed | shortfall | free | skipped_plan | duplicate | error
+)
 USAGE_LATE_COMMIT = Counter(
     "billing_usage_late_commit_total",
     "Usage that arrived after its hold had expired (or with no hold) and was counted then",

@@ -76,6 +76,14 @@ class CreditsExpiringMsg(Envelope):
     expires_at: datetime
 
 
+class StoragePaymentRequiredMsg(Envelope):
+    user_id: str
+    billing_account_id: str
+    over_gb: int
+    shortfall_paise: int
+    month: str
+
+
 class UsageThresholdReachedMsg(Envelope):
     user_id: str
     billing_account_id: str

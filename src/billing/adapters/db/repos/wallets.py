@@ -203,6 +203,14 @@ class SqlWalletRepo:
         rows = await self._c.execute(q, {"a": account_id, "n": limit})
         return [dict(r._mapping) for r in rows.all()]
 
+    async def user_wallets(self) -> list[tuple[UUID, UUID]]:
+        q = sa.text(
+            "SELECT w.account_id, a.owner_id FROM billing.wallets w "
+            "JOIN billing.billing_accounts a ON a.id = w.account_id "
+            "WHERE a.owner_type = 'user' ORDER BY w.account_id"
+        )
+        return [(r.account_id, r.owner_id) for r in (await self._c.execute(q)).all()]
+
     async def all_balances(self) -> dict[UUID, int]:
         """Every wallet's spendable value by billing account (for the Valkey resync)."""
         q = sa.select(wallets.c.account_id, ledger_balances.c.balance_paise).join(

@@ -16,6 +16,7 @@ SUBSCRIPTION_RENEWAL_UPCOMING = "subscription.renewal_upcoming"
 PERSONAL_PLAN_REDUNDANT = "entitlement.personal_plan_redundant"
 USAGE_THRESHOLD_REACHED = "usage.threshold_reached"
 WALLET_CREDITS_EXPIRING = "wallet.credits_expiring"
+STORAGE_PAYMENT_REQUIRED = "storage.payment_required"
 INVOICE_ISSUED = "invoice.issued"
 
 # dead letters
@@ -39,6 +40,7 @@ PRODUCED = (
     PERSONAL_PLAN_REDUNDANT,
     USAGE_THRESHOLD_REACHED,
     WALLET_CREDITS_EXPIRING,
+    STORAGE_PAYMENT_REQUIRED,
     INVOICE_ISSUED,
 )
 DLQS = (BILLING_USAGE_DLQ, BILLING_USER_DLQ, BILLING_ORG_DLQ)

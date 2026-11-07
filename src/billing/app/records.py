@@ -113,6 +113,7 @@ class UsageEventRecord:
     price_paise: Paise = Paise(0)
     hold_id: str | None = None
     provider_costs: Mapping[str, int] | None = None  # micro-rupees per provider
+    shortfall_taxable_paise: int = 0  # storage: what the wallet could not cover
 
 
 @dataclass(frozen=True, slots=True)

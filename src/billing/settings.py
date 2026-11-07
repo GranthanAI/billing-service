@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     # org-service (organisations). Without a URL nobody is a member of anything.
     org_service_url: str = ""
+    file_service_url: str = ""
+    file_service_token: str = ""
     org_service_token: str = ""
     org_directory_ttl_seconds: int = Field(60, ge=0)
     org_grace_days: int = Field(15, ge=0)  # an unpaid organisation invoice keeps access this long

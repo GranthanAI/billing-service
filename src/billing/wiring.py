@@ -46,6 +46,7 @@ def config_from_settings(s: Settings) -> BillingConfig:
             "topup_packs": spec.topup_packs,
             "org_min_topup": spec.org_min_topup,
             "credit_validity_months": spec.credit_validity_months,
+            "storage_gb_month_paise": spec.storage_over_10gb_per_gb_month,
         }
         if spec
         else {}

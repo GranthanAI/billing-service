@@ -67,6 +67,17 @@ class CreditsExpiringEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class StoragePaymentRequiredEvent:
+    """The wallet could not cover a month's storage charge; file-service blocks new uploads."""
+
+    user_id: UUID
+    billing_account_id: UUID
+    over_gb: int
+    shortfall_paise: int  # GST-inclusive, as the user sees it
+    month: str  # the IST month billed, YYYYMM
+
+
+@dataclass(frozen=True, slots=True)
 class UsageThresholdReachedEvent:
     user_id: UUID
     billing_account_id: UUID
@@ -93,6 +104,7 @@ OutboxEvent = (
     | RenewalUpcomingEvent
     | PersonalPlanRedundantEvent
     | CreditsExpiringEvent
+    | StoragePaymentRequiredEvent
     | UsageThresholdReachedEvent
     | InvoiceIssuedEvent
 )

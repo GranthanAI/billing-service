@@ -36,6 +36,7 @@ class BillingConfig:
     )
     org_min_topup: int = 500000
     credit_validity_months: int = 12
+    storage_gb_month_paise: int = 1000  # per GB over 10 GiB per month, GST included
     # PAYG_ENABLED. False (the v1 launch) closes Pay as you Go completely: no top-up or settings
     # routes, no PAYG grant, no wallet credit.
     # Turning it on needs the CA sign-off, not code.
