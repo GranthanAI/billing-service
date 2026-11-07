@@ -1,13 +1,16 @@
 """Stage F: organisation subscriptions by invoice, org grants, seats, renewal and the admin API."""
 
+from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+import sqlalchemy as sa
 
+from billing.app.admin import Staff
 from billing.app.errors import ChangePending, SubscriptionStateError, ValidationFailed
 from billing.app.records import OrgInfo
-from billing.domain.catalog import OrgVariant
+from billing.domain.catalog import OrgVariant, OwnerType
 from tests.integration.billing_env import ORG_TOKEN, Env
 
 
@@ -199,3 +202,106 @@ async def test_admin_api_subscribe_pay_and_usage_report(env: Env) -> None:
         assert ok.status_code == 200 and ok.json()["rows"] == []
     assert (await sub_row(env, org))[0] == "active"
     assert await env.scalar("SELECT count(*) FROM billing.admin_audit") == 2
+
+
+# --- Stage F leftovers: pilot rule, CSV report, true-up revenue, the exit scenario -------------
+
+
+async def make_override(env: Env, org: OrgInfo, days: int, plan: str = "org_pro") -> Any:
+    now = env.clock.now()
+    return await env.admin.create_override(
+        Staff(uuid4(), "billing_admin"),
+        OwnerType.ORG,
+        org.org_id,
+        plan,
+        "pilot",
+        now + timedelta(days=days),
+    )
+
+
+async def test_pilot_rule_30_days_and_25_members(env: Env) -> None:
+    org = make_org(env)
+    with pytest.raises(ValidationFailed):
+        await make_override(env, org, 31)
+    for _ in range(26):
+        env.orgs.join(uuid4(), org.org_id, OrgVariant.COMPANY)
+    with pytest.raises(ValidationFailed):
+        await make_override(env, org, 30)
+    env.orgs.memberships = dict(list(env.orgs.memberships.items())[:25])
+    record = await make_override(env, org, 30)
+    assert record.owner_id == org.org_id
+
+
+async def test_true_up_is_deferred_and_recognised_over_the_months_left(env: Env) -> None:
+    org = make_org(env)
+    await pay(env, (await subscribe(env, org)).invoice_id)
+    env.clock.advance(days=73)
+    _, extra = await env.org_billing.change_seats(org.org_id, 7, actor=uuid4(), reason="up")
+    assert extra is not None
+    await pay(env, extra.invoice_id, "UTR2")
+    taxable = int(
+        await env.scalar("SELECT taxable_paise FROM billing.invoices WHERE seat_change_to = 7")
+    )  # type: ignore[arg-type]
+    assert await balance(env, "liability:deferred_revenue") == -(5 * SEAT * 100 // 118) - taxable
+    for _ in range(14):  # monthly runs until well past the end of the period
+        env.clock.advance(days=31)
+        await env.run_job("revenue.recognise")
+    assert await balance(env, "liability:deferred_revenue") == 0
+    assert await unbalanced(env) == 0
+
+
+async def test_csv_usage_report(env: Env) -> None:
+    org, member = make_org(env), uuid4()
+    env.orgs.join(member, org.org_id, OrgVariant.COMPANY)
+    async with env.app_engine.begin() as conn:
+        await conn.execute(
+            sa.text(
+                "INSERT INTO billing.billing_accounts (id, owner_type, owner_id) "
+                "VALUES (gen_random_uuid(), 'user', :u) ON CONFLICT DO NOTHING"
+            ),
+            {"u": member},
+        )
+        await conn.execute(
+            sa.text(
+                "INSERT INTO billing.usage_daily (day, billing_account_id, user_id, model_group, "
+                "messages, billable_units, cost_micro_inr, price_paise) "
+                "SELECT '2026-11-03', id, :u, 'smart', 12, 12, 1000, 0 "
+                "FROM billing.billing_accounts WHERE owner_id = :u"
+            ),
+            {"u": member},
+        )
+    url = f"/internal/orgs/{org.org_id}/usage?from=2026-11-01&to=2026-11-30&format=csv"
+    async with env.api() as api:
+        r = await api.get(url, headers={"Authorization": f"Bearer {ORG_TOKEN}"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
+    lines = r.text.strip().split("\n")
+    assert lines[0] == "user_id,day,model_group,messages,billable_units"
+    assert lines[1] == f"{member},2026-11-03,smart,12,12"
+
+
+async def test_exit_scenario_pilot_to_paid_by_bank_transfer(env: Env) -> None:
+    org, members = make_org(env), [uuid4() for _ in range(3)]
+    for m in members:
+        env.orgs.join(m, org.org_id, OrgVariant.COMPANY)
+    await make_override(env, org, 30)  # the free pilot
+    assert [await env.plan_code(m) for m in members] == ["org_pro"] * 3
+
+    issued = await subscribe(env, org, seats=10)  # the pilot converts
+    assert await pay(env, issued.invoice_id, "UTR-9") is True  # bank transfer
+    inv = (
+        await env.sql(
+            "SELECT number, kind, customer_gstin, customer_state_code, taxable_paise, cgst_paise, "
+            "sgst_paise, igst_paise, total_paise, status FROM billing.invoices"
+        )
+    )[0]
+    assert inv.number.startswith("GA/2627/") and inv.kind == "tax_invoice" and inv.status == "paid"
+    assert inv.customer_gstin == org.gstin and inv.customer_state_code == "10"
+    assert inv.igst_paise == 0 and inv.sgst_paise - inv.cgst_paise in (0, 1)
+    assert inv.taxable_paise + inv.cgst_paise + inv.sgst_paise == inv.total_paise == 10 * SEAT
+    assert await balance(env, "asset:bank") == 10 * SEAT
+    assert [await env.plan_code(m) for m in members] == ["org_pro"] * 3
+    async with env.api() as api:
+        url = f"/internal/orgs/{org.org_id}/usage?from=2026-11-01&to=2026-11-30"
+        r = await api.get(url, headers={"Authorization": f"Bearer {ORG_TOKEN}"})
+    assert r.status_code == 200 and r.json()["org_id"] == str(org.org_id)
+    assert await unbalanced(env) == 0

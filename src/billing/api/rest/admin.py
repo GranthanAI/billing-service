@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from billing.api.rest.idempotency import parse_user_id
 from billing.app.admin import AdminService, Staff
 from billing.app.errors import Forbidden, Unauthenticated
-from billing.domain.catalog import ModelGroup, OwnerType
+from billing.domain.catalog import ModelGroup, OrgVariant, OwnerType
 from billing.domain.money import Paise
 
 router = APIRouter(prefix="/admin/billing/v1")
@@ -61,6 +61,7 @@ class OverrideBody(Reason):
     plan_code: str
     expires_at: datetime
     starts_at: datetime | None = None
+    variant: Literal["college", "company"] | None = None
 
 
 class RefundBody(Reason):
@@ -129,6 +130,7 @@ async def create_override(body: OverrideBody, staff: Writer, svc: Svc) -> JSONRe
     record = await svc.create_override(
         staff, OwnerType(body.owner_type), body.owner_id, body.plan_code, body.reason,
         body.expires_at, body.starts_at,
+        OrgVariant(body.variant) if body.variant else None,
     )  # fmt: skip
     return _json({"id": record.id, "expires_at": record.expires_at}, 201)
 

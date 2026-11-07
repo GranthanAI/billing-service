@@ -30,6 +30,17 @@ def slice_for(taxable: Paise, n: int) -> Paise:
     return Paise(int(taxable) - 11 * base if n == 12 else base)
 
 
+def true_up_months(start: datetime, end: datetime) -> int:
+    """How many monthly slices a seat true-up is recognised in: the months from the month it was
+    paid to the month the period ends (at least one)."""
+    return max(1, month_index(end) - month_index(start))
+
+
+def true_up_slice(taxable: Paise, n: int, months: int) -> Paise:
+    base = int(taxable) // months
+    return Paise(int(taxable) - (months - 1) * base if n == months else base)
+
+
 def slice_key(subscription_id: object, payment_id: object, n: int) -> str:
     return f"recognise:{subscription_id}:{payment_id}:{n}"
 
@@ -44,9 +55,10 @@ async def deferred_remaining(uow: UnitOfWork, payment: PaymentRecord) -> Paise:
     invoice = await uow.invoices.by_payment(payment.id)
     if invoice is None or invoice.period_start is None or invoice.period_end is None:
         return Paise(0)
-    if invoice.seat_change_to is not None:
-        return Paise(0)  # a seat true-up is booked to revenue when it is paid
-    if period_interval(invoice.period_start, invoice.period_end) is not Interval.YEAR:
+    if (
+        invoice.seat_change_to is None
+        and period_interval(invoice.period_start, invoice.period_end) is not Interval.YEAR
+    ):
         return Paise(0)  # monthly charges go straight to revenue
     recognised = await uow.ledger.recognised_for_payment(payment.id)
     refunded = await uow.invoices.credited_taxable(payment.id)
@@ -101,4 +113,29 @@ class RevenueService:
                     tx = revenue_recognition(amount, slice_key(sub.id, payment.id, k))
                     posted |= await uow.ledger.post(tx, "subscription", str(sub.id), now)
                 touched += int(posted)
+            touched += await self._recognise_true_ups(sub.id, run_month, now)
         return touched
+
+    async def _recognise_true_ups(
+        self, subscription_id: object, run_month: int, now: datetime
+    ) -> int:
+        """Seat true-ups follow the same rule over the months left in their period."""
+        posted_any = 0
+        async with self._uow() as uow:
+            for payment in await uow.payments.seat_payments(subscription_id):  # type: ignore[arg-type]
+                invoice = await uow.invoices.by_payment(payment.id)
+                if invoice is None or invoice.period_start is None or invoice.period_end is None:
+                    continue
+                months = true_up_months(invoice.period_start, invoice.period_end)
+                n = min(run_month - month_index(invoice.period_start), months)
+                for k in range(1, n + 1):
+                    room = await deferred_remaining(uow, payment)
+                    amount = Paise(
+                        min(int(true_up_slice(invoice.taxable_paise, k, months)), int(room))
+                    )
+                    if amount <= 0:
+                        continue
+                    tx = revenue_recognition(amount, slice_key(subscription_id, payment.id, k))
+                    if await uow.ledger.post(tx, "subscription", str(subscription_id), now):
+                        posted_any = 1
+        return posted_any

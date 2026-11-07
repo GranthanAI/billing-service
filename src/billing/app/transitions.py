@@ -51,6 +51,8 @@ async def apply_transition(
         latest = await uow.payments.latest_for_subscription(sub.id)
         if latest is not None:
             await release_deferred(uow, latest, now)
+        for seat_payment in await uow.payments.seat_payments(sub.id):
+            await release_deferred(uow, seat_payment, now)
     if account.owner_type is OwnerType.USER:
         owner_id = account.owner_id
         uow.after_commit(lambda: bctx.invalidate_entitlement(owner_id))

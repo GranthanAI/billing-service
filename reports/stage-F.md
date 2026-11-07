@@ -11,14 +11,20 @@
 - Admin routes, service-token usage route, `org.renewal` daily job, reconciliation check 1 ignores
   bank transfers.
 
+## Follow-up (done after the first Stage F commit)
+- Pilot rule enforced in `AdminService.create_override` for organisations: at most 30 days and,
+  through `OrgDirectory`, at most 25 members (refused when org-service cannot be asked). Org
+  overrides take an optional `variant` (taken from org-service when omitted).
+- `GET /internal/orgs/{id}/usage?format=csv` (user_id, day, model_group, messages, billable_units).
+- Seat true-ups are deferred revenue, recognised monthly over the months left in the period
+  (`revenue.recognise`), and released if the subscription ends early.
+
 ## Tests
-Unit: 326 passed, coverage 96.65%, lint clean. Integration: 7 new in `test_orgs.py`, all pass.
-Full `make test-all` not yet run twice.
+Integration `test_orgs.py`: 11 tests, including the exit scenario (pilot override, conversion to a
+paid subscription, bank transfer, B2B tax invoice with the org's GSTIN and a CGST/SGST split, bank
+asset posting, usage report) and a CSV report test. Full suite results are in the Stage G report
+(same runs).
 
-## Deviations / not done
-- Pilot rule `variant` on admin overrides not built.
-- Usage report is JSON only (no CSV).
+## Deviations / notes
 - mypy over `tests/` has pre-existing errors; only `src` is gated.
-
-## Notes for later
-Seat true-ups are booked straight to revenue (not deferred). Bank payments post to `asset:bank`.
+- Bank payments post to `asset:bank`; reconciliation check 1 ignores `bank_transfer` payments.

@@ -9,16 +9,18 @@ from uuid import UUID, uuid4
 
 from billing.app.effects import REFUND_ISSUE as REFUND_JOB
 from billing.app.errors import NotFound, ValidationFailed
-from billing.app.ports import Clock, IdGenerator, UnitOfWork
+from billing.app.ports import Clock, IdGenerator, OrgDirectory, UnitOfWork
 from billing.app.records import OverrideRecord
 from billing.app.settlements import SettlementService
 from billing.domain.calendar import IST
-from billing.domain.catalog import Interval, ModelGroup, OwnerType
+from billing.domain.catalog import Interval, ModelGroup, OrgVariant, OwnerType
 from billing.domain.money import Paise
 from billing.domain.proration import period_interval
 
 LIMITS_ONLY_ACTION = "catalog.limits_only_change"
 MIN_REASON = 3
+PILOT_MAX_DAYS = 30
+PILOT_MAX_MEMBERS = 25
 MAX_COST_DAYS = 366
 
 
@@ -47,7 +49,9 @@ class AdminService:
         ids: IdGenerator,
         settlements: SettlementService,
         invalidate: Callable[[UUID], Awaitable[None]],
+        orgs: OrgDirectory | None = None,
     ) -> None:
+        self._orgs = orgs
         self._uow = uow_factory
         self._clock = clock
         self._ids = ids
@@ -94,6 +98,19 @@ class AdminService:
 
     # --- overrides ---------------------------------------------------------------------------
 
+    async def _check_pilot(self, org_id: UUID, starts: datetime, expires_at: datetime) -> None:
+        """An organisation override is a pilot: at most 30 days and at most 25 members. The member
+        count comes from org-service; if it cannot be asked the override is refused."""
+        if expires_at - starts > timedelta(days=PILOT_MAX_DAYS):
+            raise ValidationFailed(f"an organisation pilot lasts at most {PILOT_MAX_DAYS} days")
+        if self._orgs is not None:
+            members = len(await self._orgs.members(org_id))
+            if members > PILOT_MAX_MEMBERS:
+                raise ValidationFailed(
+                    f"an organisation pilot is for at most {PILOT_MAX_MEMBERS} members, "
+                    f"this one has {members}"
+                )
+
     async def create_override(
         self,
         staff: Staff,
@@ -103,14 +120,20 @@ class AdminService:
         reason: str,
         expires_at: datetime,
         starts_at: datetime | None = None,
+        variant: OrgVariant | None = None,
     ) -> OverrideRecord:
         reason = need_reason(reason)
         now = self._clock.now()
         starts = starts_at or now
         if expires_at <= starts:
             raise ValidationFailed("expires_at must be after the start")
+        if owner_type is OwnerType.ORG:
+            await self._check_pilot(owner_id, starts, expires_at)
+        if variant is None and owner_type is OwnerType.ORG and self._orgs is not None:
+            org = await self._orgs.org(owner_id)  # outside any transaction
+            variant = org.type if org is not None and plan_code.startswith("org_") else None
         async with self._uow() as uow:
-            plan = await uow.plans.current(plan_code, None)
+            plan = await uow.plans.current(plan_code, variant)
             if plan is None:
                 raise ValidationFailed(f"unknown plan {plan_code!r}")
             record = OverrideRecord(

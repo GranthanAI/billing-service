@@ -5,14 +5,16 @@ mark an invoice paid (bank transfer) or make its payment link.
 /internal/orgs/{org_id}/usage: org-service reads its members' usage with a service token.
 """
 
+import csv
 import hmac
+import io
 from datetime import date, datetime
-from typing import Annotated
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from billing.api.rest.admin import Writer
@@ -36,6 +38,18 @@ Svc = Annotated[OrgBilling, Depends(_billing)]
 
 def _json(data: object, status: int = 200) -> JSONResponse:
     return JSONResponse(jsonable_encoder(data), status_code=status)
+
+
+CSV_COLUMNS = ("user_id", "day", "model_group", "messages", "billable_units")
+
+
+def _csv(rows: list[dict[str, Any]]) -> Response:
+    """One line per member, day and model group, ready for a spreadsheet."""
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=CSV_COLUMNS, extrasaction="ignore", lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(out.getvalue(), media_type="text/csv; charset=utf-8")
 
 
 def _issued(i: IssuedInvoice) -> dict[str, object]:
@@ -123,15 +137,19 @@ async def org_usage(  # type: ignore[no-untyped-def]
     svc: Annotated[OrgBilling, Depends(_service)],
     from_: Annotated[date, Query(alias="from")],
     to: date,
+    format: Literal["json", "csv"] = "json",
 ):
     if to < from_:
         raise ValidationFailed("'to' is before 'from'")
     members = await request.app.state.org_directory.members(org_id)
+    rows = await svc.usage_report(members, from_, to)
+    if format == "csv":
+        return _csv(rows)
     return _json(
         {
             "org_id": org_id,
             "from": from_,
             "to": to,
-            "rows": await svc.usage_report(members, from_, to),
+            "rows": rows,
         }
     )

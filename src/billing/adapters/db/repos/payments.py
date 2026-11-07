@@ -78,6 +78,19 @@ class SqlPaymentRepo:
         r = (await self._c.execute(q)).first()
         return _record(r) if r else None
 
+    async def seat_payments(self, subscription_id: UUID) -> list[PaymentRecord]:
+        """Payments of seat true-up invoices (purpose org_invoice), oldest first."""
+        q = (
+            sa.select(t)
+            .where(
+                t.c.subscription_id == subscription_id,
+                t.c.purpose == "org_invoice",
+                t.c.status.in_(("captured", "partially_refunded")),
+            )
+            .order_by(t.c.captured_at, t.c.id)
+        )
+        return [_record(r) for r in (await self._c.execute(q)).all()]
+
     async def mark_refunded(self, payment_id: UUID, total_refunded: Paise) -> None:
         """`refunded` once the whole amount is back, `partially_refunded` before that."""
         status = sa.case(

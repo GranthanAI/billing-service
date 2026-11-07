@@ -156,6 +156,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 ids,
                 SettlementService(uow_factory, gateway, clock),
                 entitlements.invalidate,
+                org_directory,
             ),
             orgs=org_directory,
             counters=counters,

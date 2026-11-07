@@ -86,6 +86,17 @@ class Env:
     _job_seq: int = 0
 
     @property
+    def admin(self) -> AdminService:
+        return AdminService(
+            self.bctx.uow_factory,
+            self.clock,
+            self.bctx.ids,
+            SettlementService(self.bctx.uow_factory, self.gateway, self.clock),
+            self.entitlements.invalidate,
+            self.orgs,
+        )
+
+    @property
     def org_billing(self) -> OrgBilling:
         return OrgBilling(self.bctx)
 
@@ -204,6 +215,7 @@ class Env:
                 self.bctx.ids,
                 SettlementService(self.bctx.uow_factory, self.gateway, self.clock),
                 self.entitlements.invalidate,
+                self.orgs,
             ),
             orgs=self.orgs,
             org_service_token=ORG_TOKEN,

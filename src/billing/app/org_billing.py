@@ -186,12 +186,12 @@ async def settle_invoice(
     if not inserted:
         return False
     split = GstSplit(fresh.taxable_paise, fresh.cgst_paise, fresh.sgst_paise, fresh.igst_paise)
-    # A seat true-up is a part-year charge: booked to revenue when paid. A full year goes to
-    # deferred revenue and is released month by month (app/revenue.py).
+    # Both a full year and a seat true-up go to deferred revenue and are recognised month by
+    # month (app/revenue.py); a true-up over the months left in the period.
     await uow.ledger.post(
         subscription_charge(
             split,
-            Interval.MONTH if true_up else Interval.YEAR,
+            Interval.YEAR,  # a true-up too: deferred, then recognised over what is left
             f"charge:{payment_ref}",
             received_in=CLEARING if gateway_payment else BANK,
         ),
