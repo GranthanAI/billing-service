@@ -36,9 +36,19 @@ REMINDER_CONSUMER = "wallet-expiry-reminder"
 log = structlog.get_logger()
 
 
+def payg_on(ctx: JobContext, job: str) -> bool:
+    """PAYG_ENABLED=false: the wallet jobs do nothing, and say so."""
+    if ctx.billing is not None and not ctx.billing.config.payg_enabled:
+        log.info("wallet_job_skipped", job=job, reason="PAYG_ENABLED is off")
+        return False
+    return True
+
+
 @job_handler(CREDITS_EXPIRE)
 async def credits_expire(payload: dict[str, Any], ctx: JobContext) -> None:
     """Breakage for lots past their expiry, and one reminder per lot about 30 days ahead."""
+    if not payg_on(ctx, CREDITS_EXPIRE):
+        return
     now = ctx.clock.now()
     expired = 0
     while True:
@@ -80,6 +90,8 @@ async def credits_expire(payload: dict[str, Any], ctx: JobContext) -> None:
 @job_handler(WALLET_RESYNC)
 async def wallet_resync(payload: dict[str, Any], ctx: JobContext) -> None:
     """Overwrite `wal:*` from the ledger, skipping wallets with open holds."""
+    if not payg_on(ctx, WALLET_RESYNC):
+        return
     if ctx.counters is None:
         raise RuntimeError("wallet.resync needs counters")
     async with ctx.uow_factory() as uow:
@@ -93,6 +105,8 @@ async def wallet_resync(payload: dict[str, Any], ctx: JobContext) -> None:
 
 @job_handler(WALLET_MTD_RESET)
 async def wallet_mtd_reset(payload: dict[str, Any], ctx: JobContext) -> None:
+    if not payg_on(ctx, WALLET_MTD_RESET):
+        return
     if ctx.counters is None:
         raise RuntimeError("wallet.mtd_reset needs counters")
     async with ctx.uow_factory() as uow:
@@ -131,8 +145,7 @@ async def storage_bill(payload: dict[str, Any], ctx: JobContext) -> None:
     billing = ctx.billing
     if billing is None or ctx.storage_usage is None or ctx.entitlements is None:
         raise RuntimeError("storage.bill needs the billing context, StorageUsage and entitlements")
-    if not billing.config.payg_enabled:
-        log.info("storage_bill_skipped", reason="PAYG_ENABLED is off")
+    if not payg_on(ctx, STORAGE_BILL):
         return
     now = ctx.clock.now()
     month, occurred_at = previous_ist_month(now)
