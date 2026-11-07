@@ -131,6 +131,15 @@ class SettlementItem:
     payment_id: str | None  # for refunds: the payment they belong to
 
 
+@dataclass(frozen=True, slots=True)
+class GatewayPaymentLink:
+    id: str
+    short_url: str
+    status: str
+    reference_id: str | None
+    amount: Paise
+
+
 class PlanGateway(Protocol):
     async def ensure_plan(self, spec: GatewayPlanSpec) -> str:
         """Idempotent: returns the id of an existing plan with the same notes.checksum and
@@ -173,6 +182,19 @@ class PaymentGateway(PlanGateway, Protocol):
         ...
 
     async def fetch_refund(self, refund_id: str) -> GatewayRefund: ...
+
+    async def create_payment_link(
+        self,
+        amount: Paise,
+        *,
+        description: str,
+        customer_name: str,
+        customer_email: str | None,
+        reference_id: str,
+        notes: Mapping[str, str],
+    ) -> GatewayPaymentLink:
+        """Idempotent on `reference_id`: asking again returns the link already made for it."""
+        ...
 
     async def list_settlement_items(self, day: date) -> list[SettlementItem]:
         """Razorpay's settlement reconciliation lines for the day they were settled."""
@@ -457,6 +479,13 @@ class SubscriptionRepo(Protocol):
         self, start: datetime, end: datetime, limit: int
     ) -> Sequence[SubscriptionRecord]:
         """`active` subscriptions whose period ends in [start, end)."""
+        ...
+
+    async def list_invoice_mode_due(
+        self, horizon: datetime, limit: int
+    ) -> Sequence[SubscriptionRecord]:
+        """Invoice-mode subscriptions that are active, past due or suspended and whose period ends
+        before `horizon`."""
         ...
 
     async def list_open_for_account(self, billing_account_id: UUID) -> Sequence[SubscriptionRecord]:

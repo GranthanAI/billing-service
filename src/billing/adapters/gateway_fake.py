@@ -17,6 +17,7 @@ from billing.app.errors import GatewayRejected
 from billing.app.ports import (
     Clock,
     GatewayPayment,
+    GatewayPaymentLink,
     GatewayPlanSpec,
     GatewayRefund,
     GatewaySubscription,
@@ -48,6 +49,9 @@ class InMemoryGateway:
         self.payments: dict[str, GatewayPayment] = {}
         self.refunds: dict[str, GatewayRefund] = {}
         self.cycle_end_cancels: set[str] = set()
+        self.payment_links: dict[str, GatewayPaymentLink] = {}
+        self.payment_link_notes: dict[str, dict[str, str]] = {}
+        self._link_seq = itertools.count(1)
         self.settlements: dict[date, list[SettlementItem]] = {}
         self._plan_seq = itertools.count(1)
         self._sub_seq = itertools.count(1)
@@ -182,6 +186,26 @@ class InMemoryGateway:
             return self.refunds[refund_id]
         except KeyError:
             raise GatewayRejected("BAD_REQUEST_ERROR", "The id provided does not exist") from None
+
+    async def create_payment_link(
+        self,
+        amount: Paise,
+        *,
+        description: str,
+        customer_name: str,
+        customer_email: str | None,
+        reference_id: str,
+        notes: Mapping[str, str],
+    ) -> GatewayPaymentLink:
+        for existing in self.payment_links.values():
+            if existing.reference_id == reference_id:
+                return existing
+        link_id = f"plink_fake_{next(self._link_seq):06d}"
+        url = f"https://rzp.io/l/{link_id}"
+        link = GatewayPaymentLink(link_id, url, "created", reference_id, amount)
+        self.payment_links[link_id] = link
+        self.payment_link_notes[link_id] = dict(notes)
+        return link
 
     async def list_settlement_items(self, day: date) -> list[SettlementItem]:
         return list(self.settlements.get(day, []))

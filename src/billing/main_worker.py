@@ -16,6 +16,7 @@ from billing.adapters.db.uow import SqlUnitOfWork
 from billing.adapters.gateways import make_gateway
 from billing.adapters.ids import Uuid7Generator
 from billing.adapters.kafka.consumer import KafkaEventConsumer
+from billing.adapters.kafka.org_consumer import make_org_consumer
 from billing.adapters.kafka.outbox_relay import OutboxRelay
 from billing.adapters.kafka.producer import KafkaProducer
 from billing.adapters.kafka.usage_consumer import make_usage_consumer
@@ -27,6 +28,7 @@ from billing.adapters.valkey.entitlement_cache import ValkeyEntitlementCache
 from billing.app.entitlements import EntitlementService
 from billing.app.gauges import sample_gauges
 from billing.app.invoices import InvoiceService
+from billing.app.org_membership import OrgMembershipService
 from billing.app.usage import UsageService
 from billing.app.user_deletion import UserDeletionService
 from billing.app.webhooks import EventApplier
@@ -35,6 +37,7 @@ from billing.jobs.handlers import finance as finance_jobs
 from billing.jobs.handlers import holds as holds_job
 from billing.jobs.handlers import invoices as invoice_jobs  # noqa: F401  (registers handlers)
 from billing.jobs.handlers import lifecycle as lifecycle_jobs
+from billing.jobs.handlers import orgs as org_jobs
 from billing.jobs.handlers import partitions as partitions_job
 from billing.jobs.handlers import reconcile as reconcile_jobs
 from billing.jobs.handlers import usage as usage_jobs
@@ -43,7 +46,7 @@ from billing.jobs.scheduler import Recurring, Scheduler
 from billing.jobs.webhooks import WebhookProcessor
 from billing.observability import AI_BUDGET, configure_logging, init_sentry, metrics_payload
 from billing.settings import Settings, get_settings, webhook_secrets
-from billing.wiring import config_from_settings, make_context, make_storage
+from billing.wiring import config_from_settings, make_context, make_org_directory, make_storage
 
 log = structlog.get_logger()
 SCHEDULE: tuple[Recurring, ...] = (
@@ -54,6 +57,7 @@ SCHEDULE: tuple[Recurring, ...] = (
     *lifecycle_jobs.SCHEDULES,
     *finance_jobs.SCHEDULES,
     reconcile_jobs.SCHEDULE,
+    org_jobs.SCHEDULE,
 )
 DRAIN_SECONDS = 30.0
 HEALTH_PORT = 9100
@@ -100,6 +104,7 @@ async def run_worker(
     drain_seconds: float = DRAIN_SECONDS,
     usage_consumer: bool = True,
     user_consumer: bool = True,
+    org_consumer: bool = True,
 ) -> None:
     engine = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
     ids, clock = Uuid7Generator(), SystemClock()
@@ -124,6 +129,10 @@ async def run_worker(
         webhook_secret=webhook_secrets(settings),
         clock=clock,
     )
+    org_directory = make_org_directory(settings, valkey_client)
+    entitlements = EntitlementService(
+        uow_factory, ValkeyEntitlementCache(valkey_client), clock, orgs=org_directory
+    )
     bctx = make_context(
         config_from_settings(settings),
         uow_factory,
@@ -131,6 +140,7 @@ async def run_worker(
         clock,
         ids,
         ValkeyEntitlementCache(valkey_client).delete,
+        entitlements.invalidate_org,
     )
     applier = EventApplier(bctx)
     storage = make_storage(settings)
@@ -140,7 +150,7 @@ async def run_worker(
     if usage_consumer:
         usage = UsageService(
             uow_factory,
-            EntitlementService(uow_factory, ValkeyEntitlementCache(valkey_client), clock),
+            entitlements,
             counters,
             clock,
             manim_render_cost_usd=settings.manim_render_cost_usd,
@@ -158,6 +168,15 @@ async def run_worker(
         all_consumers.append(
             make_user_consumer(
                 UserDeletionService(bctx, counters),
+                bootstrap_servers=settings.kafka_bootstrap_servers,
+                client_id=settings.kafka_client_id,
+                producer=producer,
+            )  # type: ignore[arg-type]
+        )
+    if org_consumer:
+        all_consumers.append(
+            make_org_consumer(
+                OrgMembershipService(uow_factory, org_directory, entitlements.invalidate, clock),
                 bootstrap_servers=settings.kafka_bootstrap_servers,
                 client_id=settings.kafka_client_id,
                 producer=producer,

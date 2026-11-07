@@ -11,6 +11,7 @@ import structlog
 from billing.app.charges import record_charge
 from billing.app.config import BillingContext
 from billing.app.effects import REFUND_ISSUE, EffectContext
+from billing.app.org_billing import settle_invoice
 from billing.app.ports import GatewayPayment, GatewayRefund, GatewaySubscription, UnitOfWork
 from billing.app.records import ChangeKind, ChangeRecord, ChangeStatus
 from billing.app.revenue import release_deferred
@@ -57,6 +58,7 @@ class GatewayEvent:
     snapshot: GatewaySubscription | None = None  # as embedded in the webhook body
     payment: GatewayPayment | None = None
     refund: GatewayRefund | None = None
+    payment_link_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +227,8 @@ class EventApplier:
         """Inside the caller's transaction. Returns `processed` or `ignored`."""
         if event.type.startswith("refund."):
             return await self._apply_refund(uow, event)
+        if event.type == "payment_link.paid":
+            return await self._apply_link_paid(uow, event)
         if event.subscription is None:
             return IGNORED
         mandate = event.subscription.id
@@ -309,6 +313,24 @@ class EventApplier:
             if old is not None:
                 await release_deferred(uow, old, self._b.clock.now())
         return PROCESSED
+
+    async def _apply_link_paid(self, uow: UnitOfWork, event: GatewayEvent) -> str:
+        """An organisation paid an invoice through its payment link."""
+        if event.payment_link_id is None or event.payment is None:
+            return IGNORED
+        invoice = await uow.invoices.by_payment_link(event.payment_link_id)
+        if invoice is None:
+            log.info("payment_link_unknown", link=event.payment_link_id)
+            return IGNORED
+        done = await settle_invoice(
+            uow,
+            self._b,
+            invoice,
+            reference=event.payment.id,
+            paid_at=event.payment.created_at,
+            gateway_payment=event.payment,
+        )
+        return PROCESSED if done else IGNORED
 
     async def _apply_refund(self, uow: UnitOfWork, event: GatewayEvent) -> str:
         refund = event.refund

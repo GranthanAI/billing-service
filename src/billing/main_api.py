@@ -31,6 +31,8 @@ from billing.api.rest.gateway_auth import GatewayAuthMiddleware
 from billing.api.rest.idempotency import IdempotencyMiddleware
 from billing.api.rest.me import router as me_router
 from billing.api.rest.models import router as models_router
+from billing.api.rest.orgs import admin_router as org_admin_router
+from billing.api.rest.orgs import internal_router as org_internal_router
 from billing.api.rest.public import router as public_router
 from billing.api.rest.webhooks import router as webhook_router
 from billing.app.account_views import AccountViews
@@ -49,7 +51,13 @@ from billing.observability import (
     metrics_payload,
 )
 from billing.settings import Settings, gateway_secrets, get_settings, webhook_secrets
-from billing.wiring import config_from_settings, install_billing, make_context, make_storage
+from billing.wiring import (
+    config_from_settings,
+    install_billing,
+    make_context,
+    make_org_directory,
+    make_storage,
+)
 
 configure_logging()
 log = structlog.get_logger()
@@ -109,10 +117,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         def uow_factory() -> SqlUnitOfWork:
             return SqlUnitOfWork(owned_engine, ids, clock)
 
+        org_directory = make_org_directory(settings, client)
         entitlements = EntitlementService(
             uow_factory,
             ValkeyEntitlementCache(client),
             clock,
+            orgs=org_directory,
             l1_ttl_seconds=settings.entitlement_l1_ttl_seconds,
         )
         gateway = make_gateway(
@@ -133,6 +143,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 clock,
                 ids,
                 entitlements.invalidate,
+                entitlements.invalidate_org,
             ),
             views=AccountViews(uow_factory, entitlements, counters, storage, clock),
             admin=AdminService(
@@ -142,6 +153,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 SettlementService(uow_factory, gateway, clock),
                 entitlements.invalidate,
             ),
+            orgs=org_directory,
+            org_service_token=settings.org_service_token,
         )
         reserve = ReserveService(
             entitlements,
@@ -191,6 +204,8 @@ app.include_router(billing_router)
 app.include_router(models_router)
 app.include_router(me_router)
 app.include_router(admin_router)
+app.include_router(org_admin_router)
+app.include_router(org_internal_router)
 app.include_router(webhook_router)
 rest_errors.install(app)
 # Added before the correlation-id middleware below, so it runs inside it and sees the id.

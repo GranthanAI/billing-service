@@ -246,6 +246,24 @@ class FakeGateway(InMemoryGateway):
             },
         )
 
+    def pay_link(self, link_id: str, *, method: str = "upi") -> Webhook:
+        """The customer pays a payment link: a captured payment and `payment_link.paid`."""
+        link = self.payment_links[link_id]
+        now = self.clock.now()
+        pay_id = self.next_payment_id()
+        fee = int(link.amount) * 2 // 100
+        raw = self._template("payment_link_paid")["payload"]["payment"]["entity"]
+        raw.update(
+            id=pay_id, amount=int(link.amount), method=method, fee=fee,
+            tax=round(fee * 18 / 118), created_at=int(now.timestamp()),
+        )  # fmt: skip
+        self.payments[pay_id] = mapping.payment(raw)
+        entity = {
+            "id": link.id, "amount": int(link.amount), "status": "paid",
+            "reference_id": link.reference_id, "short_url": link.short_url,
+        }  # fmt: skip
+        return self._webhook("payment_link_paid", payment_link=entity, payment=dict(raw))
+
     def payment_captured(self, payment: GatewayPayment) -> Webhook:
         return self._webhook("payment_captured", payment=dict(payment.raw))
 

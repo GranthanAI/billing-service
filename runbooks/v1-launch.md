@@ -60,7 +60,12 @@ done by the code: they need a person, an account or a staging environment.
 - [ ] `DAILY_AI_BUDGET_INR` set to the real budget (the AI-spend alert reads it)
 - [ ] Secrets come from OpenBao / SOPS, not a plain `.env`; database roles are the Phase 2 ones
       (`test_the_app_role_has_exactly_the_grants_the_design_allows` guards the grants)
-- [ ] Kafka topics exist, including `chat.response.cancelled` and `subscription.renewal_upcoming`
+- [ ] Organisations: `ORG_SERVICE_URL`, `ORG_SERVICE_TOKEN` (shared with org-service, see
+      `contracts/org-service.md`), `ORG_GRACE_DAYS` (default 15). Without a URL nobody belongs to an
+      org. Org customers pay by Razorpay payment link (subscribe to `payment_link.paid` on the live
+      webhook) or bank transfer, recorded by staff with `mark-paid` **(you)**
+- [ ] Kafka topics exist, including `org.member.joined`, `org.member.left`, `billing.org.dlq`,
+      `entitlement.personal_plan_redundant`, including `chat.response.cancelled` and `subscription.renewal_upcoming`
 
 ## 4. First deploy, in order
 

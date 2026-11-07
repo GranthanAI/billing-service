@@ -242,7 +242,8 @@ class SqlAdminRepo:
     async def payments_between(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         return await self._all(
             "SELECT gateway_payment_id, amount_paise FROM billing.payments "
-            "WHERE captured_at >= :s AND captured_at < :e",
+            "WHERE captured_at >= :s AND captured_at < :e "
+            "AND method IS DISTINCT FROM 'bank_transfer'",  # never went through Razorpay
             s=start,
             e=end,
         )

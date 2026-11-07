@@ -173,8 +173,27 @@ class SqlSubscriptionRepo:
             sa.select(t)
             .where(
                 t.c.status == SubStatus.ACTIVE.value,
+                t.c.billing_mode == "mandate",
                 t.c.current_period_end >= start,
                 t.c.current_period_end < end,
+            )
+            .order_by(t.c.current_period_end)
+            .limit(limit)
+        )
+        return await self._many(q)
+
+    async def list_invoice_mode_due(
+        self, horizon: datetime, limit: int
+    ) -> Sequence[SubscriptionRecord]:
+        """Invoice-mode subscriptions in a paying status whose period ends before `horizon`."""
+        q = (
+            sa.select(t)
+            .where(
+                t.c.billing_mode == "invoice",
+                t.c.status.in_(
+                    (SubStatus.ACTIVE.value, SubStatus.PAST_DUE.value, SubStatus.SUSPENDED.value)
+                ),
+                t.c.current_period_end < horizon,
             )
             .order_by(t.c.current_period_end)
             .limit(limit)

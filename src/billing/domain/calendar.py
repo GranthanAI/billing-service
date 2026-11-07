@@ -1,5 +1,6 @@
 """Business calendar: the Asia/Kolkata day and the Indian financial year."""
 
+import calendar
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -27,6 +28,15 @@ def ist_month_key(now: datetime) -> str:
 def next_ist_midnight(now: datetime) -> datetime:
     tomorrow = ist_day(now) + timedelta(days=1)
     return datetime.combine(tomorrow, time(0, 0), tzinfo=IST).astimezone(UTC)
+
+
+def add_months(dt: datetime, months: int) -> datetime:
+    """The same wall-clock moment `months` later; the day is clamped (31 Jan + 1 month = 28 Feb)."""
+    require_aware(dt)
+    index = dt.month - 1 + months
+    year, month = dt.year + index // 12, index % 12 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
 
 
 def financial_year_code(now: datetime) -> str:

@@ -1,6 +1,7 @@
 """Builds the Phase 6 collaborators from settings; shared by the API, the worker and tests."""
 
 from collections.abc import Awaitable, Callable
+from typing import Any
 from uuid import UUID
 
 from fastapi import FastAPI
@@ -56,7 +57,7 @@ def make_context(
     clock: Clock,
     ids: IdGenerator,
     invalidate: Callable[[UUID], Awaitable[None]],
-    invalidate_org: Callable[[UUID], Awaitable[None]] | None = None,
+    invalidate_org: Callable[[UUID], Awaitable[object]] | None = None,
 ) -> BillingContext:
     return BillingContext(uow_factory, gateway, clock, ids, config, invalidate, invalidate_org)
 
@@ -67,6 +68,8 @@ def install_billing(
     *,
     views: AccountViews | None = None,
     admin: AdminService | None = None,
+    orgs: Any = None,
+    org_service_token: str = "",
 ) -> EventApplier:
     """Attach what the REST routes and the idempotency middleware read from app.state."""
     applier = EventApplier(bctx)
@@ -77,4 +80,23 @@ def install_billing(
         app.state.views = views
     if admin is not None:
         app.state.admin = admin
+    if orgs is not None:
+        from billing.app.org_billing import OrgBilling
+
+        app.state.org_billing = OrgBilling(bctx)
+        app.state.org_directory = orgs
+        app.state.org_service_token = org_service_token
     return applier
+
+
+def make_org_directory(s: Settings, client: Any) -> Any:
+    """org-service over HTTP, cached in Valkey; with no URL configured nobody belongs to an org."""
+    from billing.adapters.orgs import CachedOrgDirectory, HttpOrgDirectory, NoOrgDirectory
+
+    if not s.org_service_url:
+        return NoOrgDirectory()
+    return CachedOrgDirectory(
+        HttpOrgDirectory(s.org_service_url, s.org_service_token),
+        client,
+        s.org_directory_ttl_seconds,
+    )

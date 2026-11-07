@@ -57,7 +57,11 @@ async def apply_transition(
     elif bctx.invalidate_org is not None:
         invalidate_org = bctx.invalidate_org
         org_id = account.owner_id
-        uow.after_commit(lambda: invalidate_org(org_id))
+
+        async def clear_members() -> None:
+            await invalidate_org(org_id)
+
+        uow.after_commit(clear_members)
     log.info(
         "subscription_transitioned",
         subscription_id=str(sub.id),

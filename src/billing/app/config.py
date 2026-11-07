@@ -43,4 +43,4 @@ class BillingContext:
     # Called after a commit that changed what a user may do; drops `ent:{uid}`.
     invalidate_entitlement: Callable[[UUID], Awaitable[None]]
     # An organisation's plan changed: clear every member's entitlement (after commit).
-    invalidate_org: Callable[[UUID], Awaitable[None]] | None = None
+    invalidate_org: Callable[[UUID], Awaitable[object]] | None = None

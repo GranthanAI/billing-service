@@ -1,0 +1,39 @@
+{
+  "entity": "event",
+  "account_id": "acc_00000000000001",
+  "event": "payment_link.paid",
+  "contains": ["payment_link", "order", "payment"],
+  "payload": {
+    "payment_link": {
+      "entity": {
+        "id": "plink_00000000000001",
+        "amount": 0,
+        "currency": "INR",
+        "status": "paid",
+        "reference_id": "",
+        "short_url": "https://rzp.io/i/example",
+        "accept_partial": false
+      }
+    },
+    "payment": {
+      "entity": {
+        "id": "pay_00000000000001",
+        "entity": "payment",
+        "amount": 0,
+        "currency": "INR",
+        "status": "captured",
+        "order_id": "order_00000000000001",
+        "invoice_id": null,
+        "method": "upi",
+        "captured": true,
+        "email": "accounts@example.com",
+        "contact": "+919999999999",
+        "notes": [],
+        "fee": 0,
+        "tax": 0,
+        "created_at": 1580453311
+      }
+    }
+  },
+  "created_at": 1580453320
+}

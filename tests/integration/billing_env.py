@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from billing.adapters.db.uow import SqlUnitOfWork
 from billing.adapters.ids import Uuid7Generator
+from billing.adapters.orgs import FakeOrgDirectory
 from billing.adapters.pdf import WeasyPrintRenderer
 from billing.adapters.storage import InMemoryStorage
 from billing.adapters.valkey.counters import ValkeyCounters
@@ -24,6 +25,7 @@ from billing.app.admin import AdminService
 from billing.app.config import BillingConfig, BillingContext
 from billing.app.entitlements import EntitlementService
 from billing.app.invoices import InvoiceService
+from billing.app.org_billing import OrgBilling
 from billing.app.settlements import SettlementService
 from billing.app.subscriptions import CheckoutOptions, SubscriptionService
 from billing.app.webhooks import EventApplier
@@ -33,6 +35,7 @@ from billing.jobs.handlers import billing as billing_jobs  # noqa: F401  (regist
 from billing.jobs.handlers import finance as finance_jobs  # noqa: F401
 from billing.jobs.handlers import invoices as invoice_jobs  # noqa: F401
 from billing.jobs.handlers import lifecycle as lifecycle_jobs  # noqa: F401
+from billing.jobs.handlers import orgs as org_jobs  # noqa: F401
 from billing.jobs.handlers import reconcile as reconcile_jobs  # noqa: F401
 from billing.jobs.runner import JobContext, JobRunner
 from billing.jobs.webhooks import WebhookProcessor
@@ -46,6 +49,7 @@ STATE_BIHAR = "10"
 PRO_MONTH = 49900
 MAX_MONTH = 149900
 GATEWAY_SECRET = "test-gateway-secret"
+ORG_TOKEN = "test-org-token"
 
 
 def config(**overrides: object) -> BillingConfig:
@@ -73,9 +77,14 @@ class Env:
     storage: InMemoryStorage
     counters: ValkeyCounters
     invoices: InvoiceService
+    orgs: FakeOrgDirectory
     invalidated: list[UUID] = field(default_factory=list)
     user: UUID = field(default_factory=uuid4)
     _job_seq: int = 0
+
+    @property
+    def org_billing(self) -> OrgBilling:
+        return OrgBilling(self.bctx)
 
     def uow(self) -> SqlUnitOfWork:
         return SqlUnitOfWork(self.app_engine, self.bctx.ids, self.clock)
@@ -186,6 +195,8 @@ class Env:
                 SettlementService(self.bctx.uow_factory, self.gateway, self.clock),
                 self.entitlements.invalidate,
             ),
+            orgs=self.orgs,
+            org_service_token=ORG_TOKEN,
         )
         app.state.gateway_secrets = (GATEWAY_SECRET,)
         transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
@@ -212,8 +223,9 @@ def build_env(
     def uow_factory() -> SqlUnitOfWork:
         return SqlUnitOfWork(app_engine, ids, clock)
 
+    orgs = FakeOrgDirectory()
     entitlements = EntitlementService(
-        uow_factory, ValkeyEntitlementCache(vk), clock, l1_ttl_seconds=0
+        uow_factory, ValkeyEntitlementCache(vk), clock, l1_ttl_seconds=0, orgs=orgs
     )
     invalidated: list[UUID] = []
 
@@ -221,7 +233,9 @@ def build_env(
         invalidated.append(user_id)
         await entitlements.invalidate(user_id)
 
-    bctx = BillingContext(uow_factory, gateway, clock, ids, cfg or config(), invalidate)
+    bctx = BillingContext(
+        uow_factory, gateway, clock, ids, cfg or config(), invalidate, entitlements.invalidate_org
+    )
     applier = EventApplier(bctx)
     storage = InMemoryStorage()
     counters = ValkeyCounters(vk)
@@ -252,5 +266,6 @@ def build_env(
         storage=storage,
         counters=counters,
         invoices=invoices,
+        orgs=orgs,
         invalidated=invalidated,
     )

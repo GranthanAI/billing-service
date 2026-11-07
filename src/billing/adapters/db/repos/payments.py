@@ -70,6 +70,7 @@ class SqlPaymentRepo:
             .where(
                 t.c.subscription_id == subscription_id,
                 t.c.status.in_(("captured", "partially_refunded")),
+                t.c.purpose != "org_invoice",  # seat true-ups are not the period's payment
             )
             .order_by(t.c.captured_at.desc(), t.c.id.desc())
             .limit(1)

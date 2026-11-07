@@ -44,6 +44,8 @@ async def deferred_remaining(uow: UnitOfWork, payment: PaymentRecord) -> Paise:
     invoice = await uow.invoices.by_payment(payment.id)
     if invoice is None or invoice.period_start is None or invoice.period_end is None:
         return Paise(0)
+    if invoice.seat_change_to is not None:
+        return Paise(0)  # a seat true-up is booked to revenue when it is paid
     if period_interval(invoice.period_start, invoice.period_end) is not Interval.YEAR:
         return Paise(0)  # monthly charges go straight to revenue
     recognised = await uow.ledger.recognised_for_payment(payment.id)

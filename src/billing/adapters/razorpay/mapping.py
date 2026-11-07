@@ -6,6 +6,7 @@ from typing import Any
 
 from billing.app.ports import (
     GatewayPayment,
+    GatewayPaymentLink,
     GatewayRefund,
     GatewaySubscription,
     SettlementItem,
@@ -58,6 +59,16 @@ def payment(d: Mapping[str, Any]) -> GatewayPayment:
         created_at=ts(d["created_at"]) or datetime.fromtimestamp(0, UTC),
         notes=_notes(d.get("notes")),
         raw=dict(d),
+    )
+
+
+def payment_link(d: Mapping[str, Any]) -> GatewayPaymentLink:
+    return GatewayPaymentLink(
+        id=d["id"],
+        short_url=str(d.get("short_url", "")),
+        status=str(d.get("status", "created")),
+        reference_id=d.get("reference_id") or None,
+        amount=Paise(int(d.get("amount") or 0)),
     )
 
 

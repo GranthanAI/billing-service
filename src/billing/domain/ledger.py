@@ -66,10 +66,14 @@ def _tax_credits(split: GstSplit) -> tuple[Posting, ...]:
     return tuple(Posting(code, -amt) for code, amt in parts if amt)
 
 
-def subscription_charge(split: GstSplit, interval: Interval, key: str) -> LedgerTransaction:
+def subscription_charge(
+    split: GstSplit, interval: Interval, key: str, *, received_in: str = CLEARING
+) -> LedgerTransaction:
+    """A customer paid. `received_in` is where the money sits: the Razorpay clearing account for
+    card/UPI/payment-link payments (settled later), or the bank for a transfer."""
     revenue = REVENUE_SUBSCRIPTION if interval is Interval.MONTH else DEFERRED_REVENUE
     postings = (
-        Posting(CLEARING, split.total),
+        Posting(received_in, split.total),
         Posting(revenue, -split.taxable),
         *_tax_credits(split),
     )

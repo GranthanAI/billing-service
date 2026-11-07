@@ -69,6 +69,14 @@ class WebhookProcessor:
             return GatewayEvent(
                 row.event_id, kind, refund=await gw.fetch_refund(str(raw_refund["id"]))
             )
+        if kind == "payment_link.paid":
+            link, pay = _entity(body, "payment_link"), _entity(body, "payment")
+            if link is None or pay is None:
+                raise ValueError("payment_link.paid without a payment_link and a payment entity")
+            payment = await gw.fetch_payment(str(pay["id"]))
+            return GatewayEvent(
+                row.event_id, kind, payment=payment, payment_link_id=str(link["id"])
+            )
         return GatewayEvent(row.event_id, kind)  # payment.* and the rest need no action
 
     async def _process(self, row: InboxRow) -> None:

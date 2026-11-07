@@ -44,7 +44,11 @@ class GatewayAuthMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["path"] in PUBLIC_PATHS:
+        if (
+            scope["type"] != "http"
+            or scope["path"] in PUBLIC_PATHS
+            or scope["path"].startswith("/internal/")
+        ):
             await self.app(scope, receive, send)
             return
         secrets: tuple[str, ...] = getattr(scope["app"].state, "gateway_secrets", ())

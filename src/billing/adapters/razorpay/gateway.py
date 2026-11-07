@@ -15,6 +15,7 @@ from billing.app.errors import GatewayRejected, GatewayUnavailable
 from billing.app.ports import (
     Clock,
     GatewayPayment,
+    GatewayPaymentLink,
     GatewayPlanSpec,
     GatewayRefund,
     GatewaySubscription,
@@ -260,6 +261,40 @@ class RazorpayGateway:
 
     async def fetch_refund(self, refund_id: str) -> GatewayRefund:
         return mapping.refund(await self._request("GET", f"/refunds/{refund_id}"))
+
+    async def create_payment_link(
+        self,
+        amount: Paise,
+        *,
+        description: str,
+        customer_name: str,
+        customer_email: str | None,
+        reference_id: str,
+        notes: Mapping[str, str],
+    ) -> GatewayPaymentLink:
+        # a retry after a timeout must not make a second link: look for the reference first
+        for item in await self._list("/payment_links", {"reference_id": reference_id}):
+            if item.get("reference_id") == reference_id:
+                return mapping.payment_link(item)
+        customer: dict[str, str] = {"name": customer_name}
+        if customer_email:
+            customer["email"] = customer_email
+        body = await self._request(
+            "POST",
+            "/payment_links",
+            json={
+                "amount": int(amount),
+                "currency": "INR",
+                "accept_partial": False,
+                "reference_id": reference_id,
+                "description": description,
+                "customer": customer,
+                "notify": {"email": bool(customer_email), "sms": False},
+                "reminder_enable": True,
+                "notes": dict(notes),
+            },
+        )
+        return mapping.payment_link(body)
 
     async def list_settlement_items(self, day: date) -> list[SettlementItem]:
         items = await self._list(
