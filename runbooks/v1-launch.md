@@ -155,3 +155,7 @@ Before launch these checks should become a pipeline. Today each runs locally:
 | Load gate (see section 1) | `make loadtest` on a quiet Linux machine | launch |
 | Container image build and scan | `docker build -t billing-service .` | launch |
 | Existing `ci.yml` | already in the repo; extend it rather than replace it | launch |
+
+## Before go-live
+
+- Before go-live: make test-all twice, plus a full flag-on integration run, plus the 2000-example ledger run (HYPOTHESIS_PROFILE=nightly)

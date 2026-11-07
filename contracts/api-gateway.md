@@ -34,3 +34,14 @@ secret on every call.
 ## What billing never does
 
 It never takes a user id from a request body or query string, and it never calls api-gateway back.
+
+## Pay as you Go routes (only when `PAYG_ENABLED=true`; see `runbooks/payg-launch.md`)
+
+Signed-in user (JWT, `X-User-Id`), same rules as the other `/billing/*` routes:
+`GET /billing/v1/wallet`, `GET /billing/v1/wallet/transactions`, `POST /billing/v1/wallet/topups`,
+`POST /billing/v1/wallet/topups/verify`, `PUT /billing/v1/wallet/settings`. Amounts come as
+`*_paise` (GST included, what the user paid or was quoted) and `*_taxable_paise` (what the wallet
+holds). Staff (`billing_admin` only, a reason in every body):
+`POST /admin/billing/v1/orgs/{org_id}/wallet/topups`, `.../topups/{id}/mark-paid`,
+`.../topups/{id}/cancel`. With the flag off the write routes answer 404, and the two read routes
+answer 404 only for a user who never had a wallet.

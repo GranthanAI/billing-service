@@ -6,7 +6,17 @@
   404 when the user belongs to no org. Only `status = active` gives the org plan.
 - `GET /internal/orgs/{org_id}` -> `{org_id, name, type, gstin, billing_email, state_code,
   member_spend_cap_paise}`. `state_code` (GST, two digits) is required to invoice.
-- `GET /internal/orgs/{org_id}/members` -> `{user_ids: [...]}`.
+- `GET /internal/orgs/{org_id}/members` -> `{user_ids: [...]}`. The member count is what billing
+  checks for an organisation **pilot** (at most 25 members and 30 days), every time.
+  - No org-service configured: pilots are refused ("org-service is required for organisation pilots").
+  - Configured but unreachable: the staff request fails with 503 `GATEWAY_UNAVAILABLE`.
+
+`member_spend_cap_paise` (Pay as you Go):
+- The most one member may spend from the organisation's **wallet** per IST month.
+- In display paise (GST included); billing converts to taxable (`gross * 100 / 118`, half up) to compare. `null` = no cap.
+- Applies only when the organisation's plan wins and it has a wallet; never to a personal wallet.
+- Changes reach reserves within the directory cache (60 s) plus the entitlement cache (10 min).
+- A member over the cap gets `credits.member_cap` (HTTP 402, see `conversation-service.md`).
 
 Answers are cached in Valkey for `ORG_DIRECTORY_TTL_SECONDS` (60). If org-service is down, billing
 falls back to the user's personal plan for 30 s at a time and never fails the request.
