@@ -57,7 +57,7 @@ redis.call('HINCRBY', KEYS[1], 'total', 1)
 redis.call('HINCRBY', KEYS[1], field, 1)
 redis.call('EXPIRE', KEYS[1], counter_ttl)
 redis.call('HSET', KEYS[3], 'counters', KEYS[1], 'field', field, 'price', price, 'mode', mode,
-           'acct', ARGV[12], 'pv', ARGV[13], 'mkey', mkey)
+           'acct', ARGV[12], 'pv', ARGV[13], 'mkey', mkey, 'wkey', KEYS[4])
 redis.call('EXPIRE', KEYS[3], hold_ttl + 3600)
 redis.call('ZADD', KEYS[5], now + hold_ttl, ARGV[11] .. ':' .. hold_id)
 -- Deliberate deviation from the LLD text: the new running total is appended as a sixth field so

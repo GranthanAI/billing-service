@@ -179,3 +179,38 @@ async def test_org_wallet_not_used_when_org_details_are_unavailable(env: Env) ->
         assert ent.overflow_wallet_account_id is None
     finally:
         env.orgs.org = original  # type: ignore[method-assign]
+
+
+async def test_hold_of_an_org_member_on_a_personal_wallet_is_swept_back_to_zero(env: Env) -> None:
+    org = org_with_cap(env, CAP)
+    await pay(env, (await subscribe(env, org)).invoice_id)  # the org has a plan but no wallet
+    user = env.user
+    env.orgs.join(user, org.org_id, OrgVariant.COMPANY)
+    reserve, _, wallet_service = services(env)
+    await top_up(env, wallet_service)  # personal credits
+    personal = UUID(
+        str(
+            await env.scalar(
+                "SELECT id FROM billing.billing_accounts "
+                "WHERE owner_type = 'user' AND owner_id = :u",
+                u=user,
+            )
+        )
+    )
+    await env.entitlements.invalidate(user)
+
+    res = await reserve.check_and_reserve(
+        CheckAndReserveRequest(user, "idem-sweep", ReserveKind.MESSAGE, ModelGroup.ULTRA)
+    )
+    assert res.allowed and res.funded_by == "credits" and res.billing_account_id == personal
+    wallet_key = keys.wallet(str(personal))
+    stored = await env.counters._c.hget(keys.hold(user, res.hold_id), "wkey")  # type: ignore[attr-defined]
+    assert stored == wallet_key
+    assert (await env.counters.wallet_get(personal))["held"] == ULTRA_TAXABLE
+
+    env.clock.advance(seconds=601)  # the hold runs out
+    await env.run_job("holds.sweep")
+
+    mirror = await env.counters.wallet_get(personal)
+    assert mirror["held"] == 0
+    assert mirror["balance"] == int(taxable_of(Paise(19900)))  # nothing was charged

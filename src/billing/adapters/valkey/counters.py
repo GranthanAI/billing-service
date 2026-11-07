@@ -124,7 +124,7 @@ class ValkeyCounters:
         occurred_at: datetime,
     ) -> str:
         hold_key = keys.hold(user_id, hold_id)
-        acct, mkey = await aw(self._c.hmget(hold_key, ["acct", "mkey"]))
+        acct, mkey, wkey = await aw(self._c.hmget(hold_key, ["acct", "mkey", "wkey"]))
         if kind is ReserveKind.YOUTUBE_VIDEO:
             counters, ttl = keys.month_counters(user_id, occurred_at), self._month_ttl
         else:
@@ -132,7 +132,7 @@ class ValkeyCounters:
         result: str = await self._commit(
             keys=[
                 hold_key,
-                self._wallet(user_id, acct),
+                wkey or self._wallet(user_id, acct),  # the wallet the reserve used
                 keys.HOLDS_DUE,
                 keys.done(user_id, source_id),
                 counters,
@@ -144,14 +144,14 @@ class ValkeyCounters:
 
     async def release(self, user_id: UUID, hold_id: str, reason: str) -> bool:
         hold_key = keys.hold(user_id, hold_id)
-        counters, mode, acct, mkey = await aw(
-            self._c.hmget(hold_key, ["counters", "mode", "acct", "mkey"])
+        counters, mode, acct, mkey, wkey = await aw(
+            self._c.hmget(hold_key, ["counters", "mode", "acct", "mkey", "wkey"])
         )
         result: str = await self._release(
             keys=[
                 hold_key,
                 counters or keys.day_counters(user_id, datetime.now(UTC)),  # unused when GONE
-                self._wallet(user_id, acct or None),
+                wkey or self._wallet(user_id, acct or None),
                 keys.HOLDS_DUE,
                 mkey or "",
             ],
