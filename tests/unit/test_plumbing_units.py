@@ -15,9 +15,9 @@ from billing.adapters.kafka.codec import EventCodec, decode_event
 from billing.app import topics
 from billing.app.context import correlation_id_var
 from billing.app.events import (
+    CreditsExpiringEvent,
     InvoiceIssuedEvent,
     PaymentFailedEvent,
-    CreditsExpiringEvent,
     PersonalPlanRedundantEvent,
     RenewalUpcomingEvent,
     SubscriptionChangedEvent,

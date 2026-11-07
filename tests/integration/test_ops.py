@@ -97,7 +97,7 @@ EXPECTED: dict[str, set[str]] = {
     "billing_accounts": UPDATE, "subscriptions": UPDATE, "subscription_changes": UPDATE,
     "plan_overrides": UPDATE, "payments": UPDATE, "refunds": UPDATE, "invoices": UPDATE,
     "invoice_lines": UPDATE, "invoice_counters": UPDATE, "ledger_accounts": UPDATE,
-    "ledger_balances": UPDATE, "credit_lots": UPDATE, "usage_daily": UPDATE,
+    "ledger_balances": UPDATE, "credit_lots": UPDATE, "wallets": UPDATE, "usage_daily": UPDATE,
     "provider_costs": UPDATE,
     "webhook_inbox": FULL,  # housekeeping prunes old rows
     # plumbing the app owns

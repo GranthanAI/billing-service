@@ -8,7 +8,12 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from billing.app.effects import REFUND_ISSUE as REFUND_JOB
-from billing.app.errors import NotFound, ValidationFailed
+from billing.app.errors import (
+    GatewayUnavailable,
+    NotFound,
+    OrgDirectoryUnavailable,
+    ValidationFailed,
+)
 from billing.app.ports import Clock, IdGenerator, OrgDirectory, UnitOfWork
 from billing.app.records import OverrideRecord
 from billing.app.settlements import SettlementService
@@ -103,13 +108,17 @@ class AdminService:
         count comes from org-service; if it cannot be asked the override is refused."""
         if expires_at - starts > timedelta(days=PILOT_MAX_DAYS):
             raise ValidationFailed(f"an organisation pilot lasts at most {PILOT_MAX_DAYS} days")
-        if self._orgs is not None:
-            members = len(await self._orgs.members(org_id))
-            if members > PILOT_MAX_MEMBERS:
-                raise ValidationFailed(
-                    f"an organisation pilot is for at most {PILOT_MAX_MEMBERS} members, "
-                    f"this one has {members}"
-                )
+        if self._orgs is None:
+            raise ValidationFailed("org-service is required for organisation pilots")
+        try:
+            members = len(await self._orgs.members(org_id))  # never skipped
+        except OrgDirectoryUnavailable as exc:
+            raise GatewayUnavailable(f"org-service is unreachable: {exc.detail}") from exc
+        if members > PILOT_MAX_MEMBERS:
+            raise ValidationFailed(
+                f"an organisation pilot is for at most {PILOT_MAX_MEMBERS} members, "
+                f"this one has {members}"
+            )
 
     async def create_override(
         self,
@@ -123,6 +132,10 @@ class AdminService:
         variant: OrgVariant | None = None,
     ) -> OverrideRecord:
         reason = need_reason(reason)
+        if plan_code == "payg":
+            raise ValidationFailed(
+                "Pay as you Go cannot be granted as an override; top up credits instead"
+            )
         now = self._clock.now()
         starts = starts_at or now
         if expires_at <= starts:
@@ -130,7 +143,10 @@ class AdminService:
         if owner_type is OwnerType.ORG:
             await self._check_pilot(owner_id, starts, expires_at)
         if variant is None and owner_type is OwnerType.ORG and self._orgs is not None:
-            org = await self._orgs.org(owner_id)  # outside any transaction
+            try:
+                org = await self._orgs.org(owner_id)  # outside any transaction
+            except OrgDirectoryUnavailable as exc:
+                raise GatewayUnavailable(f"org-service is unreachable: {exc.detail}") from exc
             variant = org.type if org is not None and plan_code.startswith("org_") else None
         async with self._uow() as uow:
             plan = await uow.plans.current(plan_code, variant)

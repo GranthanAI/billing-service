@@ -23,6 +23,14 @@ def _has_payg(ent: Entitlement) -> bool:
     return ent.grant.source is GrantSource.PAYG or ent.overflow_wallet_account_id is not None
 
 
+def _payg_override(plan_code: str, override_id: UUID) -> bool:
+    """A Pay as you Go override served in plan mode would cost nothing: treat it as absent."""
+    if plan_code != "payg":
+        return False
+    log.warning("payg_override_ignored", override_id=str(override_id))
+    return True
+
+
 class EntitlementService:
     def __init__(
         self,
@@ -129,6 +137,8 @@ class EntitlementService:
 
             for ov in await uow.overrides.active_for(OwnerType.USER, user_id, now):
                 plan = await uow.plans.by_id(ov.plan_version_id)
+                if plan is not None and _payg_override(plan.plan.plan_code, ov.id):
+                    continue
                 if plan is not None:
                     grants.append(
                         Grant(
@@ -156,6 +166,8 @@ class EntitlementService:
                 org_account_id = org_account.id if org_account else None
                 for ov in await uow.overrides.active_for(OwnerType.ORG, member.org_id, now):
                     plan = await uow.plans.by_id(ov.plan_version_id)
+                    if plan is not None and _payg_override(plan.plan.plan_code, ov.id):
+                        continue
                     if plan is not None:
                         grants.append(
                             Grant(
