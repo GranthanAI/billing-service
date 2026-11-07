@@ -19,6 +19,7 @@ class BillingConfig:
     credit_note_series: str = "CN"
     bill_of_supply_series: str = "BS"
     grace_days: int = 3
+    org_grace_days: int = 15
     abandon_hours: int = 24
     total_count_month: int = 120
     total_count_year: int = 10
@@ -41,3 +42,5 @@ class BillingContext:
     config: BillingConfig
     # Called after a commit that changed what a user may do; drops `ent:{uid}`.
     invalidate_entitlement: Callable[[UUID], Awaitable[None]]
+    # An organisation's plan changed: clear every member's entitlement (after commit).
+    invalidate_org: Callable[[UUID], Awaitable[None]] | None = None

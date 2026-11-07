@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     # api-gateway proves itself to the REST routes with X-Gateway-Secret; comma-separated to rotate
     gateway_shared_secret: str = Field(..., min_length=1)
     sentry_dsn: str = ""
+    # org-service (organisations). Without a URL nobody is a member of anything.
+    org_service_url: str = ""
+    org_service_token: str = ""
+    org_directory_ttl_seconds: int = Field(60, ge=0)
+    org_grace_days: int = Field(15, ge=0)  # an unpaid organisation invoice keeps access this long
     service_token_keys: str = Field(...)
     supplier_gstin: str = ""
     supplier_legal_name: str = "GranthanAI"

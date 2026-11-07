@@ -25,10 +25,16 @@ async def apply_transition(
     *,
     cause_ref: str | None,
     ctx: EffectContext | None = None,
+    grace_days: int | None = None,
 ) -> SubscriptionRecord:
     """Raises IllegalTransition (before writing anything) when the trigger does not fit."""
     now = bctx.clock.now()
-    result = transition(sub.state, trigger, now, grace_days=bctx.config.grace_days)
+    result = transition(
+        sub.state,
+        trigger,
+        now,
+        grace_days=bctx.config.grace_days if grace_days is None else grace_days,
+    )
     saved = await uow.subscriptions.save(replace(sub, state=result.state))
     name = type(trigger).__name__
     await uow.subscriptions.append_history(
@@ -48,6 +54,10 @@ async def apply_transition(
     if account.owner_type is OwnerType.USER:
         owner_id = account.owner_id
         uow.after_commit(lambda: bctx.invalidate_entitlement(owner_id))
+    elif bctx.invalidate_org is not None:
+        invalidate_org = bctx.invalidate_org
+        org_id = account.owner_id
+        uow.after_commit(lambda: invalidate_org(org_id))
     log.info(
         "subscription_transitioned",
         subscription_id=str(sub.id),

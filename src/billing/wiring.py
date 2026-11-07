@@ -28,6 +28,7 @@ def config_from_settings(s: Settings) -> BillingConfig:
         credit_note_series=s.credit_note_series,
         bill_of_supply_series=s.bill_of_supply_series,
         grace_days=s.grace_days,
+        org_grace_days=s.org_grace_days,
         abandon_hours=s.checkout_abandon_hours,
         total_count_month=s.razorpay_total_count_month,
         total_count_year=s.razorpay_total_count_year,
@@ -55,8 +56,9 @@ def make_context(
     clock: Clock,
     ids: IdGenerator,
     invalidate: Callable[[UUID], Awaitable[None]],
+    invalidate_org: Callable[[UUID], Awaitable[None]] | None = None,
 ) -> BillingContext:
-    return BillingContext(uow_factory, gateway, clock, ids, config, invalidate)
+    return BillingContext(uow_factory, gateway, clock, ids, config, invalidate, invalidate_org)
 
 
 def install_billing(

@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from billing.domain.catalog import Interval, ModelGroup, OwnerType, PlanVersion
+from billing.domain.catalog import Interval, ModelGroup, OrgVariant, OwnerType, PlanVersion
 from billing.domain.money import MicroInr, Paise
 from billing.domain.subscription import SubscriptionState, SubStatus
 
@@ -50,9 +50,32 @@ class SubscriptionRecord:
     billing_account_id: UUID
     state: SubscriptionState
     seats: int = 1
+    billing_mode: str = "mandate"  # mandate | invoice
+    pending_seats: int | None = None  # a decrease that applies at the next renewal
     gateway: str = "razorpay"
     lock_version: int = 0
     created_at: datetime | None = None  # set by the repository on read
+
+
+@dataclass(frozen=True, slots=True)
+class Membership:
+    """A user's place in an organisation, as org-service reports it."""
+
+    org_id: UUID
+    org_type: OrgVariant
+    role: str
+    status: str  # active | invited | suspended ...: only `active` grants the org's plan
+
+
+@dataclass(frozen=True, slots=True)
+class OrgInfo:
+    org_id: UUID
+    name: str
+    type: OrgVariant
+    gstin: str | None
+    billing_email: str | None
+    state_code: str | None
+    member_spend_cap_paise: int | None  # per-member cap for credits (Stage G)
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +154,10 @@ class InvoiceRecord:
     customer_name: str | None = None
     customer_gstin: str | None = None
     pdf_object_key: str | None = None
+    subscription_id: UUID | None = None
+    seat_change_to: int | None = None
+    payment_link_id: str | None = None
+    payment_link_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

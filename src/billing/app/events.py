@@ -44,6 +44,17 @@ class RenewalUpcomingEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class PersonalPlanRedundantEvent:
+    """A user joined an organisation whose plan is as good as the personal plan they pay for."""
+
+    user_id: UUID
+    billing_account_id: UUID
+    personal_plan_code: str
+    org_id: UUID
+    org_plan_code: str
+
+
+@dataclass(frozen=True, slots=True)
 class UsageThresholdReachedEvent:
     user_id: UUID
     billing_account_id: UUID
@@ -68,6 +79,7 @@ OutboxEvent = (
     SubscriptionChangedEvent
     | PaymentFailedEvent
     | RenewalUpcomingEvent
+    | PersonalPlanRedundantEvent
     | UsageThresholdReachedEvent
     | InvoiceIssuedEvent
 )

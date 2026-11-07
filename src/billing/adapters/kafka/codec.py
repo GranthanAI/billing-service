@@ -13,6 +13,7 @@ from billing.app.events import (
     InvoiceIssuedEvent,
     OutboxEvent,
     PaymentFailedEvent,
+    PersonalPlanRedundantEvent,
     RenewalUpcomingEvent,
     SubscriptionChangedEvent,
     UsageThresholdReachedEvent,
@@ -101,6 +102,17 @@ class EventCodec:
                     amount_paise=int(event.amount),
                     charge_at=event.charge_at,
                 )
+            case PersonalPlanRedundantEvent():
+                topic, key = topics.PERSONAL_PLAN_REDUNDANT, str(event.user_id)
+                env, headers = self._envelope(topic)
+                msg = schemas.PersonalPlanRedundantMsg(
+                    **env,  # type: ignore[arg-type]
+                    user_id=str(event.user_id),
+                    billing_account_id=str(event.billing_account_id),
+                    personal_plan_code=event.personal_plan_code,
+                    org_id=str(event.org_id),
+                    org_plan_code=event.org_plan_code,
+                )
             case UsageThresholdReachedEvent():
                 topic, key = topics.USAGE_THRESHOLD_REACHED, str(event.user_id)
                 env, headers = self._envelope(topic)
@@ -163,6 +175,15 @@ def decode_event(event_type: str, payload: bytes) -> tuple[Envelope, OutboxEvent
                 plan_code=r.plan_code,
                 amount=Paise(r.amount_paise),
                 charge_at=r.charge_at,
+            )
+        case topics.PERSONAL_PLAN_REDUNDANT:
+            pr = schemas.PersonalPlanRedundantMsg.model_validate_json(payload)
+            return pr, PersonalPlanRedundantEvent(
+                user_id=UUID(pr.user_id),
+                billing_account_id=UUID(pr.billing_account_id),
+                personal_plan_code=pr.personal_plan_code,
+                org_id=UUID(pr.org_id),
+                org_plan_code=pr.org_plan_code,
             )
         case topics.USAGE_THRESHOLD_REACHED:
             u = schemas.UsageThresholdReachedMsg.model_validate_json(payload)

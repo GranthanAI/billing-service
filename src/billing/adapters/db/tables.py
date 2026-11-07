@@ -48,6 +48,7 @@ plan_versions = sa.Table(
     sa.Column("razorpay_plan_month", sa.Text),
     sa.Column("razorpay_plan_year", sa.Text),
     sa.Column("default_group", model_group, nullable=False),
+    sa.Column("min_seats", sa.Integer),
     _ts("effective_from", nullable=False),
     _ts("retired_at"),
     sa.Column("checksum", sa.Text, nullable=False),
@@ -126,6 +127,8 @@ subscriptions = sa.Table(
     sa.Column("pending_plan_version_id", sa.Uuid, sa.ForeignKey("billing.plan_versions.id")),
     sa.Column("pending_interval", billing_interval),
     sa.Column("last_period_paid_paise", sa.BigInteger),
+    sa.Column("billing_mode", sa.Text, nullable=False, server_default=sa.text("'mandate'")),
+    sa.Column("pending_seats", sa.Integer),
     sa.Column("lock_version", sa.Integer, nullable=False, server_default=sa.text("0")),
     _ts("created_at", nullable=False, server_default=_NOW),
     _ts("updated_at", nullable=False, server_default=_NOW),
@@ -308,6 +311,30 @@ invoices = sa.Table(
     sa.Column("total_paise", sa.BigInteger, nullable=False),
     sa.Column("status", sa.Text, nullable=False),
     sa.Column("pdf_object_key", sa.Text),
+    sa.Column("subscription_id", sa.Uuid, sa.ForeignKey("billing.subscriptions.id")),
+    sa.Column("seat_change_to", sa.Integer),
+    sa.Column("payment_link_id", sa.Text),
+    sa.Column("payment_link_url", sa.Text),
+    sa.Index(
+        "invoices_subscription",
+        "subscription_id",
+        postgresql_where=sa.text("subscription_id IS NOT NULL"),
+    ),
+    sa.Index(
+        "invoices_payment_link",
+        "payment_link_id",
+        unique=True,
+        postgresql_where=sa.text("payment_link_id IS NOT NULL"),
+    ),
+    sa.Index(
+        "invoices_one_per_period",
+        "subscription_id",
+        "period_start",
+        unique=True,
+        postgresql_where=sa.text(
+            "subscription_id IS NOT NULL AND seat_change_to IS NULL AND kind <> 'credit_note'"
+        ),
+    ),
 )
 
 invoice_lines = sa.Table(

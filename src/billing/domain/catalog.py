@@ -100,6 +100,7 @@ class PlanVersion:
     allowed_groups: frozenset[ModelGroup]
     extra_models: frozenset[str] = frozenset()
     default_group: ModelGroup = ModelGroup.FAST  # what an Auto request reserves
+    min_seats: int | None = None  # organisation plans only
 
     def price_for(self, interval: Interval) -> Paise:
         price = self.price_month if interval is Interval.MONTH else self.price_year

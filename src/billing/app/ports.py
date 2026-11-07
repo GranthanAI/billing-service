@@ -25,6 +25,8 @@ from billing.app.records import (
     InvoiceRecord,
     Job,
     JobStatus,
+    Membership,
+    OrgInfo,
     OverrideRecord,
     PaymentRecord,
     PlanVersionRecord,
@@ -278,6 +280,20 @@ class Counters(Protocol):
     async def due_holds(self, now_unix: int, limit: int) -> list[tuple[UUID, str]]: ...
 
     async def open_holds(self) -> int: ...
+
+
+class OrgDirectory(Protocol):
+    """org-service as billing sees it. Raises OrgDirectoryUnavailable when it cannot be reached."""
+
+    async def membership(self, user_id: UUID) -> Membership | None: ...
+
+    async def org(self, org_id: UUID) -> OrgInfo | None: ...
+
+    async def members(self, org_id: UUID) -> list[UUID]: ...
+
+    async def forget_membership(self, user_id: UUID) -> None:
+        """Drop any cached membership of the user (called when org.member.* arrives)."""
+        ...
 
 
 class EntitlementCache(Protocol):
@@ -560,9 +576,23 @@ class InvoiceRepo(Protocol):
         """Invoices and credit notes of an account, newest first."""
         ...
 
-    async def mark_paid(self, invoice_id: UUID) -> None: ...
-
     async def get(self, invoice_id: UUID) -> InvoiceRecord | None: ...
+
+    async def mark_paid(self, invoice_id: UUID, payment_id: UUID | None = None) -> None: ...
+
+    async def set_payment_link(self, invoice_id: UUID, link_id: str, url: str) -> None: ...
+
+    async def by_payment_link(self, link_id: str) -> InvoiceRecord | None: ...
+
+    async def for_period(
+        self, subscription_id: UUID, period_start: datetime
+    ) -> InvoiceRecord | None:
+        """The (non true-up) invoice of a subscription for the period starting then."""
+        ...
+
+    async def unpaid_for_subscription(self, subscription_id: UUID) -> list[InvoiceRecord]:
+        """Issued, unpaid invoices of a subscription, oldest period first."""
+        ...
 
     async def credited_taxable(self, payment_id: UUID) -> Paise:
         """Taxable value of the credit notes issued against a payment."""

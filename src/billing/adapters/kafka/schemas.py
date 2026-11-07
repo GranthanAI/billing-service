@@ -59,6 +59,14 @@ class RenewalUpcomingMsg(Envelope):
     charge_at: datetime
 
 
+class PersonalPlanRedundantMsg(Envelope):
+    user_id: str
+    billing_account_id: str
+    personal_plan_code: str
+    org_id: str
+    org_plan_code: str
+
+
 class UsageThresholdReachedMsg(Envelope):
     user_id: str
     billing_account_id: str
@@ -176,8 +184,31 @@ class UserDeleted(_Consumed):
         return self.event_id
 
 
+class OrgMemberEvent(_Consumed):
+    event_id: str
+    occurred_at: datetime
+    org_id: str
+    user_id: str
+    role: str = "member"
+    org_type: str = "company"
+
+    @property
+    def dedupe_key(self) -> str:
+        return self.event_id
+
+
+class OrgMemberJoined(OrgMemberEvent):
+    pass
+
+
+class OrgMemberLeft(OrgMemberEvent):
+    pass
+
+
 ConsumedEvent = (
-    ChatResponseGenerated
+    OrgMemberJoined
+    | OrgMemberLeft
+    | ChatResponseGenerated
     | ChatResponseCancelled
     | ArtifactManimRendered
     | FileYoutubeIngested
@@ -190,6 +221,8 @@ CONSUMED_BY_TOPIC: dict[str, type[_Consumed]] = {
     "artifact.manim.rendered": ArtifactManimRendered,
     "file.youtube.ingested": FileYoutubeIngested,
     "user.deleted": UserDeleted,
+    "org.member.joined": OrgMemberJoined,
+    "org.member.left": OrgMemberLeft,
 }
 
 

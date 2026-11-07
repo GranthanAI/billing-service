@@ -61,6 +61,13 @@ class Forbidden(BillingError):
     title = "This action needs a different staff role"
 
 
+class OrgDirectoryUnavailable(BillingError):
+    """org-service could not be asked (timeout, 5xx). Entitlements fall back to personal plans."""
+
+    code = "ORG_DIRECTORY_UNAVAILABLE"
+    title = "The organisation directory is unavailable"
+
+
 class GatewayUnavailable(BillingError):
     """Razorpay timed out, was unreachable, or kept answering 429/5xx."""
 

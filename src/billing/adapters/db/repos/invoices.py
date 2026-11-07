@@ -34,6 +34,10 @@ def _record(r: Any) -> InvoiceRecord:
         customer_name=r.customer_name,
         customer_gstin=r.customer_gstin,
         pdf_object_key=r.pdf_object_key,
+        subscription_id=r.subscription_id,
+        seat_change_to=r.seat_change_to,
+        payment_link_id=r.payment_link_id,
+        payment_link_url=r.payment_link_url,
     )
 
 
@@ -84,6 +88,10 @@ class SqlInvoiceRepo:
                 total_paise=invoice.total_paise,
                 status=invoice.status,
                 pdf_object_key=invoice.pdf_object_key,
+                subscription_id=invoice.subscription_id,
+                seat_change_to=invoice.seat_change_to,
+                payment_link_id=invoice.payment_link_id,
+                payment_link_url=invoice.payment_link_url,
             )
         )
         if lines:
@@ -148,8 +156,45 @@ class SqlInvoiceRepo:
         )
         return [_record(r) for r in (await self._c.execute(q)).all()]
 
-    async def mark_paid(self, invoice_id: UUID) -> None:
-        await self._c.execute(sa.update(t).where(t.c.id == invoice_id).values(status="paid"))
+    async def mark_paid(self, invoice_id: UUID, payment_id: UUID | None = None) -> None:
+        values: dict[str, Any] = {"status": "paid"}
+        if payment_id is not None:
+            values["payment_id"] = payment_id
+        await self._c.execute(sa.update(t).where(t.c.id == invoice_id).values(**values))
+
+    async def set_payment_link(self, invoice_id: UUID, link_id: str, url: str) -> None:
+        await self._c.execute(
+            sa.update(t)
+            .where(t.c.id == invoice_id)
+            .values(payment_link_id=link_id, payment_link_url=url)
+        )
+
+    async def by_payment_link(self, link_id: str) -> InvoiceRecord | None:
+        r = (await self._c.execute(sa.select(t).where(t.c.payment_link_id == link_id))).first()
+        return _record(r) if r else None
+
+    async def for_period(self, subscription_id: UUID, period_start: Any) -> InvoiceRecord | None:
+        """The (non true-up) invoice of a subscription for the period starting at `period_start`."""
+        q = sa.select(t).where(
+            t.c.subscription_id == subscription_id,
+            t.c.period_start == period_start,
+            t.c.seat_change_to.is_(None),
+            t.c.kind != "credit_note",
+        )
+        r = (await self._c.execute(q)).first()
+        return _record(r) if r else None
+
+    async def unpaid_for_subscription(self, subscription_id: UUID) -> list[InvoiceRecord]:
+        q = (
+            sa.select(t)
+            .where(
+                t.c.subscription_id == subscription_id,
+                t.c.status == "issued",
+                t.c.kind != "credit_note",
+            )
+            .order_by(t.c.period_start, t.c.issued_at)
+        )
+        return [_record(r) for r in (await self._c.execute(q)).all()]
 
     async def get(self, invoice_id: UUID) -> InvoiceRecord | None:
         r = (await self._c.execute(sa.select(t).where(t.c.id == invoice_id))).first()

@@ -145,6 +145,7 @@ class PlanBlock:
             allowed_groups=frozenset(self.groups),
             extra_models=frozenset(self.extra_models),
             default_group=self.default_group,
+            min_seats=self.min_seats,
         )
 
 

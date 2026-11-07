@@ -39,6 +39,7 @@ def _record(r: Any) -> PlanVersionRecord:
         ),
         extra_models=frozenset(m for m in models if not m.startswith(GROUP_PREFIX)),
         default_group=ModelGroup(r.default_group),
+        min_seats=r.min_seats,
     )
     return PlanVersionRecord(
         plan=plan,
@@ -93,6 +94,7 @@ class SqlPlanRepo:
                 razorpay_plan_month=record.razorpay_plan_month,
                 razorpay_plan_year=record.razorpay_plan_year,
                 default_group=p.default_group.value,
+                min_seats=p.min_seats,
                 effective_from=record.effective_from,
                 retired_at=record.retired_at,
                 checksum=record.checksum,
