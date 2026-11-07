@@ -49,7 +49,7 @@ EVENTS = [
     PaymentFailedEvent(u(1), u(3), "pay_124", Paise(1), "x", None),
     RenewalUpcomingEvent(u(1), u(2), "pro", Paise(49900), NOW),
     PersonalPlanRedundantEvent(u(9), u(1), "pro", u(5), "org_pro"),
-    CreditsExpiringEvent(u(9), u(1), u(6), 12345, NOW),
+    CreditsExpiringEvent(u(9), u(1), u(6), 12345, 10462, NOW),
     UsageThresholdReachedEvent(u(9), u(1), "messages_per_day", 80, 48, 60, NOW),
     InvoiceIssuedEvent(u(1), u(4), "GA/2627/000001", "tax_invoice", Paise(49900), "inv/1.pdf"),
     InvoiceIssuedEvent(u(1), u(4), "CN/2627/000001", "credit_note", Paise(100), None),

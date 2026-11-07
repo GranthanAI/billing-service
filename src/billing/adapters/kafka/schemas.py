@@ -72,6 +72,7 @@ class CreditsExpiringMsg(Envelope):
     billing_account_id: str
     lot_id: str
     remaining_paise: int
+    remaining_taxable_paise: int
     expires_at: datetime
 
 

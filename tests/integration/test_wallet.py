@@ -54,10 +54,17 @@ async def top_up(env: Env, wallet: WalletService, pack: str = "ind_199") -> None
     await env.process()
 
 
-async def spend(env: Env, reserve: ReserveService, usage: UsageService, n: int) -> str:
-    """One Ultra message: reserve, then the usage event. Returns funded_by or the deny reason."""
+async def spend(
+    env: Env,
+    reserve: ReserveService,
+    usage: UsageService,
+    n: int,
+    group: ModelGroup = ModelGroup.ULTRA,
+    model: str = "claude-opus-5-5",
+) -> str:
+    """One message: reserve, then the usage event. Returns funded_by or the deny reason."""
     r = await reserve.check_and_reserve(
-        CheckAndReserveRequest(env.user, f"idem-{n}", ReserveKind.MESSAGE, ModelGroup.ULTRA)
+        CheckAndReserveRequest(env.user, f"idem-{n}", ReserveKind.MESSAGE, group)
     )
     if not r.allowed:
         assert r.deny_reason is not None
@@ -71,9 +78,9 @@ async def spend(env: Env, reserve: ReserveService, usage: UsageService, n: int) 
             env.clock.now(),
             "success",
             r.hold_id,
-            "ultra",
-            "claude-opus-5-5",
-            (ANSWER,),
+            group.value,
+            model,
+            (UsageCall("anthropic", model, "answer", 1000, 0, 200),),
         )  # fmt: skip
     )
     return r.funded_by
@@ -101,7 +108,8 @@ async def test_top_up_use_exhaust_top_up_reconciles_to_the_paisa(env: Env) -> No
     await top_up(env, wallet)
     taxable = int(taxable_of(Paise(PACK)))
     view = await wallet.view(env.user)
-    assert view is not None and view["balance_paise"] == taxable
+    assert view is not None and view["balance_taxable_paise"] == taxable
+    assert view["balance_paise"] == PACK  # what the user paid, GST included
     assert (
         await env.counters.wallet_get(
             UUID(str(await env.scalar("SELECT id FROM billing.billing_accounts")))
@@ -118,7 +126,7 @@ async def test_top_up_use_exhaust_top_up_reconciles_to_the_paisa(env: Env) -> No
     assert outcome == DenyReason.NO_CREDIT.value
     assert sent == taxable // per_message
     left = taxable - sent * per_message
-    assert (await wallet.view(env.user))["balance_paise"] == left  # type: ignore[index]
+    assert (await wallet.view(env.user))["balance_taxable_paise"] == left  # type: ignore[index]
     assert await wallet_ledger(env) == left == await lots_remaining(env)
 
     await top_up(env, wallet, "ind_499")
@@ -153,7 +161,7 @@ async def test_verify_and_webhook_record_a_top_up_once(env: Env) -> None:
     await env.deliver(hook)
     await env.process()
     assert balance == int(taxable_of(Paise(PACK)))
-    assert (await wallet.view(env.user))["balance_paise"] == balance  # type: ignore[index]
+    assert (await wallet.view(env.user))["balance_taxable_paise"] == balance  # type: ignore[index]
     assert await env.scalar("SELECT count(*) FROM billing.payments WHERE purpose = 'topup'") == 1
     assert await env.scalar("SELECT count(*) FROM billing.credit_lots") == 1
 
@@ -192,6 +200,6 @@ async def test_resync_repairs_a_drifted_mirror_and_the_spend_cap_denies(env: Env
     await env.run_job("wallet.resync")
     assert (await env.counters.wallet_get(acct))["balance"] == await wallet_ledger(env)
 
-    await wallet.set_cap(env.user, Paise(int(taxable_of(Paise(ULTRA)))))  # room for one message
+    await wallet.set_cap(env.user, Paise(ULTRA))  # typed GST-inclusive: room for one message
     assert await spend(env, reserve, usage, 1) == "credits"
     assert await spend(env, reserve, usage, 2) == DenyReason.SPEND_CAP.value

@@ -9,6 +9,7 @@ from uuid import UUID
 from billing.app.entitlements import EntitlementService
 from billing.app.errors import NotFound, ValidationFailed
 from billing.app.ports import Clock, Counters, ObjectStorage, UnitOfWork
+from billing.app.wallet import wallet_block
 from billing.domain.calendar import IST, ist_day, next_ist_midnight
 from billing.domain.catalog import UNLIMITED, OwnerType
 from billing.domain.subscription import SubscriptionState, SubStatus
@@ -34,7 +35,9 @@ class AccountViews:
         counters: Counters,
         storage: ObjectStorage,
         clock: Clock,
+        gst_registered: bool = True,
     ) -> None:
+        self._registered = gst_registered
         self._uow = uow_factory
         self._ent = entitlements
         self._counters = counters
@@ -53,10 +56,11 @@ class AccountViews:
             sub = await uow.subscriptions.live_for_account(account.id) if account else None
             wallet = await uow.wallets.get(account.id) if account else None
             if account is not None and wallet is not None:
-                wallet_view = {
-                    "balance_paise": await uow.wallets.balance(account.id),
-                    "monthly_cap_paise": wallet.monthly_cap_paise,
-                }
+                wallet_view = wallet_block(
+                    self._registered,
+                    await uow.wallets.balance(account.id),
+                    wallet.monthly_cap_paise,
+                )
             if sub is not None:
                 sub_state = sub.state
                 change = await uow.changes.open_for_subscription(sub.id)

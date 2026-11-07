@@ -149,7 +149,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 entitlements.invalidate_org,
                 counters.wallet_credit,
             ),
-            views=AccountViews(uow_factory, entitlements, counters, storage, clock),
+            views=AccountViews(
+                uow_factory,
+                entitlements,
+                counters,
+                storage,
+                clock,
+                config_from_settings(settings).gst_registered,
+            ),
             admin=AdminService(
                 uow_factory,
                 clock,

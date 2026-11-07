@@ -2,6 +2,7 @@
 credit lot, the ledger posting and the tax invoice (Decision 6: GST is charged when the customer
 pays, and the wallet holds the taxable value)."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -23,7 +24,7 @@ from billing.domain.calendar import add_months, financial_year_code
 from billing.domain.catalog import OwnerType
 from billing.domain.india import is_state_code
 from billing.domain.ledger import wallet_topup
-from billing.domain.money import Paise, split_gst
+from billing.domain.money import Paise, display_paise, split_gst, taxable_of
 from billing.observability import PAYMENTS
 
 log = structlog.get_logger()
@@ -203,6 +204,53 @@ async def _record_without_credit(
     return inserted
 
 
+def amounts(registered: bool, name: str, taxable: int | None) -> dict[str, int | None]:
+    """`name_paise` is what the user sees (GST included), `name_taxable_paise` what the wallet
+    holds."""
+    if taxable is None:
+        return {f"{name}_paise": None, f"{name}_taxable_paise": None}
+    return {
+        f"{name}_paise": int(display_paise(Paise(taxable), registered)),
+        f"{name}_taxable_paise": int(taxable),
+    }
+
+
+def wallet_block(
+    registered: bool,
+    balance: int,
+    cap: int | None,
+    month_to_date: int | None = None,
+    lots: Sequence[CreditLot] = (),
+) -> dict[str, Any]:
+    block: dict[str, Any] = {
+        **amounts(registered, "balance", balance),
+        **amounts(registered, "monthly_cap", cap),
+    }
+    if month_to_date is not None:
+        block.update(amounts(registered, "month_to_date", month_to_date))
+        block["lots"] = [
+            {
+                **amounts(registered, "amount", int(lot.amount_paise)),
+                **amounts(registered, "remaining", int(lot.remaining_paise)),
+                "expires_at": lot.expires_at.isoformat(),
+            }
+            for lot in lots
+        ]
+    return block
+
+
+def transaction_json(registered: bool, row: dict[str, Any]) -> dict[str, Any]:
+    """Usage is shown at the unit price the user was quoted (Rs 4 for Best), a top-up at what was
+    paid, anything else at the taxable value plus GST."""
+    taxable = int(row["amount_paise"])
+    shown = row.get("display_paise")
+    if shown is None:
+        sign = 1 if taxable >= 0 else -1
+        shown = sign * int(display_paise(Paise(abs(taxable)), registered))
+    out = {k: v for k, v in row.items() if k not in ("amount_paise", "display_paise")}
+    return {**out, "amount_paise": int(shown), "amount_taxable_paise": taxable}
+
+
 class WalletService:
     def __init__(self, bctx: BillingContext, counters: Counters | None = None) -> None:
         self._b = bctx
@@ -211,6 +259,16 @@ class WalletService:
     @property
     def enabled(self) -> bool:
         return self._b.config.payg_enabled
+
+    @property
+    def registered(self) -> bool:
+        return self._b.config.gst_registered
+
+    def stored_cap(self, cap: int | None) -> Paise | None:
+        """A cap typed with GST included, as the wallet stores it (taxable)."""
+        if cap is None:
+            return None
+        return taxable_of(Paise(cap)) if self.registered else Paise(cap)
 
     def _require_enabled(self) -> None:
         if not self.enabled:
@@ -228,36 +286,31 @@ class WalletService:
         mtd = 0
         if self._counters is not None:
             mtd = (await self._counters.wallet_get(account.id)).get("mtd", 0)
-        return {
-            "balance_paise": balance,
-            "monthly_cap_paise": wallet.monthly_cap_paise,
-            "month_to_date_paise": mtd,
-            "lots": [
-                {
-                    "amount_paise": int(lot.amount_paise),
-                    "remaining_paise": int(lot.remaining_paise),
-                    "expires_at": lot.expires_at.isoformat(),
-                }
-                for lot in lots
-            ],
-        }
+        return wallet_block(
+            self._b.config.gst_registered, balance, wallet.monthly_cap_paise, mtd, lots
+        )
 
     async def transactions(self, user_id: UUID, limit: int = 50) -> list[dict[str, Any]]:
         async with self._b.uow_factory() as uow:
             account = await uow.accounts.get_by_owner(OwnerType.USER, user_id)
             if account is None or await uow.wallets.get(account.id) is None:
                 return []
-            return await uow.wallets.transactions(account.id, min(max(limit, 1), 200))
+            rows = await uow.wallets.transactions(account.id, min(max(limit, 1), 200))
+        return [transaction_json(self._b.config.gst_registered, r) for r in rows]
 
     async def set_cap(self, user_id: UUID, cap: Paise | None) -> None:
-        """The monthly spend cap (taxable paise, like the balance); None removes it."""
+        """The monthly spend cap. `cap` is what the user typed (GST included); it is stored as
+        taxable paise like the balance. None removes it."""
         self._require_enabled()
         async with self._b.uow_factory() as uow:
             account = await uow.accounts.get_or_create(OwnerType.USER, user_id)
             await uow.wallets.ensure(account.id)
-            await uow.wallets.set_cap(account.id, cap)
+            stored = self.stored_cap(cap)
+            await uow.wallets.set_cap(account.id, stored)
         if self._counters is not None:
-            await self._counters.wallet_set_cap(account.id, int(cap) if cap is not None else None)
+            await self._counters.wallet_set_cap(
+                account.id, int(stored) if stored is not None else None
+            )
         await self._b.invalidate_entitlement(user_id)  # a first wallet adds the PAYG grant
 
     async def start_topup(

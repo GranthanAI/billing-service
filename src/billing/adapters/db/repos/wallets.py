@@ -188,10 +188,16 @@ class SqlWalletRepo:
         """Newest first: top-ups, usage and expiries on the wallet's ledger account. `amount` is
         the change in spendable value (positive for a top-up, negative for spending)."""
         q = sa.text(
-            "SELECT t.occurred_at, t.kind, t.ref_type, t.ref_id, -e.amount_paise AS amount_paise "
+            "SELECT t.occurred_at, t.kind, t.ref_type, t.ref_id, -e.amount_paise AS amount_paise, "
+            "CASE WHEN u.price_paise IS NOT NULL THEN -u.price_paise "
+            "     WHEN p.amount_paise IS NOT NULL THEN p.amount_paise END AS display_paise "
             "FROM billing.ledger_entries e "
             "JOIN billing.ledger_transactions t ON t.id = e.transaction_id "
             "JOIN billing.wallets w ON w.ledger_account_id = e.account_id "
+            "LEFT JOIN billing.usage_events u "
+            "  ON t.ref_type = 'usage' AND t.ref_id = 'usage:' || u.source_id "
+            "LEFT JOIN billing.payments p "
+            "  ON t.ref_type = 'payment' AND t.ref_id = p.id::text "
             "WHERE w.account_id = :a ORDER BY e.id DESC LIMIT :n"
         )
         rows = await self._c.execute(q, {"a": account_id, "n": limit})

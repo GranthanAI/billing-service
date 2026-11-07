@@ -35,6 +35,14 @@ def taxable_of(gross: Paise) -> Paise:
     return Paise(round_half_up(gross * 100, 118))
 
 
+def display_paise(taxable: Paise, registered: bool = True) -> Paise:
+    """What a user sees for a wallet amount: the taxable value plus 18% GST, rounded half up.
+    Unchanged when the supplier is not GST registered (nothing was added at top-up)."""
+    if not registered:
+        return taxable
+    return Paise(round_half_up(taxable * 118, 100))
+
+
 def split_gst(
     gross: Paise, supplier_state: str, customer_state: str, registered: bool = True
 ) -> GstSplit:

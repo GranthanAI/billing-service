@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from billing.api.rest.billing import User
 from billing.app.errors import NotFound
-from billing.app.wallet import TopupOptions, WalletService
+from billing.app.wallet import TopupOptions, WalletService, amounts
 from billing.domain.catalog import OwnerType
 from billing.domain.money import Paise
 
@@ -105,4 +105,6 @@ async def settings(body: SettingsBody, user: User, svc: Svc) -> JSONResponse:
     await svc.set_cap(
         user, Paise(body.monthly_cap_paise) if body.monthly_cap_paise is not None else None
     )
-    return JSONResponse({"monthly_cap_paise": body.monthly_cap_paise})
+    return JSONResponse(
+        amounts(svc.registered, "monthly_cap", svc.stored_cap(body.monthly_cap_paise))
+    )

@@ -123,6 +123,7 @@ class EventCodec:
                     billing_account_id=str(event.billing_account_id),
                     lot_id=str(event.lot_id),
                     remaining_paise=event.remaining_paise,
+                    remaining_taxable_paise=event.remaining_taxable_paise,
                     expires_at=event.expires_at,
                 )
             case UsageThresholdReachedEvent():
@@ -204,6 +205,7 @@ def decode_event(event_type: str, payload: bytes) -> tuple[Envelope, OutboxEvent
                 billing_account_id=UUID(ce.billing_account_id),
                 lot_id=UUID(ce.lot_id),
                 remaining_paise=ce.remaining_paise,
+                remaining_taxable_paise=ce.remaining_taxable_paise,
                 expires_at=ce.expires_at,
             )
         case topics.USAGE_THRESHOLD_REACHED:

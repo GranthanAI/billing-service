@@ -207,7 +207,12 @@ class Env:
             app,
             self.bctx,
             views=AccountViews(
-                self.bctx.uow_factory, self.entitlements, self.counters, self.storage, self.clock
+                self.bctx.uow_factory,
+                self.entitlements,
+                self.counters,
+                self.storage,
+                self.clock,
+                self.bctx.config.gst_registered,
             ),
             admin=AdminService(
                 self.bctx.uow_factory,

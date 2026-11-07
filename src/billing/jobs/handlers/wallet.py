@@ -11,6 +11,7 @@ import structlog
 
 from billing.app.events import CreditsExpiringEvent
 from billing.domain.catalog import OwnerType
+from billing.domain.money import display_paise
 from billing.jobs.runner import JobContext, job_handler
 from billing.jobs.scheduler import Recurring
 
@@ -43,6 +44,7 @@ async def credits_expire(payload: dict[str, Any], ctx: JobContext) -> None:
                 if await uow.wallets.expire(account_id, lot.id, now):
                     expired += 1
     reminded = 0
+    registered = ctx.billing.config.gst_registered if ctx.billing else True
     window_end = now + timedelta(days=REMINDER_DAYS)
     async with ctx.uow_factory() as uow:
         soon = list(await uow.wallets.lots_expiring_between(now, window_end))
@@ -55,7 +57,12 @@ async def credits_expire(payload: dict[str, Any], ctx: JobContext) -> None:
                 continue
             await uow.publisher.enqueue(
                 CreditsExpiringEvent(
-                    account.owner_id, account.id, lot.id, int(lot.remaining_paise), lot.expires_at
+                    account.owner_id,
+                    account.id,
+                    lot.id,
+                    int(display_paise(lot.remaining_paise, registered)),
+                    int(lot.remaining_paise),
+                    lot.expires_at,
                 )
             )
             reminded += 1

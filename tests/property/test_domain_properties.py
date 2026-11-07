@@ -9,7 +9,7 @@ from hypothesis import strategies as st
 from billing.domain import ledger
 from billing.domain.catalog import Interval, ModelGroup, PaygPrices
 from billing.domain.entitlements import Grant, GrantSource, pick
-from billing.domain.money import Paise, round_half_up, split_gst
+from billing.domain.money import Paise, display_paise, round_half_up, split_gst, taxable_of
 from billing.domain.proration import unused_credit
 from billing.domain.rating import LlmCall, ModelPrice, PriceBook, rate
 from billing.domain.subscription import (
@@ -193,3 +193,39 @@ def test_rate_plan_mode_and_monotonic(i: int, o: int, di: int, do: int, group: M
         return int(r.cost)
 
     assert cost(i + di, o + do) >= cost(i, o)
+
+
+# --- Stage G: wallet display amounts --------------------------------------------------------------
+
+PACKS = (19900, 49900, 99900, 199900)
+UNIT_PRICES = (20, 50, 100, 200, 400, 1200)  # fast, smart, youtube, manim, best, ultra
+
+
+@given(pack=st.sampled_from(PACKS), prices=st.lists(st.sampled_from(UNIT_PRICES), max_size=400))
+def test_displayed_balance_tracks_pack_minus_unit_prices(pack: int, prices: list[int]) -> None:
+    """Each debit takes taxable_of(price), rounded on its own, so the displayed balance drifts
+    from pack - sum(unit prices) by less than one paisa per debit. (The prompt's "within 1 paisa
+    for any sequence" cannot hold: 399 Smart messages are 175 paise off. See reports/stage-G.md.)
+    After zero or one debit it is within 1 paisa."""
+    balance = int(taxable_of(Paise(pack)))
+    assert int(display_paise(Paise(balance))) == pack
+    spent = 0
+    for debits, price in enumerate(prices, start=1):
+        debit = int(taxable_of(Paise(price)))
+        if balance < debit:
+            break
+        balance -= debit
+        spent += price
+        shown = int(display_paise(Paise(balance)))
+        assert abs(shown - (pack - spent)) <= debits
+        if debits == 1:
+            assert abs(shown - (pack - spent)) <= 1
+
+
+@given(taxable=st.integers(min_value=0, max_value=10**9))
+def test_display_paise_is_monotone_and_never_below_taxable(taxable: int) -> None:
+    shown = int(display_paise(Paise(taxable)))
+    assert shown >= taxable
+    assert int(display_paise(Paise(taxable + 1))) >= shown
+    assert int(display_paise(Paise(taxable), registered=False)) == taxable
+    assert abs(shown * 100 - taxable * 118) <= 50  # within half a paisa of the exact value

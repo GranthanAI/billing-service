@@ -61,7 +61,8 @@ class CreditsExpiringEvent:
     user_id: UUID
     billing_account_id: UUID
     lot_id: UUID
-    remaining_paise: int
+    remaining_paise: int  # GST-inclusive, as the user sees it
+    remaining_taxable_paise: int
     expires_at: datetime
 
 
