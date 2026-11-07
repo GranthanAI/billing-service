@@ -11,6 +11,7 @@ from billing.adapters.razorpay import mapping
 from billing.app.config import BillingContext
 from billing.app.ports import GatewayPayment, GatewaySubscription
 from billing.app.records import InboxRow
+from billing.app.wallet import account_of_order
 from billing.app.webhooks import EventApplier, GatewayEvent
 from billing.observability import PAYMENTS, WEBHOOK_FAILED
 
@@ -77,7 +78,15 @@ class WebhookProcessor:
             return GatewayEvent(
                 row.event_id, kind, payment=payment, payment_link_id=str(link["id"])
             )
-        return GatewayEvent(row.event_id, kind)  # payment.* and the rest need no action
+        if kind == "payment.captured":
+            pay = _entity(body, "payment")
+            order_id = pay.get("order_id") if pay else None
+            if pay is not None and order_id:
+                order = await gw.fetch_order(str(order_id))
+                if account_of_order(order) is not None:  # a wallet top-up
+                    payment = await gw.fetch_payment(str(pay["id"]))
+                    return GatewayEvent(row.event_id, kind, payment=payment, order=order)
+        return GatewayEvent(row.event_id, kind)  # the rest need no action
 
     async def _process(self, row: InboxRow) -> None:
         try:

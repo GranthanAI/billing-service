@@ -14,6 +14,7 @@ from billing.adapters.razorpay import mapping, signatures
 from billing.app.errors import GatewayRejected, GatewayUnavailable
 from billing.app.ports import (
     Clock,
+    GatewayOrder,
     GatewayPayment,
     GatewayPaymentLink,
     GatewayPlanSpec,
@@ -262,6 +263,28 @@ class RazorpayGateway:
     async def fetch_refund(self, refund_id: str) -> GatewayRefund:
         return mapping.refund(await self._request("GET", f"/refunds/{refund_id}"))
 
+    async def create_order(
+        self, amount: Paise, *, receipt: str, notes: Mapping[str, str]
+    ) -> GatewayOrder:
+        # a retry after a timeout must not make a second order for the same receipt
+        for item in await self._list("/orders", {"receipt": receipt}):
+            if item.get("receipt") == receipt:
+                return mapping.order(item)
+        body = await self._request(
+            "POST",
+            "/orders",
+            json={
+                "amount": int(amount),
+                "currency": "INR",
+                "receipt": receipt,
+                "notes": dict(notes),
+            },
+        )
+        return mapping.order(body)
+
+    async def fetch_order(self, order_id: str) -> GatewayOrder:
+        return mapping.order(await self._request("GET", f"/orders/{order_id}"))
+
     async def create_payment_link(
         self,
         amount: Paise,
@@ -310,6 +333,9 @@ class RazorpayGateway:
         return [mapping.payment(p) for p in raw if p.get("status") == "captured"]
 
     # --- signatures ----------------------------------------------------------------------
+
+    def verify_order_signature(self, order_id: str, payment_id: str, signature: str) -> bool:
+        return signatures.verify_order(self._key_secret, order_id, payment_id, signature)
 
     def verify_checkout_signature(
         self, payment_id: str, subscription_id: str, signature: str

@@ -170,10 +170,19 @@ class EntitlementService:
                                 variant=member.org_type,
                             )
                         )
-            # v3: the PAYG wallet becomes overflow_wallet_account_id below.
+            wallet_account_id: UUID | None = None
+            if account is not None and await uow.wallets.get(account.id) is not None:
+                payg = await uow.plans.current("payg", None)
+                if payg is not None:
+                    wallet_account_id = account.id
+                    grants.append(Grant(GrantSource.PAYG, payg.plan, billing_account_id=account.id))
             blocked = bool(account and account.is_blocked)
         return (
-            Entitlement.of(pick(grants), overflow_wallet_account_id=None, account_blocked=blocked),
+            Entitlement.of(
+                pick(grants),
+                overflow_wallet_account_id=wallet_account_id,
+                account_blocked=blocked,
+            ),
             degraded,
         )
 

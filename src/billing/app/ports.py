@@ -20,6 +20,7 @@ from billing.app.records import (
     BillingAccount,
     ChangeRecord,
     ChangeStatus,
+    CreditLot,
     InboxRow,
     InvoiceLineRecord,
     InvoiceRecord,
@@ -34,6 +35,7 @@ from billing.app.records import (
     SubscriptionHistoryEntry,
     SubscriptionRecord,
     UsageEventRecord,
+    WalletRecord,
 )
 from billing.domain.catalog import (
     DenyReason,
@@ -140,6 +142,15 @@ class GatewayPaymentLink:
     amount: Paise
 
 
+@dataclass(frozen=True, slots=True)
+class GatewayOrder:
+    id: str
+    amount: Paise
+    status: str
+    receipt: str | None
+    notes: Mapping[str, str]
+
+
 class PlanGateway(Protocol):
     async def ensure_plan(self, spec: GatewayPlanSpec) -> str:
         """Idempotent: returns the id of an existing plan with the same notes.checksum and
@@ -183,6 +194,14 @@ class PaymentGateway(PlanGateway, Protocol):
 
     async def fetch_refund(self, refund_id: str) -> GatewayRefund: ...
 
+    async def create_order(
+        self, amount: Paise, *, receipt: str, notes: Mapping[str, str]
+    ) -> GatewayOrder:
+        """A one-off payment (a wallet top-up). Idempotent on `receipt`."""
+        ...
+
+    async def fetch_order(self, order_id: str) -> GatewayOrder: ...
+
     async def create_payment_link(
         self,
         amount: Paise,
@@ -203,6 +222,8 @@ class PaymentGateway(PlanGateway, Protocol):
     async def list_payments(self, start: datetime, end: datetime) -> list[GatewayPayment]:
         """Captured payments created in [start, end)."""
         ...
+
+    def verify_order_signature(self, order_id: str, payment_id: str, signature: str) -> bool: ...
 
     def verify_checkout_signature(
         self, payment_id: str, subscription_id: str, signature: str
@@ -294,6 +315,16 @@ class Counters(Protocol):
     async def month_counts(self, user_id: UUID, now: datetime) -> dict[str, int]:
         """The IST month's counters (youtube videos) for the month `now` falls in."""
         ...
+
+    async def wallet_credit(self, account: UUID, delta: int) -> None: ...
+
+    async def wallet_sync(self, account: UUID, balance: int) -> bool: ...
+
+    async def wallet_set_cap(self, account: UUID, cap: int | None) -> None: ...
+
+    async def wallet_reset_mtd(self, account: UUID) -> None: ...
+
+    async def wallet_get(self, account: UUID) -> dict[str, int]: ...
 
     async def set_once(self, key: str, ttl_seconds: int) -> bool:
         """SET NX with a TTL: True only for the first caller (threshold event guards)."""
@@ -649,6 +680,40 @@ class LedgerRepo(Protocol):
     async def lock_balance(self, code: str) -> int: ...
 
 
+class WalletRepo(Protocol):
+    async def get(self, account_id: UUID) -> WalletRecord | None: ...
+
+    async def ensure(self, account_id: UUID) -> WalletRecord: ...
+
+    async def set_cap(self, account_id: UUID, cap: Paise | None) -> None: ...
+
+    async def balance(self, account_id: UUID, *, lock: bool = False) -> int:
+        """Spendable value in taxable paise."""
+        ...
+
+    async def add_lot(self, lot: CreditLot) -> None: ...
+
+    async def lots(self, ledger_account_id: UUID) -> Sequence[CreditLot]:
+        """Lots with value left, earliest expiry first."""
+        ...
+
+    async def debit(self, account_id: UUID, price_incl_gst: Paise, key: str, now: datetime) -> int:
+        """Pay for usage from credits, earliest-expiring lots first. Returns taxable paise taken."""
+        ...
+
+    async def expired_lots(self, now: datetime, limit: int) -> Sequence[tuple[UUID, CreditLot]]: ...
+
+    async def expire(self, account_id: UUID, lot_id: UUID, now: datetime) -> int: ...
+
+    async def lots_expiring_between(
+        self, start: datetime, end: datetime
+    ) -> Sequence[tuple[UUID, CreditLot]]: ...
+
+    async def all_balances(self) -> dict[UUID, int]: ...
+
+    async def transactions(self, account_id: UUID, limit: int) -> list[dict[str, Any]]: ...
+
+
 class Publisher(Protocol):
     async def enqueue(self, event: OutboxEvent) -> None:
         """Write to the outbox inside the current unit of work."""
@@ -815,6 +880,9 @@ class UnitOfWork(Protocol):
 
     @property
     def ledger(self) -> LedgerRepo: ...
+
+    @property
+    def wallets(self) -> WalletRepo: ...
 
     @property
     def publisher(self) -> Publisher: ...

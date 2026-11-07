@@ -12,6 +12,15 @@ def checkout_signature(key_secret: str, payment_id: str, subscription_id: str) -
     return _hex(key_secret, f"{payment_id}|{subscription_id}".encode())
 
 
+def order_signature(key_secret: str, order_id: str, payment_id: str) -> str:
+    return _hex(key_secret, f"{order_id}|{payment_id}".encode())
+
+
+def verify_order(key_secret: str, order_id: str, payment_id: str, signature: str) -> bool:
+    expected = order_signature(key_secret, order_id, payment_id)
+    return hmac.compare_digest(expected.encode(), signature.encode())
+
+
 def webhook_signature(webhook_secret: str, raw_body: bytes) -> str:
     return _hex(webhook_secret, raw_body)
 

@@ -38,6 +38,7 @@ from billing.adapters.db.repos.pricing import SqlPricingRepo
 from billing.adapters.db.repos.refunds import SqlRefundRepo
 from billing.adapters.db.repos.subscriptions import SqlSubscriptionRepo
 from billing.adapters.db.repos.usage import SqlUsageRepo
+from billing.adapters.db.repos.wallets import SqlWalletRepo
 from billing.adapters.kafka.codec import EventCodec
 from billing.app.ports import Clock, IdGenerator
 
@@ -73,6 +74,7 @@ class SqlUnitOfWork:
         self.changes = SqlChangeRepo(conn)
         self.invoices = SqlInvoiceRepo(conn)
         self.ledger = SqlLedgerRepo(conn, ids)
+        self.wallets = SqlWalletRepo(conn, ids, self.ledger)
         self.publisher = SqlOutbox(conn, EventCodec(ids, self._clock))
         self.processed = SqlProcessedEvents(conn)
         self.idempotency = SqlIdempotency(conn)

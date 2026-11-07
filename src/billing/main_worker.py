@@ -29,7 +29,7 @@ from billing.app.entitlements import EntitlementService
 from billing.app.gauges import sample_gauges
 from billing.app.invoices import InvoiceService
 from billing.app.org_membership import OrgMembershipService
-from billing.app.usage import UsageService
+from billing.app.usage import NO_PAYG, UsageService
 from billing.app.user_deletion import UserDeletionService
 from billing.app.webhooks import EventApplier
 from billing.jobs.handlers import billing as billing_jobs
@@ -41,12 +41,19 @@ from billing.jobs.handlers import orgs as org_jobs
 from billing.jobs.handlers import partitions as partitions_job
 from billing.jobs.handlers import reconcile as reconcile_jobs
 from billing.jobs.handlers import usage as usage_jobs
+from billing.jobs.handlers import wallet as wallet_jobs
 from billing.jobs.runner import JobContext, JobRunner
 from billing.jobs.scheduler import Recurring, Scheduler
 from billing.jobs.webhooks import WebhookProcessor
 from billing.observability import AI_BUDGET, configure_logging, init_sentry, metrics_payload
 from billing.settings import Settings, get_settings, webhook_secrets
-from billing.wiring import config_from_settings, make_context, make_org_directory, make_storage
+from billing.wiring import (
+    config_from_settings,
+    make_context,
+    make_org_directory,
+    make_storage,
+    payg_prices,
+)
 
 log = structlog.get_logger()
 SCHEDULE: tuple[Recurring, ...] = (
@@ -58,6 +65,7 @@ SCHEDULE: tuple[Recurring, ...] = (
     *finance_jobs.SCHEDULES,
     reconcile_jobs.SCHEDULE,
     org_jobs.SCHEDULE,
+    *wallet_jobs.SCHEDULES,
 )
 DRAIN_SECONDS = 30.0
 HEALTH_PORT = 9100
@@ -141,6 +149,7 @@ async def run_worker(
         ids,
         ValkeyEntitlementCache(valkey_client).delete,
         entitlements.invalidate_org,
+        counters.wallet_credit,
     )
     applier = EventApplier(bctx)
     storage = make_storage(settings)
@@ -155,6 +164,7 @@ async def run_worker(
             clock,
             manim_render_cost_usd=settings.manim_render_cost_usd,
             youtube_ingest_cost_inr=settings.youtube_ingest_cost_inr,
+            payg=payg_prices(settings) or NO_PAYG,
         )
         all_consumers.append(
             make_usage_consumer(

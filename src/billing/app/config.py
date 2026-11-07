@@ -26,6 +26,16 @@ class BillingConfig:
     brand_name: str = "GranthanAI"
     supplier_legal_name: str = "GranthanAI"
     supplier_address: str = ""
+    # Pay as you Go (from plans.yaml): (pack code, price in paise incl. GST), the smallest
+    # organisation top-up, and how long credits last
+    topup_packs: tuple[tuple[str, int], ...] = (
+        ("ind_199", 19900),
+        ("ind_499", 49900),
+        ("ind_999", 99900),
+        ("ind_1999", 199900),
+    )
+    org_min_topup: int = 500000
+    credit_validity_months: int = 12
 
     def total_count(self, interval: Interval) -> int:
         return self.total_count_month if interval is Interval.MONTH else self.total_count_year
@@ -44,3 +54,5 @@ class BillingContext:
     invalidate_entitlement: Callable[[UUID], Awaitable[None]]
     # An organisation's plan changed: clear every member's entitlement (after commit).
     invalidate_org: Callable[[UUID], Awaitable[object]] | None = None
+    # After a top-up commits: add the taxable paise to the Valkey wallet mirror (HINCRBY).
+    credit_wallet: Callable[[UUID, int], Awaitable[object]] | None = None

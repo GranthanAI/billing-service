@@ -34,6 +34,7 @@ from billing.api.rest.models import router as models_router
 from billing.api.rest.orgs import admin_router as org_admin_router
 from billing.api.rest.orgs import internal_router as org_internal_router
 from billing.api.rest.public import router as public_router
+from billing.api.rest.wallet import router as wallet_router
 from billing.api.rest.webhooks import router as webhook_router
 from billing.app.account_views import AccountViews
 from billing.app.admin import AdminService
@@ -57,6 +58,7 @@ from billing.wiring import (
     make_context,
     make_org_directory,
     make_storage,
+    payg_prices,
 )
 
 configure_logging()
@@ -144,6 +146,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 ids,
                 entitlements.invalidate,
                 entitlements.invalidate_org,
+                counters.wallet_credit,
             ),
             views=AccountViews(uow_factory, entitlements, counters, storage, clock),
             admin=AdminService(
@@ -154,6 +157,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 entitlements.invalidate,
             ),
             orgs=org_directory,
+            counters=counters,
             org_service_token=settings.org_service_token,
         )
         reserve = ReserveService(
@@ -163,6 +167,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             clock,
             ids,
             hold_ttl_seconds=settings.hold_ttl_seconds,
+            payg=payg_prices(settings),
         )
         app.state.valkey, app.state.counters, app.state.reserve = client, counters, reserve
         app.state.picker = ModelPicker(
@@ -201,6 +206,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="billing-api", lifespan=lifespan)
 app.include_router(public_router)
 app.include_router(billing_router)
+app.include_router(wallet_router)
 app.include_router(models_router)
 app.include_router(me_router)
 app.include_router(admin_router)

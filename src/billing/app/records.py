@@ -269,3 +269,21 @@ class Job:
     payload: dict[str, Any]
     attempts: int
     max_attempts: int
+
+
+@dataclass(frozen=True, slots=True)
+class WalletRecord:
+    account_id: UUID  # the billing account that owns the wallet
+    ledger_account_id: UUID
+    monthly_cap_paise: Paise | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class CreditLot:
+    id: UUID
+    wallet_account_id: UUID  # the ledger account
+    payment_id: UUID
+    amount_paise: Paise
+    remaining_paise: Paise
+    expires_at: datetime

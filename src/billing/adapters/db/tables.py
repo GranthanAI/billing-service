@@ -409,6 +409,23 @@ credit_lots = sa.Table(
     ),
 )
 
+wallets = sa.Table(
+    "wallets",
+    metadata,
+    sa.Column(
+        "account_id", sa.Uuid, sa.ForeignKey("billing.billing_accounts.id"), primary_key=True
+    ),
+    sa.Column(
+        "ledger_account_id",
+        sa.Uuid,
+        sa.ForeignKey("billing.ledger_accounts.id"),
+        nullable=False,
+        unique=True,
+    ),
+    sa.Column("monthly_cap_paise", sa.BigInteger),
+    _ts("created_at", nullable=False, server_default=sa.func.now()),
+)
+
 webhook_inbox = sa.Table(
     "webhook_inbox",
     metadata,

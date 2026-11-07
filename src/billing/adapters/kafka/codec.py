@@ -10,6 +10,7 @@ from billing.adapters.kafka.schemas import Envelope
 from billing.app import topics
 from billing.app.context import correlation_id_var
 from billing.app.events import (
+    CreditsExpiringEvent,
     InvoiceIssuedEvent,
     OutboxEvent,
     PaymentFailedEvent,
@@ -113,6 +114,17 @@ class EventCodec:
                     org_id=str(event.org_id),
                     org_plan_code=event.org_plan_code,
                 )
+            case CreditsExpiringEvent():
+                topic, key = topics.WALLET_CREDITS_EXPIRING, str(event.user_id)
+                env, headers = self._envelope(topic)
+                msg = schemas.CreditsExpiringMsg(
+                    **env,  # type: ignore[arg-type]
+                    user_id=str(event.user_id),
+                    billing_account_id=str(event.billing_account_id),
+                    lot_id=str(event.lot_id),
+                    remaining_paise=event.remaining_paise,
+                    expires_at=event.expires_at,
+                )
             case UsageThresholdReachedEvent():
                 topic, key = topics.USAGE_THRESHOLD_REACHED, str(event.user_id)
                 env, headers = self._envelope(topic)
@@ -184,6 +196,15 @@ def decode_event(event_type: str, payload: bytes) -> tuple[Envelope, OutboxEvent
                 personal_plan_code=pr.personal_plan_code,
                 org_id=UUID(pr.org_id),
                 org_plan_code=pr.org_plan_code,
+            )
+        case topics.WALLET_CREDITS_EXPIRING:
+            ce = schemas.CreditsExpiringMsg.model_validate_json(payload)
+            return ce, CreditsExpiringEvent(
+                user_id=UUID(ce.user_id),
+                billing_account_id=UUID(ce.billing_account_id),
+                lot_id=UUID(ce.lot_id),
+                remaining_paise=ce.remaining_paise,
+                expires_at=ce.expires_at,
             )
         case topics.USAGE_THRESHOLD_REACHED:
             u = schemas.UsageThresholdReachedMsg.model_validate_json(payload)

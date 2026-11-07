@@ -6,18 +6,52 @@ from uuid import UUID
 
 from fastapi import FastAPI
 
+from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog
 from billing.adapters.storage import InMemoryStorage, S3Storage
 from billing.app.account_views import AccountViews
 from billing.app.admin import AdminService
+from billing.app.catalog_spec import PaygSpec
 from billing.app.config import BillingConfig, BillingContext
 from billing.app.ports import Clock, IdGenerator, ObjectStorage, PaymentGateway, UnitOfWork
 from billing.app.subscriptions import SubscriptionService
 from billing.app.webhooks import EventApplier
+from billing.domain.catalog import PaygPrices
+from billing.domain.money import Paise
 from billing.settings import Settings
 
 
+def _payg_spec(s: Settings) -> PaygSpec | None:
+    try:
+        return load_catalog(s.plans_file).payg
+    except (CatalogError, OSError):
+        return None
+
+
+def payg_prices(s: Settings) -> PaygPrices | None:
+    """Unit prices for the credits path, or None while PAYG_ENABLED is off (v1 launch)."""
+    spec = _payg_spec(s) if s.payg_enabled else None
+    if spec is None:
+        return None
+    return PaygPrices(
+        unit_prices={k: Paise(v) for k, v in spec.unit_prices.items()},
+        long_message_tokens=spec.long_message_tokens,
+        no_credit_fast_per_day=spec.no_credit_fast_per_day,
+    )
+
+
 def config_from_settings(s: Settings) -> BillingConfig:
+    spec = _payg_spec(s)
+    wallet: dict[str, Any] = (
+        {
+            "topup_packs": spec.topup_packs,
+            "org_min_topup": spec.org_min_topup,
+            "credit_validity_months": spec.credit_validity_months,
+        }
+        if spec
+        else {}
+    )
     return BillingConfig(
+        **wallet,
         razorpay_key_id=s.razorpay_key_id,
         supplier_state_code=s.supplier_state_code,
         supplier_gstin=s.supplier_gstin,
@@ -58,8 +92,11 @@ def make_context(
     ids: IdGenerator,
     invalidate: Callable[[UUID], Awaitable[None]],
     invalidate_org: Callable[[UUID], Awaitable[object]] | None = None,
+    credit_wallet: Callable[[UUID, int], Awaitable[object]] | None = None,
 ) -> BillingContext:
-    return BillingContext(uow_factory, gateway, clock, ids, config, invalidate, invalidate_org)
+    return BillingContext(
+        uow_factory, gateway, clock, ids, config, invalidate, invalidate_org, credit_wallet
+    )
 
 
 def install_billing(
@@ -69,6 +106,7 @@ def install_billing(
     views: AccountViews | None = None,
     admin: AdminService | None = None,
     orgs: Any = None,
+    counters: Any = None,
     org_service_token: str = "",
 ) -> EventApplier:
     """Attach what the REST routes and the idempotency middleware read from app.state."""
@@ -80,6 +118,9 @@ def install_billing(
         app.state.views = views
     if admin is not None:
         app.state.admin = admin
+    from billing.app.wallet import WalletService
+
+    app.state.wallet = WalletService(bctx, counters)
     if orgs is not None:
         from billing.app.org_billing import OrgBilling
 

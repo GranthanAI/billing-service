@@ -246,6 +246,22 @@ class FakeGateway(InMemoryGateway):
             },
         )
 
+    def pay_order(self, order_id: str, *, method: str = "upi") -> tuple[Webhook, str, str]:
+        """The customer pays an order in Checkout: the `payment.captured` webhook plus the
+        (payment id, signature) the frontend posts to /wallet/topups/verify."""
+        order = self.orders[order_id]
+        now = self.clock.now()
+        pay_id = self.next_payment_id()
+        fee = int(order.amount) * 2 // 100
+        raw = self._template("payment_captured")["payload"]["payment"]["entity"]
+        raw.update(
+            id=pay_id, amount=int(order.amount), order_id=order_id, method=method, fee=fee,
+            tax=round(fee * 18 / 118), created_at=int(now.timestamp()), invoice_id=None,
+        )  # fmt: skip
+        self.payments[pay_id] = mapping.payment(raw)
+        signature = signatures.order_signature(self.key_secret, order_id, pay_id)
+        return self._webhook("payment_captured", payment=dict(raw)), pay_id, signature
+
     def pay_link(self, link_id: str, *, method: str = "upi") -> Webhook:
         """The customer pays a payment link: a captured payment and `payment_link.paid`."""
         link = self.payment_links[link_id]

@@ -115,6 +115,12 @@ def payg_usage(price_incl_gst: Paise, wallet_account: UUID, key: str) -> LedgerT
     return assert_balanced(LedgerTransaction(LedgerKind.PAYG_USAGE, key, postings))
 
 
+def wallet_debit(taxable: Paise, wallet_account: UUID, key: str) -> LedgerTransaction:
+    """Usage paid from credits, for an amount that is already the taxable value."""
+    postings = (Posting(wallet_code(wallet_account), taxable), Posting(REVENUE_PAYG, -taxable))
+    return assert_balanced(LedgerTransaction(LedgerKind.PAYG_USAGE, key, postings))
+
+
 def credit_expiry(remaining: Paise, wallet_account: UUID, key: str) -> LedgerTransaction:
     postings = (
         Posting(wallet_code(wallet_account), remaining),

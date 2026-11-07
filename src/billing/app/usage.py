@@ -46,7 +46,7 @@ KIND_NAMES = {
     ReserveKind.YOUTUBE_VIDEO: "youtube_video",
     ReserveKind.MANIM_VIDEO: "manim_video",
 }
-# Plan mode never reads PaygPrices; Stage G (credits) passes the real ones.
+# Plan mode never reads PaygPrices; credits mode gets the catalog's.
 NO_PAYG = PaygPrices(unit_prices={})
 
 
@@ -86,6 +86,7 @@ class Recorded:
     plan_code: str
     provider_costs: dict[tuple[str, str], int]  # (provider, model_group) -> micro-rupees
     success: bool
+    charged: int = 0  # taxable paise taken from the wallet (credits mode)
 
 
 def effective_status(ev: UsageEvent) -> Literal["success", "error"]:
@@ -129,6 +130,7 @@ class UsageService:
         *,
         manim_render_cost_usd: Decimal = Decimal("0.01"),
         youtube_ingest_cost_inr: Decimal = Decimal("0.30"),
+        payg: PaygPrices = NO_PAYG,
     ) -> None:
         self._uow = uow_factory
         self._ent = entitlements
@@ -136,6 +138,7 @@ class UsageService:
         self._clock = clock
         self._manim_usd = manim_render_cost_usd
         self._youtube_inr = youtube_ingest_cost_inr
+        self._payg = payg
 
     # --- entry point -----------------------------------------------------------------------
 
@@ -154,7 +157,7 @@ class UsageService:
             claimed = await uow.processed.claim(CONSUMER, ev.dedupe_key)
             recorded = await self._record(uow, ev, hold, ent, success) if claimed else None
 
-        await self._settle(ev, hold, success)
+        await self._settle(ev, hold, success, recorded.charged if recorded else 0)
         result: Literal["applied", "duplicate"] = "applied" if recorded else "duplicate"
         USAGE_EVENTS.labels(kind=KIND_NAMES[ev.kind], result=result).inc()
         if recorded is not None:
@@ -205,19 +208,33 @@ class UsageService:
 
         calls_cost = cost_micro_inr(domain_calls, book, fx)
         units, price = 0, Paise(0)
+        # paid from credits: the hold was taken in payg mode with a price (a free Fast message
+        # has price 0 and costs the user nothing)
+        credits = hold is not None and hold.mode == "payg" and hold.price > 0 and success
         if success:
             if ev.kind is ReserveKind.MESSAGE:
                 if primary is None:
                     raise ValueError(f"message {ev.source_id} succeeded with no answer call")
                 assert group is not None
-                rating = rate(domain_calls, book, fx, group, "plan", NO_PAYG)
+                rating = rate(
+                    domain_calls,
+                    book,
+                    fx,
+                    group,
+                    "payg" if credits else "plan",
+                    self._payg if credits else NO_PAYG,
+                )
                 cost, units, price = rating.cost, rating.billable_units, rating.price
             elif ev.kind is ReserveKind.MANIM_VIDEO:
                 cost = MicroInr(calls_cost + usd_to_micro_inr(self._manim_usd, fx))
                 units = 1
+                if credits:
+                    price = self._payg.unit_prices["manim_video"]
             else:
                 cost = MicroInr(calls_cost + inr_to_micro_inr(self._youtube_inr))
                 units = 1
+                if credits:
+                    price = self._payg.unit_prices["youtube_video"]
         else:
             cost = calls_cost  # the provider charged for what was attempted
 
@@ -267,13 +284,21 @@ class UsageService:
             )
         )
 
+        charged = 0
+        if credits and price > 0:
+            charged = await uow.wallets.debit(
+                account_id, price, f"usage:{ev.source_id}", self._clock.now()
+            )
+
         label = group.value if group else KIND_NAMES[ev.kind]
         by_provider = {(provider, label): value for provider, value in per_provider.items()}
-        return Recorded(account_id, plan_code, by_provider, success)
+        return Recorded(account_id, plan_code, by_provider, success, charged)
 
     # --- settling the hold ------------------------------------------------------------------
 
-    async def _settle(self, ev: UsageEvent, hold: Hold | None, success: bool) -> None:
+    async def _settle(
+        self, ev: UsageEvent, hold: Hold | None, success: bool, charged: int = 0
+    ) -> None:
         if not success:
             if ev.hold_id:
                 await self._counters.release(ev.user_id, ev.hold_id, "refund")
@@ -285,7 +310,13 @@ class UsageService:
         if not field and ev.kind is ReserveKind.MESSAGE:
             field = await self._group_from_model(ev) or "fast"
         result = await self._counters.commit(
-            ev.user_id, ev.hold_id or "none", Paise(0), ev.source_id, ev.kind, field, ev.occurred_at
+            ev.user_id,
+            ev.hold_id or "none",
+            Paise(charged),
+            ev.source_id,
+            ev.kind,
+            field,
+            ev.occurred_at,
         )
         if result == "OK" and hold is None:
             USAGE_LATE_COMMIT.inc()  # the hold had expired (or never existed): counted now

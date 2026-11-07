@@ -46,10 +46,17 @@ class AccountViews:
         ent = await self._ent.resolve(user_id)
         plan = ent.grant.plan_version
         sub_state: SubscriptionState | None = None
+        wallet_view: dict[str, Any] | None = None
         pending: dict[str, Any] | None = None
         async with self._uow() as uow:
             account = await uow.accounts.get_by_owner(OwnerType.USER, user_id)
             sub = await uow.subscriptions.live_for_account(account.id) if account else None
+            wallet = await uow.wallets.get(account.id) if account else None
+            if account is not None and wallet is not None:
+                wallet_view = {
+                    "balance_paise": await uow.wallets.balance(account.id),
+                    "monthly_cap_paise": wallet.monthly_cap_paise,
+                }
             if sub is not None:
                 sub_state = sub.state
                 change = await uow.changes.open_for_subscription(sub.id)
@@ -92,7 +99,7 @@ class AccountViews:
                 "resets_at": _iso(next_ist_midnight(now)),
             },
             "usage_month": {"youtube_videos": month.get("youtube", 0)},
-            "wallet": None,  # Pay as you Go arrives with the wallet
+            "wallet": wallet_view,
         }
 
     async def usage(self, user_id: UUID, start: date | None, end: date | None) -> dict[str, Any]:

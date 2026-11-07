@@ -55,6 +55,17 @@ class PersonalPlanRedundantEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class CreditsExpiringEvent:
+    """A credit lot expires in about 30 days with value left in it."""
+
+    user_id: UUID
+    billing_account_id: UUID
+    lot_id: UUID
+    remaining_paise: int
+    expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class UsageThresholdReachedEvent:
     user_id: UUID
     billing_account_id: UUID
@@ -80,6 +91,7 @@ OutboxEvent = (
     | PaymentFailedEvent
     | RenewalUpcomingEvent
     | PersonalPlanRedundantEvent
+    | CreditsExpiringEvent
     | UsageThresholdReachedEvent
     | InvoiceIssuedEvent
 )

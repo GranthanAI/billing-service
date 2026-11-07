@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from billing.app.ports import (
+    GatewayOrder,
     GatewayPayment,
     GatewayPaymentLink,
     GatewayRefund,
@@ -59,6 +60,18 @@ def payment(d: Mapping[str, Any]) -> GatewayPayment:
         created_at=ts(d["created_at"]) or datetime.fromtimestamp(0, UTC),
         notes=_notes(d.get("notes")),
         raw=dict(d),
+    )
+
+
+def order(d: Mapping[str, Any]) -> GatewayOrder:
+    raw_notes = d.get("notes")
+    notes = {str(k): str(v) for k, v in raw_notes.items()} if isinstance(raw_notes, dict) else {}
+    return GatewayOrder(
+        id=d["id"],
+        amount=Paise(int(d.get("amount") or 0)),
+        status=str(d.get("status", "created")),
+        receipt=d.get("receipt") or None,
+        notes=notes,
     )
 
 

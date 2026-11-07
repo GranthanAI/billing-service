@@ -12,10 +12,17 @@ from billing.app.charges import record_charge
 from billing.app.config import BillingContext
 from billing.app.effects import REFUND_ISSUE, EffectContext
 from billing.app.org_billing import settle_invoice
-from billing.app.ports import GatewayPayment, GatewayRefund, GatewaySubscription, UnitOfWork
+from billing.app.ports import (
+    GatewayOrder,
+    GatewayPayment,
+    GatewayRefund,
+    GatewaySubscription,
+    UnitOfWork,
+)
 from billing.app.records import ChangeKind, ChangeRecord, ChangeStatus
 from billing.app.revenue import release_deferred
 from billing.app.transitions import IllegalTransition, apply_transition
+from billing.app.wallet import apply_topup
 from billing.domain.catalog import Interval
 from billing.domain.subscription import (
     CancelledExternally,
@@ -59,6 +66,7 @@ class GatewayEvent:
     payment: GatewayPayment | None = None
     refund: GatewayRefund | None = None
     payment_link_id: str | None = None
+    order: GatewayOrder | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +235,14 @@ class EventApplier:
         """Inside the caller's transaction. Returns `processed` or `ignored`."""
         if event.type.startswith("refund."):
             return await self._apply_refund(uow, event)
+        if event.type == "payment.captured" and event.order is not None:
+            if event.payment is None:
+                return IGNORED
+            return (
+                PROCESSED
+                if await apply_topup(uow, self._b, event.payment, event.order)
+                else IGNORED
+            )
         if event.type == "payment_link.paid":
             return await self._apply_link_paid(uow, event)
         if event.subscription is None:

@@ -1,7 +1,9 @@
 """CheckAndReserve / Release / GetEntitlements: the limit check in front of every message.
 
-v1 is plan mode only. The credits call (LLD CheckAndReserve step 4) arrives with the wallet in
-Phase 11; the branch is marked below and has no behaviour yet.
+Plan mode first. When the plan refuses for a limit (or does not include the model) and the user
+has a Pay as you Go wallet, the same script runs again in payg mode and the message is paid from
+credits (`funded_by = "credits"`). A user whose plan *is* Pay as you Go goes straight to payg mode.
+Wallet amounts are taxable paise: a hold is `taxable_of(unit price)`.
 """
 
 from dataclasses import dataclass
@@ -13,9 +15,9 @@ from opentelemetry import trace
 
 from billing.app.entitlements import EntitlementService, ModelCatalog
 from billing.app.ports import Clock, Counters, IdGenerator, ReserveArgs
-from billing.domain.catalog import DenyReason, ModelGroup, ReserveKind
-from billing.domain.entitlements import Entitlement
-from billing.domain.money import Paise
+from billing.domain.catalog import DenyReason, ModelGroup, PaygPrices, ReserveKind
+from billing.domain.entitlements import Entitlement, GrantSource
+from billing.domain.money import Paise, taxable_of
 from billing.observability import (
     RELEASE_TOTAL,
     RESERVE_DOWNGRADED,
@@ -81,6 +83,8 @@ class ReserveService:
         ids: IdGenerator,
         *,
         hold_ttl_seconds: int = 600,
+        payg: PaygPrices | None = None,
+        no_credit_fast_per_day: int = NO_CREDIT_FAST_PER_DAY,
     ) -> None:
         self._ent = entitlements
         self._catalog = catalog
@@ -88,6 +92,8 @@ class ReserveService:
         self._clock = clock
         self._ids = ids
         self._hold_ttl = hold_ttl_seconds
+        self._payg = payg
+        self._no_credit_fast = no_credit_fast_per_day
 
     # --- CheckAndReserve -----------------------------------------------------------------
 
@@ -130,9 +136,11 @@ class ReserveService:
         if req.kind is ReserveKind.MESSAGE:
             field = await self._field_for_message(ent, req)
             if field is None:
-                if ent.overflow_wallet_account_id is not None:
-                    # Phase 11: pay for a model the plan lacks from credits (payg mode).
-                    return _deny(DenyReason.NO_CREDIT, ent)
+                if ent.overflow_wallet_account_id is not None and self._payg is not None:
+                    # a model the plan lacks, paid from credits
+                    group = await self._group_of_request(req)
+                    if group is not None:
+                        return await self._reserve_credits(req, ent, group.value)
                 return _deny(DenyReason.MODEL_NOT_IN_PLAN, ent)
             period, limit, best_limit = "day", limits.messages_per_day, limits.best_per_day
         elif req.kind is ReserveKind.YOUTUBE_VIDEO:
@@ -141,6 +149,9 @@ class ReserveService:
             field, period, limit = "manim", "day", -1  # no plan limit
         else:
             raise ValueError(f"unsupported reserve kind: {req.kind}")
+
+        if ent.grant.source is GrantSource.PAYG and self._payg is not None:
+            return await self._reserve_credits(req, ent, field)  # Pay as you Go: always credits
 
         now = self._clock.now()
         hold_id = str(self._ids.new())
@@ -165,9 +176,15 @@ class ReserveService:
             res = await self._counters.reserve(args)
 
         if not res.allowed:
-            # Phase 11: when the plan refused for a limit and a wallet exists, run reserve.lua
-            # again in payg mode (funded_by="credits"). No wallet in v1, so nothing to try.
             assert res.deny_reason is not None
+            if (
+                res.deny_reason in (DenyReason.DAILY_LIMIT, DenyReason.MONTHLY_LIMIT)
+                and ent.overflow_wallet_account_id is not None
+                and self._payg is not None
+            ):
+                paid = await self._reserve_credits(req, ent, field)
+                if paid.allowed or paid.deny_reason is DenyReason.SPEND_CAP:
+                    return paid
             return _deny(res.deny_reason, ent)
 
         assert res.field is not None and res.hold_id is not None
@@ -183,6 +200,63 @@ class ReserveService:
             hold_expires_at_unix=int((now + timedelta(seconds=self._hold_ttl)).timestamp()),
             remaining_today=-1 if limit < 0 else max(0, limit - res.total),
             funded_by="plan",
+            granted_model=req.requested_model if req.kind is ReserveKind.MESSAGE else "",
+        )
+
+    async def _group_of_request(self, req: CheckAndReserveRequest) -> ModelGroup | None:
+        if req.requested_model:
+            return await self._catalog.group_of(req.requested_model)
+        return req.requested_group
+
+    def _credit_price(self, kind: ReserveKind, field: str) -> Paise:
+        """The hold for one unit paid from credits, in taxable paise."""
+        assert self._payg is not None
+        key = {
+            ReserveKind.YOUTUBE_VIDEO: "youtube_video",
+            ReserveKind.MANIM_VIDEO: "manim_video",
+        }.get(kind, field)
+        return taxable_of(self._payg.unit_prices[key])
+
+    async def _reserve_credits(
+        self, req: CheckAndReserveRequest, ent: Entitlement, field: str
+    ) -> CheckAndReserveResult:
+        """reserve.lua in payg mode against the user's wallet (`wal:{account}`)."""
+        wallet = ent.overflow_wallet_account_id
+        if wallet is None:
+            return _deny(DenyReason.NO_CREDIT, ent)
+        period = "month" if req.kind is ReserveKind.YOUTUBE_VIDEO else "day"
+        now = self._clock.now()
+        args = ReserveArgs(
+            uid=req.user_id,
+            account=wallet,
+            plan_version_id=ent.grant.plan_version.id,
+            idem_key=req.idempotency_key,
+            kind=req.kind,
+            period=period,
+            now=now,
+            mode="payg",
+            field=field,
+            limit=-1,
+            best_limit=-1,
+            price_paise=self._credit_price(req.kind, field),
+            hold_id=str(self._ids.new()),
+            hold_ttl=self._hold_ttl,
+            no_credit_fast=self._no_credit_fast,
+        )
+        res = await self._counters.reserve(args)
+        if not res.allowed:
+            assert res.deny_reason is not None
+            return _deny(res.deny_reason, ent)
+        assert res.field is not None and res.hold_id is not None
+        return CheckAndReserveResult(
+            allowed=True,
+            hold_id=res.hold_id,
+            granted_group=ModelGroup(res.field) if req.kind is ReserveKind.MESSAGE else None,
+            max_context_tokens=ent.limits.context_tokens,
+            billing_account_id=wallet,
+            hold_expires_at_unix=int((now + timedelta(seconds=self._hold_ttl)).timestamp()),
+            remaining_today=-1,
+            funded_by="credits" if res.price > 0 else "plan",
             granted_model=req.requested_model if req.kind is ReserveKind.MESSAGE else "",
         )
 

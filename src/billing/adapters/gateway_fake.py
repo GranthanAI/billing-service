@@ -16,6 +16,7 @@ from billing.adapters.razorpay import signatures
 from billing.app.errors import GatewayRejected
 from billing.app.ports import (
     Clock,
+    GatewayOrder,
     GatewayPayment,
     GatewayPaymentLink,
     GatewayPlanSpec,
@@ -52,6 +53,8 @@ class InMemoryGateway:
         self.payment_links: dict[str, GatewayPaymentLink] = {}
         self.payment_link_notes: dict[str, dict[str, str]] = {}
         self._link_seq = itertools.count(1)
+        self.orders: dict[str, GatewayOrder] = {}
+        self._order_seq = itertools.count(1)
         self.settlements: dict[date, list[SettlementItem]] = {}
         self._plan_seq = itertools.count(1)
         self._sub_seq = itertools.count(1)
@@ -187,6 +190,23 @@ class InMemoryGateway:
         except KeyError:
             raise GatewayRejected("BAD_REQUEST_ERROR", "The id provided does not exist") from None
 
+    async def create_order(
+        self, amount: Paise, *, receipt: str, notes: Mapping[str, str]
+    ) -> GatewayOrder:
+        for existing in self.orders.values():
+            if existing.receipt == receipt:
+                return existing
+        order_id = f"order_fake_{next(self._order_seq):06d}"
+        order = GatewayOrder(order_id, amount, "created", receipt, dict(notes))
+        self.orders[order_id] = order
+        return order
+
+    async def fetch_order(self, order_id: str) -> GatewayOrder:
+        try:
+            return self.orders[order_id]
+        except KeyError:
+            raise GatewayRejected("BAD_REQUEST_ERROR", "The id provided does not exist") from None
+
     async def create_payment_link(
         self,
         amount: Paise,
@@ -260,6 +280,9 @@ class InMemoryGateway:
         return item
 
     # --- signatures ----------------------------------------------------------------------
+
+    def verify_order_signature(self, order_id: str, payment_id: str, signature: str) -> bool:
+        return signatures.verify_order(self.key_secret, order_id, payment_id, signature)
 
     def verify_checkout_signature(
         self, payment_id: str, subscription_id: str, signature: str

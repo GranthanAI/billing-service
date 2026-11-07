@@ -67,6 +67,14 @@ class PersonalPlanRedundantMsg(Envelope):
     org_plan_code: str
 
 
+class CreditsExpiringMsg(Envelope):
+    user_id: str
+    billing_account_id: str
+    lot_id: str
+    remaining_paise: int
+    expires_at: datetime
+
+
 class UsageThresholdReachedMsg(Envelope):
     user_id: str
     billing_account_id: str

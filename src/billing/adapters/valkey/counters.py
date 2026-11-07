@@ -14,7 +14,7 @@ from billing.domain.catalog import DenyReason, ModelGroup, ReserveKind
 from billing.domain.money import Paise
 from billing.observability import HOLDS_EXPIRED
 
-SCRIPT_NAMES = ("reserve.lua", "commit.lua", "release.lua")
+SCRIPT_NAMES = ("reserve.lua", "commit.lua", "release.lua", "wallet_sync.lua")
 
 
 def load_script(name: str) -> str:
@@ -62,6 +62,7 @@ class ValkeyCounters:
         self._reserve = client.register_script(self._sources["reserve.lua"])
         self._commit = client.register_script(self._sources["commit.lua"])
         self._release = client.register_script(self._sources["release.lua"])
+        self._wallet_sync = client.register_script(self._sources["wallet_sync.lua"])
 
     async def ensure_scripts_loaded(self) -> bool:
         """SCRIPT LOAD all three; True when the server now has every one of them."""
@@ -200,6 +201,31 @@ class ValkeyCounters:
 
     async def month_counts(self, user_id: UUID, now: datetime) -> dict[str, int]:
         data: dict[str, str] = await aw(self._c.hgetall(keys.month_counters(user_id, now)))
+        return {k: int(v) for k, v in data.items()}
+
+    # --- wallet mirror (wal:{account}) -----------------------------------------------------
+
+    async def wallet_credit(self, account: UUID, delta: int) -> None:
+        """A top-up committed: HINCRBY balance."""
+        await aw(self._c.hincrby(keys.wallet(str(account)), "balance", delta))
+
+    async def wallet_sync(self, account: UUID, balance: int) -> bool:
+        """Overwrite the mirror from the ledger; False when open holds made it skip."""
+        result: str = await self._wallet_sync(keys=[keys.wallet(str(account))], args=[balance])
+        return result == "OK"
+
+    async def wallet_set_cap(self, account: UUID, cap: int | None) -> None:
+        key = keys.wallet(str(account))
+        if cap is None:
+            await aw(self._c.hdel(key, "cap"))
+        else:
+            await aw(self._c.hset(key, "cap", str(cap)))
+
+    async def wallet_reset_mtd(self, account: UUID) -> None:
+        await aw(self._c.hset(keys.wallet(str(account)), "mtd", "0"))
+
+    async def wallet_get(self, account: UUID) -> dict[str, int]:
+        data: dict[str, str] = await aw(self._c.hgetall(keys.wallet(str(account))))
         return {k: int(v) for k, v in data.items()}
 
     async def set_once(self, key: str, ttl_seconds: int) -> bool:
