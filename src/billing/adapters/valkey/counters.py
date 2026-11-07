@@ -34,6 +34,7 @@ def parse_reserve(raw: str, kind: ReserveKind) -> ReserveResult:
         else DenyReason.DAILY_LIMIT,
         "NO_CREDIT": DenyReason.NO_CREDIT,
         "SPEND_CAP": DenyReason.SPEND_CAP,
+        "MEMBER_CAP": DenyReason.MEMBER_SPEND_CAP,
     }[parts[1]]
     return ReserveResult(False, reason, None, None, Paise(0), False, 0)
 
@@ -87,6 +88,9 @@ class ValkeyCounters:
                 keys.hold(a.uid, a.hold_id),
                 self._wallet(a.uid, str(a.account) if a.account else None),
                 keys.HOLDS_DUE,
+                keys.member_month(str(a.account), a.uid, a.now)
+                if a.member_cap >= 0 and a.account
+                else "",
             ],
             args=[
                 a.mode,
@@ -102,6 +106,7 @@ class ValkeyCounters:
                 str(a.uid),
                 str(a.account) if a.account else "",
                 str(a.plan_version_id),
+                a.member_cap,
             ],
         )
         return parse_reserve(raw, a.kind)
@@ -119,7 +124,7 @@ class ValkeyCounters:
         occurred_at: datetime,
     ) -> str:
         hold_key = keys.hold(user_id, hold_id)
-        acct: str | None = await aw(self._c.hget(hold_key, "acct"))
+        acct, mkey = await aw(self._c.hmget(hold_key, ["acct", "mkey"]))
         if kind is ReserveKind.YOUTUBE_VIDEO:
             counters, ttl = keys.month_counters(user_id, occurred_at), self._month_ttl
         else:
@@ -131,6 +136,7 @@ class ValkeyCounters:
                 keys.HOLDS_DUE,
                 keys.done(user_id, source_id),
                 counters,
+                mkey or "",
             ],
             args=[keys.due_member(user_id, hold_id), int(charged), field, ttl],
         )
@@ -138,13 +144,16 @@ class ValkeyCounters:
 
     async def release(self, user_id: UUID, hold_id: str, reason: str) -> bool:
         hold_key = keys.hold(user_id, hold_id)
-        counters, mode, acct = await aw(self._c.hmget(hold_key, ["counters", "mode", "acct"]))
+        counters, mode, acct, mkey = await aw(
+            self._c.hmget(hold_key, ["counters", "mode", "acct", "mkey"])
+        )
         result: str = await self._release(
             keys=[
                 hold_key,
                 counters or keys.day_counters(user_id, datetime.now(UTC)),  # unused when GONE
                 self._wallet(user_id, acct or None),
                 keys.HOLDS_DUE,
+                mkey or "",
             ],
             args=[keys.due_member(user_id, hold_id), reason],
         )

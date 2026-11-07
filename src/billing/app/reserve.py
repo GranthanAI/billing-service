@@ -34,6 +34,7 @@ MESSAGE_KEYS = {
     DenyReason.MODEL_NOT_IN_PLAN: "plan.model_not_included",
     DenyReason.NO_CREDIT: "credits.empty",
     DenyReason.SPEND_CAP: "credits.spend_cap",
+    DenyReason.MEMBER_SPEND_CAP: "credits.member_cap",
     DenyReason.ACCOUNT_BLOCKED: "account.blocked",
 }
 BEST_SWITCHED_KEY = "limit.best_switched"
@@ -188,7 +189,10 @@ class ReserveService:
                 and self._payg is not None
             ):
                 paid = await self._reserve_credits(req, ent, field)
-                if paid.allowed or paid.deny_reason is DenyReason.SPEND_CAP:
+                if paid.allowed or paid.deny_reason in (
+                    DenyReason.SPEND_CAP,
+                    DenyReason.MEMBER_SPEND_CAP,
+                ):
                     return paid
             return _deny(res.deny_reason, ent)
 
@@ -247,6 +251,11 @@ class ReserveService:
             hold_id=str(self._ids.new()),
             hold_ttl=self._hold_ttl,
             no_credit_fast=self._no_credit_fast,
+            member_cap=(
+                int(taxable_of(Paise(ent.member_spend_cap_paise)))
+                if ent.member_spend_cap_paise is not None
+                else -1
+            ),
         )
         res = await self._counters.reserve(args)
         if not res.allowed:

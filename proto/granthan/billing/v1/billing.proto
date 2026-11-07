@@ -33,6 +33,7 @@ enum DenyReason {
   DENY_REASON_NO_CREDIT = 4;
   DENY_REASON_SPEND_CAP = 5;
   DENY_REASON_ACCOUNT_BLOCKED = 6;
+  DENY_REASON_MEMBER_SPEND_CAP = 7;  // an organisation's per-member monthly limit
 }
 
 message CheckAndReserveRequest {

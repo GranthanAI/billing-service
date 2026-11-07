@@ -49,6 +49,12 @@ def wallet(account: str) -> str:
     return f"wal:{{{account}}}"
 
 
+def member_month(wallet_account: str, uid: UUID, now: datetime) -> str:
+    """An organisation member's spend from the org wallet in one IST month (a string, INCRBY).
+    held + committed prices; expires after 40 days, so no reset job."""
+    return f"mtdm:{{{wallet_account}}}:{uid}:{ist_month_key(now)}"
+
+
 def threshold(uid: UUID, limit: str, period: str, percent: int) -> str:
     return f"thr:{{{uid}}}:{limit}:{period}:{percent}"
 

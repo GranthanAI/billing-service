@@ -127,6 +127,16 @@ class EntitlementService:
         The bool says org-service was unreachable, so the result should not be cached for long."""
         now = self._clock.now()
         member, degraded = await self._membership(user_id)
+        org_cap: int | None = None
+        org_known = False  # the org's details (and so its member cap) were read
+        if member is not None and self.payg_enabled and self._orgs is not None:
+            try:  # outside any transaction
+                info = await self._orgs.org(member.org_id)
+                org_cap = info.member_spend_cap_paise if info is not None else None
+                org_known = info is not None
+            except Exception:
+                log.warning("org_cap_unavailable", user_id=str(user_id), exc_info=True)
+                degraded = True
         async with self._uow() as uow:
             free = await uow.plans.current("free", None)
             if free is None:
@@ -161,9 +171,16 @@ class EntitlementService:
                                 subscription_id=sub.id,
                             )
                         )
+            org_wallet_id: UUID | None = None
             if member is not None:
                 org_account = await uow.accounts.get_by_owner(OwnerType.ORG, member.org_id)
                 org_account_id = org_account.id if org_account else None
+                if (
+                    self.payg_enabled
+                    and org_account is not None
+                    and await uow.wallets.get(org_account.id) is not None
+                ):
+                    org_wallet_id = org_account.id
                 for ov in await uow.overrides.active_for(OwnerType.ORG, member.org_id, now):
                     plan = await uow.plans.by_id(ov.plan_version_id)
                     if plan is not None and _payg_override(plan.plan.plan_code, ov.id):
@@ -205,11 +222,35 @@ class EntitlementService:
                     wallet_account_id = account.id
                     grants.append(Grant(GrantSource.PAYG, payg.plan, billing_account_id=account.id))
             blocked = bool(account and account.is_blocked)
+        winner = pick(grants)
+        member_cap: int | None = None
+        # When an organisation's grant wins, its members overflow onto the organisation's wallet
+        # (if it has one), with the per-member cap; otherwise onto their own. Without the org's
+        # details (org-service unreachable) the cap is unknown, so the org wallet is not used.
+        if org_wallet_id is not None and winner.billing_account_id == org_wallet_id:
+            if org_known:
+                wallet_account_id = org_wallet_id
+                member_cap = org_cap
+                log.debug(
+                    "overflow_wallet_chosen", user_id=str(user_id), wallet="org",
+                    reason="an organisation grant wins and the organisation has a wallet",
+                )  # fmt: skip
+            else:
+                log.debug(
+                    "overflow_wallet_chosen", user_id=str(user_id), wallet="personal",
+                    reason="organisation details unavailable, so its member cap is unknown",
+                )  # fmt: skip
+        elif wallet_account_id is not None:
+            log.debug(
+                "overflow_wallet_chosen", user_id=str(user_id), wallet="personal",
+                reason="no organisation grant wins with an organisation wallet",
+            )  # fmt: skip
         return (
             Entitlement.of(
-                pick(grants),
+                winner,
                 overflow_wallet_account_id=wallet_account_id,
                 account_blocked=blocked,
+                member_spend_cap_paise=member_cap,
             ),
             degraded,
         )

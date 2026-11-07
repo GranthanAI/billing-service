@@ -61,10 +61,11 @@ async def spend(
     n: int,
     group: ModelGroup = ModelGroup.ULTRA,
     model: str = "claude-opus-5-5",
+    user: UUID | None = None,
 ) -> str:
     """One message: reserve, then the usage event. Returns funded_by or the deny reason."""
     r = await reserve.check_and_reserve(
-        CheckAndReserveRequest(env.user, f"idem-{n}", ReserveKind.MESSAGE, group)
+        CheckAndReserveRequest(user or env.user, f"idem-{n}", ReserveKind.MESSAGE, group)
     )
     if not r.allowed:
         assert r.deny_reason is not None
@@ -74,7 +75,7 @@ async def spend(
             ReserveKind.MESSAGE,
             f"req-{n}",
             f"evt-{n}",
-            env.user,
+            user or env.user,
             env.clock.now(),
             "success",
             r.hold_id,

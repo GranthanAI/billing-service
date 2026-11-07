@@ -50,6 +50,7 @@ def encode(ent: Entitlement) -> str:
             else None,
             "version_hash": ent.version_hash,
             "account_blocked": ent.account_blocked,
+            "mcap": ent.member_spend_cap_paise,
         },
         separators=(",", ":"),
     )
@@ -94,6 +95,7 @@ def decode(raw: str) -> Entitlement:
         overflow_wallet_account_id=_opt_uuid(d["wallet"]),
         version_hash=d["version_hash"],
         account_blocked=d["account_blocked"],
+        member_spend_cap_paise=d.get("mcap"),
     )
 
 

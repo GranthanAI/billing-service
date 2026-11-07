@@ -252,6 +252,7 @@ class ReserveArgs:
     hold_id: str
     hold_ttl: int
     no_credit_fast: int
+    member_cap: int = -1  # an org's per-member monthly cap on its wallet, taxable paise (-1: none)
 
 
 @dataclass(frozen=True, slots=True)

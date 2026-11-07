@@ -13,6 +13,19 @@ into logs and into the events it publishes.
 `user_id` must be the id from the verified JWT (api-gateway's `X-User-Id`). billing never trusts a
 user id taken from a client payload.
 
+## New deny reason: the organisation's per-member limit (Pay as you Go)
+
+| `message_key` | `deny_reason` (proto `DenyReason`) | HTTP status to the client |
+| --- | --- | --- |
+| `credits.member_cap` | `DENY_REASON_MEMBER_SPEND_CAP = 7` (additive) | **402** |
+
+Shown when a member of an organisation whose wallet pays for their overflow has used their monthly
+limit (`member_spend_cap_paise` in org-service, per member per IST month). Copy:
+"Your organisation's monthly limit for you has been reached. Ask your organisation admin to raise
+it." Other members of the same organisation can still spend. A deny is not stored; the limit
+resets on the 1st of the next IST month. Clients that do not know value 7 should treat it like
+`credits.spend_cap`.
+
 ## Call order for one message
 
 1. **Reserve first.** Before publishing `chat.message.created`, call
@@ -23,7 +36,8 @@ user id taken from a client payload.
    never counts twice.
 2. **If `allowed = false`**, do not publish. Show the copy for `message_key`:
    `limit.daily`, `limit.monthly`, `plan.model_not_included`, `credits.empty`,
-   `credits.spend_cap`, `account.blocked`. `deny_reason` carries the same information as an enum.
+   `credits.spend_cap`, `credits.member_cap`, `account.blocked`. `deny_reason` carries the same
+   information as an enum.
    A deny is not stored, so retrying after the user upgrades succeeds.
 3. **If `allowed = true`**, publish `chat.message.created` carrying:
    - `hold_id` (llm-service copies it into `chat.response.generated`, and uses it to `Release`);

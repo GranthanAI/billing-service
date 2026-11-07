@@ -61,12 +61,16 @@ class Entitlement:
     overflow_wallet_account_id: UUID | None
     version_hash: str
     account_blocked: bool = False  # not part of version_hash
+    member_spend_cap_paise: int | None = (
+        None  # display (GST incl.) paise; org wallet only; not hashed
+    )
 
     @staticmethod
     def of(
         grant: Grant,
         overflow_wallet_account_id: UUID | None = None,
         account_blocked: bool = False,
+        member_spend_cap_paise: int | None = None,
     ) -> "Entitlement":
         pv = grant.plan_version
         payload = {
@@ -93,4 +97,5 @@ class Entitlement:
             overflow_wallet_account_id=overflow_wallet_account_id,
             version_hash=digest,
             account_blocked=account_blocked,
+            member_spend_cap_paise=member_spend_cap_paise,
         )

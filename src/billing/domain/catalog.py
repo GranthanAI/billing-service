@@ -44,6 +44,7 @@ class DenyReason(StrEnum):
     MODEL_NOT_IN_PLAN = "model_not_in_plan"
     NO_CREDIT = "no_credit"
     SPEND_CAP = "spend_cap"
+    MEMBER_SPEND_CAP = "member_spend_cap"
     ACCOUNT_BLOCKED = "account_blocked"
 
 
