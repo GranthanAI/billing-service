@@ -150,7 +150,12 @@ class ReserveService:
         else:
             raise ValueError(f"unsupported reserve kind: {req.kind}")
 
-        if ent.grant.source is GrantSource.PAYG and self._payg is not None:
+        if ent.grant.source is GrantSource.PAYG:
+            if self._payg is None:
+                # PAYG is switched off but this entitlement still says Pay as you Go (a stale
+                # cache): never serve it from plan mode,
+                # where it would cost nothing.
+                return _deny(DenyReason.NO_CREDIT, ent)
             return await self._reserve_credits(req, ent, field)  # Pay as you Go: always credits
 
         now = self._clock.now()

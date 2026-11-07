@@ -12,7 +12,13 @@ from billing.app.charges import _invoice_amounts
 from billing.app.config import BillingContext
 from billing.app.errors import InvalidSignature, NotFound, ValidationFailed
 from billing.app.ports import Counters, GatewayOrder, GatewayPayment, UnitOfWork
-from billing.app.records import CreditLot, InvoiceLineRecord, InvoiceRecord, PaymentRecord
+from billing.app.records import (
+    BillingAccount,
+    CreditLot,
+    InvoiceLineRecord,
+    InvoiceRecord,
+    PaymentRecord,
+)
 from billing.domain.calendar import add_months, financial_year_code
 from billing.domain.catalog import OwnerType
 from billing.domain.india import is_state_code
@@ -64,9 +70,11 @@ async def apply_topup(
     if payment.amount != order.amount:
         raise ValueError(f"payment {payment.id} is {payment.amount}, order is {order.amount}")
     account = await uow.accounts.get(account_id)
+    cfg = bctx.config
+    if not cfg.payg_enabled:
+        return await _record_without_credit(uow, bctx, payment, order, account)
     if account is None or account.state_code is None:
         raise ValueError("a top-up needs a billing account with a GST state code")
-    cfg = bctx.config
     payment_id = bctx.ids.new()
     inserted = await uow.payments.insert(
         PaymentRecord(
@@ -155,10 +163,58 @@ async def apply_topup(
     return True
 
 
+async def _record_without_credit(
+    uow: UnitOfWork,
+    bctx: BillingContext,
+    payment: GatewayPayment,
+    order: GatewayOrder,
+    account: BillingAccount | None,
+) -> bool:
+    """PAYG_ENABLED is off but a top-up payment arrived (an order opened before the flag was
+    turned off, or a forged one). The money has been taken, so the payment is recorded; nothing
+    else happens: no wallet, no credit lot, no ledger posting, no invoice. The error log is the
+    alert; the payment then needs a refund through the normal refund process."""
+    if account is None:
+        raise ValueError(f"top-up payment {payment.id} refers to an unknown billing account")
+    inserted = await uow.payments.insert(
+        PaymentRecord(
+            id=bctx.ids.new(),
+            billing_account_id=account.id,
+            purpose="topup",
+            gateway_payment_id=payment.id,
+            amount_paise=payment.amount,
+            status="captured",
+            captured_at=payment.created_at,
+            raw=payment.raw,
+            gateway_order_id=order.id,
+            method=payment.method,
+        )
+    )
+    if inserted:
+        PAYMENTS.labels(method=payment.method or "unknown", status="captured").inc()
+        log.error(
+            "payg_topup_while_disabled",
+            gateway_payment_id=payment.id,
+            gateway_order_id=order.id,
+            billing_account_id=str(account.id),
+            amount_paise=int(payment.amount),
+            action="payment recorded, no wallet credit; refund it",
+        )
+    return inserted
+
+
 class WalletService:
     def __init__(self, bctx: BillingContext, counters: Counters | None = None) -> None:
         self._b = bctx
         self._counters = counters
+
+    @property
+    def enabled(self) -> bool:
+        return self._b.config.payg_enabled
+
+    def _require_enabled(self) -> None:
+        if not self.enabled:
+            raise NotFound("Pay as you Go is not available")
 
     async def view(self, user_id: UUID) -> dict[str, Any] | None:
         """The wallet as the user sees it, or None before the first top-up."""
@@ -195,6 +251,7 @@ class WalletService:
 
     async def set_cap(self, user_id: UUID, cap: Paise | None) -> None:
         """The monthly spend cap (taxable paise, like the balance); None removes it."""
+        self._require_enabled()
         async with self._b.uow_factory() as uow:
             account = await uow.accounts.get_or_create(OwnerType.USER, user_id)
             await uow.wallets.ensure(account.id)
@@ -215,6 +272,7 @@ class WalletService:
     ) -> TopupOptions:
         """A user buys a pack from the catalog; an organisation (through staff) pays at least
         `org_min_topup`."""
+        self._require_enabled()
         cfg = self._b.config
         if owner_type is OwnerType.USER:
             packs = dict(cfg.topup_packs)
@@ -251,6 +309,7 @@ class WalletService:
     async def verify(self, user_id: UUID, order_id: str, payment_id: str, signature: str) -> int:
         """The frontend reports a finished Checkout. Returns the wallet balance (taxable paise).
         The webhook may get there first; either way the top-up is recorded once."""
+        self._require_enabled()
         if not self._b.gateway.verify_order_signature(order_id, payment_id, signature):
             raise InvalidSignature()
         order = await self._b.gateway.fetch_order(order_id)

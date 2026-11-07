@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from billing.api.rest.billing import User
+from billing.app.errors import NotFound
 from billing.app.wallet import TopupOptions, WalletService
 from billing.domain.catalog import OwnerType
 from billing.domain.money import Paise
@@ -21,6 +22,15 @@ def _service(request: Request) -> WalletService:
 
 
 Svc = Annotated[WalletService, Depends(_service)]
+
+
+def _require_enabled(svc: Svc) -> None:
+    """PAYG_ENABLED=false: the write routes do not exist."""
+    if not svc.enabled:
+        raise NotFound("Pay as you Go is not available")
+
+
+Enabled = Depends(_require_enabled)
 
 
 class TopupBody(BaseModel):
@@ -57,17 +67,24 @@ def topup_json(o: TopupOptions) -> dict[str, object]:
 
 @router.get("")
 async def get_wallet(user: User, svc: Svc) -> JSONResponse:
-    return JSONResponse(jsonable_encoder({"wallet": await svc.view(user)}))
+    wallet = await svc.view(user)
+    if wallet is None and not svc.enabled:
+        raise NotFound(
+            "Pay as you Go is not available"
+        )  # off: a user who never had a wallet sees no wallet resource
+    return JSONResponse(jsonable_encoder({"wallet": wallet}))
 
 
 @router.get("/transactions")
 async def transactions(
     user: User, svc: Svc, limit: Annotated[int, Query(le=200)] = 50
 ) -> JSONResponse:
+    if not svc.enabled and await svc.view(user) is None:
+        raise NotFound("Pay as you Go is not available")
     return JSONResponse(jsonable_encoder({"transactions": await svc.transactions(user, limit)}))
 
 
-@router.post("/topups")
+@router.post("/topups", dependencies=[Enabled])
 async def topup(body: TopupBody, user: User, svc: Svc) -> JSONResponse:
     options = await svc.start_topup(
         OwnerType.USER, user, pack_code=body.pack_code, email=body.email, state_code=body.state_code
@@ -75,7 +92,7 @@ async def topup(body: TopupBody, user: User, svc: Svc) -> JSONResponse:
     return JSONResponse(topup_json(options), status_code=201)
 
 
-@router.post("/topups/verify")
+@router.post("/topups/verify", dependencies=[Enabled])
 async def verify(body: VerifyBody, user: User, svc: Svc) -> JSONResponse:
     balance = await svc.verify(
         user, body.razorpay_order_id, body.razorpay_payment_id, body.razorpay_signature
@@ -83,7 +100,7 @@ async def verify(body: VerifyBody, user: User, svc: Svc) -> JSONResponse:
     return JSONResponse({"balance_paise": balance})
 
 
-@router.put("/settings")
+@router.put("/settings", dependencies=[Enabled])
 async def settings(body: SettingsBody, user: User, svc: Svc) -> JSONResponse:
     await svc.set_cap(
         user, Paise(body.monthly_cap_paise) if body.monthly_cap_paise is not None else None

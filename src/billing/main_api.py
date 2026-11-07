@@ -126,6 +126,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             clock,
             orgs=org_directory,
             l1_ttl_seconds=settings.entitlement_l1_ttl_seconds,
+            payg_enabled=settings.payg_enabled,
         )
         gateway = make_gateway(
             settings.payment_gateway,

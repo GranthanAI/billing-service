@@ -19,6 +19,10 @@ DEGRADED_TTL_SECONDS = 30  # org-service was unreachable: look again soon
 L1_MAX_ENTRIES = 50_000
 
 
+def _has_payg(ent: Entitlement) -> bool:
+    return ent.grant.source is GrantSource.PAYG or ent.overflow_wallet_account_id is not None
+
+
 class EntitlementService:
     def __init__(
         self,
@@ -29,7 +33,13 @@ class EntitlementService:
         l1_ttl_seconds: float = 5.0,
         monotonic: Callable[[], float] = time.monotonic,
         orgs: OrgDirectory | None = None,
+        payg_enabled: bool = False,
     ) -> None:
+        # PAYG_ENABLED. Constant in production (tests flip it). Off: no PAYG grant, no overflow
+        # wallet, and a cached entitlement that
+        # still carries either (written before the flag was turned off) is discarded instead of
+        # served for the rest of its TTL.
+        self.payg_enabled = payg_enabled
         self._uow = uow_factory
         self._cache = cache
         self._orgs = orgs
@@ -48,6 +58,8 @@ class EntitlementService:
         if hit is not None and hit[0] > now:
             return hit[1]
         ent = await self._cache.get(user_id)
+        if ent is not None and not self.payg_enabled and _has_payg(ent):
+            ent = None
         if ent is None:
             ent, degraded = await self._load(user_id)
             await self._cache.set(
@@ -171,7 +183,11 @@ class EntitlementService:
                             )
                         )
             wallet_account_id: UUID | None = None
-            if account is not None and await uow.wallets.get(account.id) is not None:
+            if (
+                self.payg_enabled
+                and account is not None
+                and await uow.wallets.get(account.id) is not None
+            ):
                 payg = await uow.plans.current("payg", None)
                 if payg is not None:
                     wallet_account_id = account.id

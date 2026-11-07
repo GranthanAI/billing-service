@@ -36,6 +36,10 @@ class BillingConfig:
     )
     org_min_topup: int = 500000
     credit_validity_months: int = 12
+    # PAYG_ENABLED. False (the v1 launch) closes Pay as you Go completely: no top-up or settings
+    # routes, no PAYG grant, no wallet credit.
+    # Turning it on needs the CA sign-off, not code.
+    payg_enabled: bool = False
 
     def total_count(self, interval: Interval) -> int:
         return self.total_count_month if interval is Interval.MONTH else self.total_count_year

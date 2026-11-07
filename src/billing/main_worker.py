@@ -139,7 +139,11 @@ async def run_worker(
     )
     org_directory = make_org_directory(settings, valkey_client)
     entitlements = EntitlementService(
-        uow_factory, ValkeyEntitlementCache(valkey_client), clock, orgs=org_directory
+        uow_factory,
+        ValkeyEntitlementCache(valkey_client),
+        clock,
+        orgs=org_directory,
+        payg_enabled=settings.payg_enabled,
     )
     bctx = make_context(
         config_from_settings(settings),

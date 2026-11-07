@@ -28,6 +28,7 @@ from billing.app.invoices import InvoiceService
 from billing.app.org_billing import OrgBilling
 from billing.app.settlements import SettlementService
 from billing.app.subscriptions import CheckoutOptions, SubscriptionService
+from billing.app.wallet import WalletService
 from billing.app.webhooks import EventApplier
 from billing.domain.catalog import Interval
 from billing.domain.entitlements import Entitlement
@@ -58,6 +59,7 @@ def config(**overrides: object) -> BillingConfig:
         razorpay_key_id="rzp_test_key",
         supplier_state_code="10",
         supplier_gstin="10AAAAA0000A1Z5",
+        payg_enabled=True,  # the existing suite is the flag-on suite; tests/integration/test_payg_flag.py covers off  # noqa: E501
     )
     base.update(overrides)
     return BillingConfig(**base)  # type: ignore[arg-type]
@@ -159,6 +161,13 @@ class Env:
         ent: Entitlement = await self.entitlements.resolve(user or self.user)
         return ent.grant.plan_version.plan_code
 
+    def set_payg(self, enabled: bool) -> None:
+        """Flip PAYG_ENABLED for the config the services read and for the entitlement service (the cache is NOT cleared)."""  # noqa: E501
+        self.entitlements.payg_enabled = enabled
+        self.with_config(replace(self.bctx.config, payg_enabled=enabled))
+        if hasattr(app.state, "wallet"):  # the wallet routes read the flag through their service
+            app.state.wallet = WalletService(self.bctx, self.counters)
+
     def with_config(self, cfg: BillingConfig) -> None:
         """Swap the settings-derived configuration (GST_REGISTERED and friends)."""
         self.bctx = replace(self.bctx, config=cfg)
@@ -225,8 +234,14 @@ def build_env(
         return SqlUnitOfWork(app_engine, ids, clock)
 
     orgs = FakeOrgDirectory()
+    cfg = cfg or config()
     entitlements = EntitlementService(
-        uow_factory, ValkeyEntitlementCache(vk), clock, l1_ttl_seconds=0, orgs=orgs
+        uow_factory,
+        ValkeyEntitlementCache(vk),
+        clock,
+        l1_ttl_seconds=0,
+        orgs=orgs,
+        payg_enabled=cfg.payg_enabled,
     )
     invalidated: list[UUID] = []
 
@@ -240,7 +255,7 @@ def build_env(
         gateway,
         clock,
         ids,
-        cfg or config(),
+        cfg,
         invalidate,
         entitlements.invalidate_org,
         counters.wallet_credit,

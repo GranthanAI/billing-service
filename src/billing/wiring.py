@@ -52,6 +52,7 @@ def config_from_settings(s: Settings) -> BillingConfig:
     )
     return BillingConfig(
         **wallet,
+        payg_enabled=s.payg_enabled,
         razorpay_key_id=s.razorpay_key_id,
         supplier_state_code=s.supplier_state_code,
         supplier_gstin=s.supplier_gstin,
