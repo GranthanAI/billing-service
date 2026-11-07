@@ -133,6 +133,22 @@ class PaymentRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class TopupRequest:
+    """Staff asked for credits for an organisation. `amount_paise` is GST-inclusive, as invoiced."""
+
+    id: UUID
+    billing_account_id: UUID
+    amount_paise: Paise
+    status: str  # pending | paid | cancelled
+    gateway_link_id: str | None
+    payment_id: UUID | None
+    created_by: UUID
+    reason: str
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class InvoiceRecord:
     id: UUID
     number: str

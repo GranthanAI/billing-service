@@ -124,8 +124,10 @@ def install_billing(
     app.state.wallet = WalletService(bctx, counters)
     if orgs is not None:
         from billing.app.org_billing import OrgBilling
+        from billing.app.org_topups import OrgTopups
 
         app.state.org_billing = OrgBilling(bctx)
+        app.state.org_topups = OrgTopups(bctx)
         app.state.org_directory = orgs
         app.state.org_service_token = org_service_token
     return applier

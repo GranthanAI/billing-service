@@ -531,3 +531,21 @@ provider_costs = sa.Table(
     _ts("imported_at", nullable=False, server_default=_NOW),
     sa.CheckConstraint("cost_micro_inr >= 0"),
 )
+
+wallet_topup_requests = sa.Table(
+    "wallet_topup_requests",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column(
+        "billing_account_id", sa.Uuid, sa.ForeignKey("billing.billing_accounts.id"), nullable=False
+    ),
+    sa.Column("amount_paise", sa.BigInteger, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default="pending"),
+    sa.Column("gateway_link_id", sa.Text, unique=True),
+    sa.Column("payment_id", sa.Uuid, sa.ForeignKey("billing.payments.id")),
+    sa.Column("created_by", sa.Uuid, nullable=False),
+    sa.Column("reason", sa.Text, nullable=False),
+    _ts("created_at", nullable=False, server_default=sa.func.now()),
+    _ts("updated_at", nullable=False, server_default=sa.func.now()),
+    sa.Index("wallet_topup_requests_account", "billing_account_id", sa.text("created_at DESC")),
+)

@@ -100,9 +100,11 @@ def revenue_recognition(amount: Paise, key: str) -> LedgerTransaction:
     return assert_balanced(LedgerTransaction(LedgerKind.REVENUE_RECOGNITION, key, postings))
 
 
-def wallet_topup(split: GstSplit, wallet_account: UUID, key: str) -> LedgerTransaction:
+def wallet_topup(
+    split: GstSplit, wallet_account: UUID, key: str, *, received_in: str = CLEARING
+) -> LedgerTransaction:
     postings = (
-        Posting(CLEARING, split.total),
+        Posting(received_in, split.total),
         Posting(wallet_code(wallet_account), -split.taxable),
         *_tax_credits(split),
     )

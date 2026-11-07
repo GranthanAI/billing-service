@@ -227,6 +227,13 @@ class InMemoryGateway:
         self.payment_link_notes[link_id] = dict(notes)
         return link
 
+    async def cancel_payment_link(self, link_id: str) -> None:
+        link = self.payment_links.get(link_id)
+        if link is None:
+            raise GatewayRejected("BAD_REQUEST_ERROR", "The id provided does not exist")
+        if link.status != "paid":
+            self.payment_links[link_id] = replace(link, status="cancelled")
+
     async def list_settlement_items(self, day: date) -> list[SettlementItem]:
         return list(self.settlements.get(day, []))
 

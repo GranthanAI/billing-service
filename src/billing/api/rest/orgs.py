@@ -21,6 +21,7 @@ from billing.api.rest.admin import Writer
 from billing.app.admin import need_reason
 from billing.app.errors import NotFound, Unauthenticated, ValidationFailed
 from billing.app.org_billing import IssuedInvoice, OrgBilling
+from billing.app.org_topups import OrgTopups
 from billing.domain.catalog import OrgVariant
 from billing.domain.money import Paise
 
@@ -120,6 +121,61 @@ async def mark_paid(invoice_id: UUID, body: MarkPaidBody, staff: Writer, svc: Sv
 @admin_router.post("/invoices/{invoice_id}/payment-link")
 async def payment_link(invoice_id: UUID, staff: Writer, svc: Svc):  # type: ignore[no-untyped-def]
     return _json({"payment_link_url": await svc.create_link(invoice_id)})
+
+
+def _topups(request: Request) -> OrgTopups:
+    svc: OrgTopups = request.app.state.org_topups
+    svc.require_enabled()  # PAYG_ENABLED=false: these routes do not exist
+    return svc
+
+
+Topups = Annotated[OrgTopups, Depends(_topups)]
+
+
+class TopupBody(BaseModel):
+    amount_paise: int = Field(gt=0)  # GST included, as invoiced
+    reason: str = ""
+
+
+class TopupMarkPaidBody(BaseModel):
+    reference: str = Field(min_length=1, max_length=200)
+    reason: str = ""
+
+
+class ReasonBody(BaseModel):
+    reason: str = ""
+
+
+@admin_router.post("/orgs/{org_id}/wallet/topups")
+async def create_topup(org_id: UUID, body: TopupBody, staff: Writer, svc: Topups, request: Request):  # type: ignore[no-untyped-def]
+    reason = need_reason(body.reason)
+    org = await request.app.state.org_directory.org(org_id)
+    if org is None:
+        raise NotFound("org-service does not know this organisation")
+    return _json(
+        await svc.create(org, Paise(body.amount_paise), actor=staff.id, reason=reason), 201
+    )
+
+
+@admin_router.post("/orgs/{org_id}/wallet/topups/{request_id}/mark-paid")
+async def mark_topup_paid(
+    org_id: UUID, request_id: UUID, body: TopupMarkPaidBody, staff: Writer, svc: Topups
+) -> JSONResponse:
+    return _json(
+        await svc.mark_paid(
+            org_id, request_id, reference=body.reference, actor=staff.id,
+            reason=need_reason(body.reason),
+        )
+    )  # fmt: skip
+
+
+@admin_router.post("/orgs/{org_id}/wallet/topups/{request_id}/cancel")
+async def cancel_topup(
+    org_id: UUID, request_id: UUID, body: ReasonBody, staff: Writer, svc: Topups
+) -> JSONResponse:
+    return _json(
+        await svc.cancel(org_id, request_id, actor=staff.id, reason=need_reason(body.reason))
+    )
 
 
 def _service(request: Request, authorization: Annotated[str | None, Header()] = None) -> OrgBilling:

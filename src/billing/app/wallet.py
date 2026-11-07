@@ -4,6 +4,7 @@ pays, and the wallet holds the taxable value)."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -23,7 +24,7 @@ from billing.app.records import (
 from billing.domain.calendar import add_months, financial_year_code
 from billing.domain.catalog import OwnerType
 from billing.domain.india import is_state_code
-from billing.domain.ledger import wallet_topup
+from billing.domain.ledger import CLEARING, wallet_topup
 from billing.domain.money import Paise, display_paise, split_gst, taxable_of
 from billing.observability import PAYMENTS
 
@@ -94,15 +95,39 @@ async def apply_topup(
     if not inserted:
         return False
     PAYMENTS.labels(method=payment.method or "unknown", status="captured").inc()
+    await credit_topup(
+        uow, bctx, account, payment_id, payment.amount, payment.created_at,
+        ledger_key=f"topup:{payment.id}",
+    )  # fmt: skip
+    return True
+
+
+async def credit_topup(
+    uow: UnitOfWork,
+    bctx: BillingContext,
+    account: BillingAccount,
+    payment_id: UUID,
+    gross: Paise,
+    paid_at: datetime,
+    *,
+    ledger_key: str,
+    received_in: str = CLEARING,
+) -> None:
+    """After the payment row exists, in the caller's transaction: the ledger posting (GST split by
+    the account's state), the credit lot (valid `credit_validity_months`), the paid tax invoice
+    (B2B when the account has a GSTIN) and, once committed, the Valkey mirror and the entitlement
+    caches that depend on having a wallet."""
+    cfg = bctx.config
+    assert account.state_code is not None
     split = split_gst(
-        payment.amount, cfg.supplier_state_code, account.state_code, registered=cfg.gst_registered
+        gross, cfg.supplier_state_code, account.state_code, registered=cfg.gst_registered
     )
     wallet = await uow.wallets.ensure(account.id)
     await uow.ledger.post(
-        wallet_topup(split, account.id, f"topup:{payment.id}"),
+        wallet_topup(split, account.id, ledger_key, received_in=received_in),
         "payment",
         str(payment_id),
-        payment.created_at,
+        paid_at,
     )
     await uow.wallets.add_lot(
         CreditLot(
@@ -111,11 +136,11 @@ async def apply_topup(
             payment_id,
             split.taxable,
             split.taxable,
-            add_months(payment.created_at, cfg.credit_validity_months),
+            add_months(paid_at, cfg.credit_validity_months),
         )
     )
     series = cfg.invoice_series if cfg.gst_registered else cfg.bill_of_supply_series
-    number = await uow.invoices.allocate_number(series, financial_year_code(payment.created_at))
+    number = await uow.invoices.allocate_number(series, financial_year_code(paid_at))
     invoice_id = bctx.ids.new()
     await uow.invoices.insert(
         InvoiceRecord(
@@ -123,7 +148,7 @@ async def apply_topup(
             number=number,
             kind="tax_invoice" if cfg.gst_registered else "bill_of_supply",
             billing_account_id=account.id,
-            issued_at=payment.created_at,
+            issued_at=paid_at,
             customer_state_code=account.state_code,
             supplier_state_code=cfg.supplier_state_code,
             status="paid",
@@ -145,10 +170,7 @@ async def apply_topup(
         ],
     )
     await uow.jobs.enqueue(
-        RENDER_JOB,
-        {"invoice_id": str(invoice_id)},
-        payment.created_at,
-        f"{RENDER_JOB}:{invoice_id}",
+        RENDER_JOB, {"invoice_id": str(invoice_id)}, paid_at, f"{RENDER_JOB}:{invoice_id}"
     )
     credited = int(split.taxable)
     owner_id, owner_type = account.owner_id, account.owner_type
@@ -161,7 +183,13 @@ async def apply_topup(
         uow.after_commit(mirror)
     if owner_type is OwnerType.USER:
         uow.after_commit(lambda: bctx.invalidate_entitlement(owner_id))
-    return True
+    elif bctx.invalidate_org is not None:
+        invalidate_org = bctx.invalidate_org
+
+        async def clear_members() -> None:
+            await invalidate_org(owner_id)
+
+        uow.after_commit(clear_members)  # every member now overflows onto the org's credits
 
 
 async def _record_without_credit(

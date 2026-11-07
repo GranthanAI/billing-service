@@ -37,6 +37,7 @@ from billing.adapters.db.repos.plumbing import (
 from billing.adapters.db.repos.pricing import SqlPricingRepo
 from billing.adapters.db.repos.refunds import SqlRefundRepo
 from billing.adapters.db.repos.subscriptions import SqlSubscriptionRepo
+from billing.adapters.db.repos.topups import SqlTopupRepo
 from billing.adapters.db.repos.usage import SqlUsageRepo
 from billing.adapters.db.repos.wallets import SqlWalletRepo
 from billing.adapters.kafka.codec import EventCodec
@@ -75,6 +76,7 @@ class SqlUnitOfWork:
         self.invoices = SqlInvoiceRepo(conn)
         self.ledger = SqlLedgerRepo(conn, ids)
         self.wallets = SqlWalletRepo(conn, ids, self.ledger)
+        self.topups = SqlTopupRepo(conn)
         self.publisher = SqlOutbox(conn, EventCodec(ids, self._clock))
         self.processed = SqlProcessedEvents(conn)
         self.idempotency = SqlIdempotency(conn)

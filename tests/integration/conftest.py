@@ -446,6 +446,7 @@ async def env(
 ) -> AsyncIterator[Env]:
     from tests.integration.billing_env import build_env
 
+    await vk.flushall()  # counters from earlier tests would show up in reconciliation
     name = f"p6_{uuid4().hex[:10]}"
     conn = await asyncpg.connect(
         host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"

@@ -12,6 +12,7 @@ from billing.app.charges import record_charge
 from billing.app.config import BillingContext
 from billing.app.effects import REFUND_ISSUE, EffectContext
 from billing.app.org_billing import settle_invoice
+from billing.app.org_topups import apply_org_topup
 from billing.app.ports import (
     GatewayOrder,
     GatewayPayment,
@@ -334,6 +335,17 @@ class EventApplier:
         """An organisation paid an invoice through its payment link."""
         if event.payment_link_id is None or event.payment is None:
             return IGNORED
+        topup = await uow.topups.by_link(event.payment_link_id, lock=True)
+        if topup is not None:  # an organisation wallet top-up (notes kind = org_topup)
+            done = await apply_org_topup(
+                uow,
+                self._b,
+                topup,
+                payment=event.payment,
+                reference=event.payment.id,
+                paid_at=event.payment.created_at,
+            )
+            return PROCESSED if done else IGNORED
         invoice = await uow.invoices.by_payment_link(event.payment_link_id)
         if invoice is None:
             log.info("payment_link_unknown", link=event.payment_link_id)

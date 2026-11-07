@@ -34,6 +34,7 @@ from billing.app.records import (
     RefundRecord,
     SubscriptionHistoryEntry,
     SubscriptionRecord,
+    TopupRequest,
     UsageEventRecord,
     WalletRecord,
 )
@@ -213,6 +214,10 @@ class PaymentGateway(PlanGateway, Protocol):
         notes: Mapping[str, str],
     ) -> GatewayPaymentLink:
         """Idempotent on `reference_id`: asking again returns the link already made for it."""
+        ...
+
+    async def cancel_payment_link(self, link_id: str) -> None:
+        """Close a payment link so it can no longer be paid. Cancelling twice is harmless."""
         ...
 
     async def list_settlement_items(self, day: date) -> list[SettlementItem]:
@@ -683,6 +688,20 @@ class LedgerRepo(Protocol):
     async def lock_balance(self, code: str) -> int: ...
 
 
+class TopupRepo(Protocol):
+    async def insert(self, request: TopupRequest) -> None: ...
+
+    async def get(self, request_id: UUID, *, lock: bool = False) -> TopupRequest | None: ...
+
+    async def by_link(self, link_id: str, *, lock: bool = False) -> TopupRequest | None: ...
+
+    async def set_link(self, request_id: UUID, link_id: str) -> None: ...
+
+    async def mark_paid(self, request_id: UUID, payment_id: UUID) -> None: ...
+
+    async def cancel(self, request_id: UUID) -> None: ...
+
+
 class WalletRepo(Protocol):
     async def get(self, account_id: UUID) -> WalletRecord | None: ...
 
@@ -886,6 +905,9 @@ class UnitOfWork(Protocol):
 
     @property
     def wallets(self) -> WalletRepo: ...
+
+    @property
+    def topups(self) -> TopupRepo: ...
 
     @property
     def publisher(self) -> Publisher: ...

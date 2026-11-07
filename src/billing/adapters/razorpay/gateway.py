@@ -319,6 +319,9 @@ class RazorpayGateway:
         )
         return mapping.payment_link(body)
 
+    async def cancel_payment_link(self, link_id: str) -> None:
+        await self._request("POST", f"/payment_links/{link_id}/cancel")
+
     async def list_settlement_items(self, day: date) -> list[SettlementItem]:
         items = await self._list(
             "/settlements/recon/combined",
