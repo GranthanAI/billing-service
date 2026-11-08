@@ -3,6 +3,7 @@ import sqlalchemy as sa
 import valkey.asyncio as valkey_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from billing.adapters.db.migrations import expected_head
 from billing.adapters.valkey.client import make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
 from billing.main_api import app
@@ -39,7 +40,8 @@ async def test_not_ready_when_schema_is_behind(
     finally:
         async with migrator_engine.begin() as conn:
             await conn.execute(
-                sa.text("UPDATE billing.alembic_version SET version_num = '0016_wallets'")
+                sa.text("UPDATE billing.alembic_version SET version_num = :head"),
+                {"head": expected_head()},
             )
 
 

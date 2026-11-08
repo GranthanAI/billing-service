@@ -266,6 +266,7 @@ payments = sa.Table(
     sa.Column("fee_gst_paise", sa.BigInteger),
     sa.Column("status", sa.Text, nullable=False),
     _ts("captured_at", nullable=False),
+    sa.Column("gateway", sa.Text, nullable=False, server_default=sa.text("'razorpay'")),
     sa.Column("raw", pg.JSONB, nullable=False),
 )
 
@@ -410,6 +411,20 @@ credit_lots = sa.Table(
         "expires_at",
         postgresql_where=sa.text("remaining_paise > 0"),
     ),
+)
+
+gateway_mode = sa.Table(
+    "gateway_mode",
+    metadata,
+    sa.Column(
+        "singleton",
+        sa.Boolean,
+        primary_key=True,
+        server_default=sa.text("true"),
+    ),
+    sa.Column("mode", sa.Text, nullable=False),
+    _ts("set_at", nullable=False, server_default=_NOW),
+    sa.CheckConstraint("singleton", name="gateway_mode_singleton_check"),
 )
 
 wallets = sa.Table(

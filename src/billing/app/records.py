@@ -131,6 +131,7 @@ class PaymentRecord:
     method: str | None = None
     fee_paise: Paise | None = None
     fee_gst_paise: Paise | None = None
+    gateway: str = "razorpay"  # which provider took the payment: razorpay | simulator
 
 
 @dataclass(frozen=True, slots=True)

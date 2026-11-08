@@ -106,6 +106,7 @@ class GatewayPayment:
     created_at: datetime
     notes: Mapping[str, str]
     raw: Mapping[str, Any]
+    gateway: str = "razorpay"  # "simulator" for payments made by the payment simulator
 
 
 @dataclass(frozen=True, slots=True)

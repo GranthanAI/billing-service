@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     payg_enabled: bool = False
     plans_file: str = "/app/config/plans.yaml"
     grace_days: int = 3
+    # When set, the grace period is this many seconds and GRACE_DAYS is ignored (simulation runs).
+    grace_period_seconds: int | None = Field(None, ge=1)
     checkout_abandon_hours: int = Field(24, ge=1)
     razorpay_total_count_month: int = Field(120, ge=1)
     razorpay_total_count_year: int = Field(10, ge=1)
@@ -66,6 +68,19 @@ class Settings(BaseSettings):
     manim_render_cost_usd: Decimal = Decimal("0.01")
     youtube_ingest_cost_inr: Decimal = Decimal("0.30")
     timezone_business: str = "Asia/Kolkata"
+    # --- payment simulation (docs/Integrations plan section 5). Never in production. ---
+    payment_simulation: bool = False
+    allow_gateway_mode_switch: bool = False
+    sim_month_seconds: int = Field(0, ge=0)  # 0: real calendar months
+    sim_retry_interval: int = Field(86_400, ge=1)  # seconds between failed-renewal retries
+    sim_fast_jobs: bool = False
+    sim_refund_delay_seconds: int = Field(10, ge=0)
+    sim_webhook_url: str = "http://localhost:8080/billing/v1/webhooks/razorpay"
+    sim_webhook_delay_seconds: int = Field(1, ge=0)
+    sim_webhook_duplicate_pct: int = Field(0, ge=0, le=100)
+    sim_webhook_drop_pct: int = Field(0, ge=0, le=100)
+    sim_webhook_reorder: bool = False
+    frontend_origin: str = "http://localhost:5173"
 
 
 def webhook_secrets(s: "Settings") -> str:
@@ -89,3 +104,14 @@ def check_gateway_allowed(payment_gateway: str, environment: str) -> None:
     """The in-memory fake gateway must never run in production."""
     if payment_gateway == "fake" and environment == "production":
         raise ValueError("PAYMENT_GATEWAY=fake is refused when ENVIRONMENT=production")
+
+
+def check_simulation_allowed(simulation: bool, environment: str) -> None:
+    """The payment simulator must never run in production."""
+    if simulation and environment == "production":
+        raise ValueError("PAYMENT_SIMULATION=true is refused when ENVIRONMENT=production")
+
+
+def payment_mode(s: "Settings") -> str:
+    """ "simulated" or "live": what /me and /healthz report."""
+    return "simulated" if s.payment_simulation else "live"

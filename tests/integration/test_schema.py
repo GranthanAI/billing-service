@@ -52,11 +52,11 @@ def test_upgrade_downgrade_upgrade(urls: Urls) -> None:
     url = urls.migrator_for(name)
     cfg = alembic_config(url)
     command.upgrade(cfg, "head")
-    assert asyncio.run(_version(url)) == "0018_storage_shortfall"
+    assert asyncio.run(_version(url)) == "0019_payment_simulator"
     command.downgrade(cfg, "base")
     assert asyncio.run(_version(url)) is None
     command.upgrade(cfg, "head")
-    assert asyncio.run(_version(url)) == "0018_storage_shortfall"
+    assert asyncio.run(_version(url)) == "0019_payment_simulator"
 
 
 async def test_metadata_matches_migrations(migrated: Urls) -> None:

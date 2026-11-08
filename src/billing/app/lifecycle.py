@@ -22,7 +22,6 @@ from billing.domain.subscription import GraceExpired, PeriodEnded, Trigger
 log = structlog.get_logger()
 
 BATCH = 100
-POLL_AFTER = timedelta(hours=2)
 POLL_BATCH = 200
 POLL_CALLS_PER_SECOND = 5.0
 REMIND_FROM, REMIND_TO = timedelta(hours=24), timedelta(hours=48)
@@ -157,7 +156,7 @@ class Lifecycle:
     async def poll(self) -> int:
         """Ask Razorpay about live subscriptions whose period ended over 2 hours ago with no
         charge recorded, and apply what it shows (the only backstop for lost webhooks)."""
-        cutoff = self._b.clock.now() - POLL_AFTER
+        cutoff = self._b.clock.now() - timedelta(seconds=self._b.config.poll_after_seconds)
         async with self._b.uow_factory() as uow:
             stale = list(await uow.subscriptions.list_stale_live(cutoff, POLL_BATCH))
         applied = 0

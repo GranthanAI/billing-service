@@ -12,8 +12,9 @@ from fastapi import FastAPI, Response
 from billing.adapters.clock import SystemClock
 from billing.adapters.db import partitions
 from billing.adapters.db.engine import make_engine
+from billing.adapters.db.gateway_mode import ensure_gateway_mode
 from billing.adapters.db.uow import SqlUnitOfWork
-from billing.adapters.gateways import make_gateway
+from billing.adapters.gateways import gateway_mode, make_gateway, sim_config
 from billing.adapters.ids import Uuid7Generator
 from billing.adapters.kafka.consumer import KafkaEventConsumer
 from billing.adapters.kafka.org_consumer import make_org_consumer
@@ -47,7 +48,13 @@ from billing.jobs.runner import JobContext, JobRunner
 from billing.jobs.scheduler import Recurring, Scheduler
 from billing.jobs.webhooks import WebhookProcessor
 from billing.observability import AI_BUDGET, configure_logging, init_sentry, metrics_payload
-from billing.settings import Settings, get_settings, webhook_secrets
+from billing.settings import (
+    Settings,
+    check_simulation_allowed,
+    get_settings,
+    payment_mode,
+    webhook_secrets,
+)
 from billing.wiring import (
     config_from_settings,
     make_context,
@@ -115,7 +122,12 @@ async def run_worker(
     user_consumer: bool = True,
     org_consumer: bool = True,
 ) -> None:
+    check_simulation_allowed(settings.payment_simulation, settings.environment)
     engine = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
+    await ensure_gateway_mode(
+        engine, gateway_mode(settings), allow_switch=settings.allow_gateway_mode_switch
+    )
+    log.info("worker_payment_mode", payment_mode=payment_mode(settings))
     ids, clock = Uuid7Generator(), SystemClock()
     producer = KafkaProducer(settings.kafka_bootstrap_servers, settings.kafka_client_id)
     valkey_client = make_valkey(settings.billing_valkey_url)
@@ -137,6 +149,9 @@ async def run_worker(
         key_secret=settings.razorpay_key_secret,
         webhook_secret=webhook_secrets(settings),
         clock=clock,
+        simulation=settings.payment_simulation,
+        engine=engine,
+        sim=sim_config(settings),
     )
     org_directory = make_org_directory(settings, valkey_client)
     entitlements = EntitlementService(

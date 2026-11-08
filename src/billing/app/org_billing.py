@@ -181,6 +181,7 @@ async def settle_invoice(
             subscription_id=fresh.subscription_id,
             gateway_order_id=gateway_payment.order_id if gateway_payment else None,
             method=gateway_payment.method if gateway_payment else "bank_transfer",
+            gateway=gateway_payment.gateway if gateway_payment else "razorpay",
         )
     )
     if not inserted:

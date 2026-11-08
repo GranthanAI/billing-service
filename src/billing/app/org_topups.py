@@ -69,6 +69,7 @@ async def apply_org_topup(
             else {"method": "bank_transfer", "reference": reference},
             gateway_order_id=payment.order_id if payment else None,
             method=payment.method if payment else "bank_transfer",
+            gateway=payment.gateway if payment else "razorpay",
         )
     )
     if not inserted:

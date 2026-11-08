@@ -239,6 +239,46 @@ class Env:
         )
 
 
+async def seed_sim_plans(engine: AsyncEngine, plans: dict[str, object]) -> None:
+    """Give the simulator the plan ids the synced catalog already holds (from the template)."""
+    import json
+
+    async with engine.begin() as conn:
+        for plan_id, spec in plans.items():
+            await conn.execute(
+                sa.text(
+                    "INSERT INTO billing_sim.sim_plans (id, period, interval, amount, currency, "
+                    "name, notes) VALUES (:i, :p, :iv, :a, :c, :n, CAST(:notes AS jsonb)) "
+                    "ON CONFLICT DO NOTHING"
+                ),
+                dict(
+                    i=plan_id,
+                    p=spec.period,
+                    iv=spec.interval,
+                    a=int(spec.amount),  # type: ignore[attr-defined]
+                    c=spec.currency,
+                    n=spec.name,
+                    notes=json.dumps(dict(spec.notes)),  # type: ignore[attr-defined]
+                ),
+            )
+
+
+async def pump_webhooks(env: Env) -> int:
+    """Deliver due simulator webhooks the way the webhook route stores them: verify the
+    signature, put the body in the inbox (deduplicated by event id). Returns how many were sent."""
+    import json as _json
+
+    async def post(body: bytes, headers: object) -> int:
+        h = dict(headers)  # type: ignore[call-overload]
+        assert env.gateway.verify_webhook_signature(body, h["X-Razorpay-Signature"])
+        payload = _json.loads(body)
+        async with env.uow() as uow:
+            await uow.inbox.store("razorpay", h["X-Razorpay-Event-Id"], payload["event"], payload)
+        return 200
+
+    return await env.gateway.deliver_due(post)  # type: ignore[attr-defined,no-any-return]
+
+
 def build_env(
     app_engine: AsyncEngine,
     migrator_engine: AsyncEngine,
@@ -250,7 +290,8 @@ def build_env(
     clock = TestClock(START)
     ids = Uuid7Generator()
     gateway = make_gateway(clock) if make_gateway else FakeGateway(clock=clock)
-    gateway.plans.update(plans)  # type: ignore[arg-type]
+    if hasattr(gateway, "plans"):  # the simulator keeps its plans in Postgres (see seed_sim_plans)
+        gateway.plans.update(plans)  # type: ignore[arg-type]
 
     def uow_factory() -> SqlUnitOfWork:
         return SqlUnitOfWork(app_engine, ids, clock)

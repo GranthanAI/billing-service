@@ -97,6 +97,7 @@ async def record_charge(
             method=payment.method,
             fee_paise=fee_without_gst(payment.fee, payment.tax),
             fee_gst_paise=payment.tax,
+            gateway=payment.gateway,
         )
     )
     if not inserted:

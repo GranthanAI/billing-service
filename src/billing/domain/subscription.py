@@ -196,9 +196,17 @@ def _paid(state: SubscriptionState, t: ChargeCaptured | NextMandateCharged) -> S
 
 
 def transition(
-    state: SubscriptionState, trigger: Trigger, now: datetime, *, grace_days: int = 3
+    state: SubscriptionState,
+    trigger: Trigger,
+    now: datetime,
+    *,
+    grace_days: int = 3,
+    grace_seconds: int | None = None,  # when set, overrides grace_days (simulation runs)
 ) -> TransitionResult:
     require_aware(now)
+    grace = (
+        timedelta(days=grace_days) if grace_seconds is None else timedelta(seconds=grace_seconds)
+    )
     s = state.status
     name = type(trigger).__name__
 
@@ -225,7 +233,7 @@ def transition(
                 new = replace(
                     state,
                     status=SubStatus.PAST_DUE,
-                    grace_until=now + timedelta(days=grace_days),
+                    grace_until=now + grace,
                 )
                 return TransitionResult(new, (EmitPaymentFailed(),))
         case GraceExpired():
@@ -334,7 +342,7 @@ def transition(
                     next_gateway_subscription_id=None,
                     pending_plan_version_id=None,
                     pending_interval=None,
-                    grace_until=now + timedelta(days=grace_days),
+                    grace_until=now + grace,
                 )
                 return TransitionResult(new, (EmitPaymentFailed(), _CHANGED))
         case NextMandateCharged():

@@ -34,6 +34,7 @@ async def apply_transition(
         trigger,
         now,
         grace_days=bctx.config.grace_days if grace_days is None else grace_days,
+        grace_seconds=bctx.config.grace_period_seconds,
     )
     saved = await uow.subscriptions.save(replace(sub, state=result.state))
     name = type(trigger).__name__

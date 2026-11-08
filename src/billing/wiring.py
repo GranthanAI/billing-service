@@ -19,6 +19,9 @@ from billing.domain.catalog import PaygPrices
 from billing.domain.money import Paise
 from billing.settings import Settings
 
+SIM_INVOICE_SERIES, SIM_BILL_OF_SUPPLY_SERIES, SIM_CREDIT_NOTE_SERIES = "SI", "SB", "SC"
+SIM_FAST_POLL_AFTER_SECONDS = 30
+
 
 def _payg_spec(s: Settings) -> PaygSpec | None:
     try:
@@ -51,6 +54,7 @@ def config_from_settings(s: Settings) -> BillingConfig:
         if spec
         else {}
     )
+    sim = s.payment_simulation
     return BillingConfig(
         **wallet,
         payg_enabled=s.payg_enabled,
@@ -61,10 +65,14 @@ def config_from_settings(s: Settings) -> BillingConfig:
         sac_code=s.invoice_sac_code,
         supplier_legal_name=s.supplier_legal_name,
         supplier_address=s.supplier_address,
-        invoice_series=s.invoice_series,
-        credit_note_series=s.credit_note_series,
-        bill_of_supply_series=s.bill_of_supply_series,
+        # simulated invoices never consume the real GST series (plan 5.6)
+        invoice_series=SIM_INVOICE_SERIES if sim else s.invoice_series,
+        credit_note_series=SIM_CREDIT_NOTE_SERIES if sim else s.credit_note_series,
+        bill_of_supply_series=SIM_BILL_OF_SUPPLY_SERIES if sim else s.bill_of_supply_series,
         grace_days=s.grace_days,
+        grace_period_seconds=s.grace_period_seconds,
+        poll_after_seconds=SIM_FAST_POLL_AFTER_SECONDS if sim and s.sim_fast_jobs else 7200,
+        simulation=sim,
         org_grace_days=s.org_grace_days,
         abandon_hours=s.checkout_abandon_hours,
         total_count_month=s.razorpay_total_count_month,

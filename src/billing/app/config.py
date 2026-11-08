@@ -19,6 +19,9 @@ class BillingConfig:
     credit_note_series: str = "CN"
     bill_of_supply_series: str = "BS"
     grace_days: int = 3
+    grace_period_seconds: int | None = None  # GRACE_PERIOD_SECONDS: overrides grace_days
+    poll_after_seconds: int = 7200  # subscription.poll looks at periods ended this long ago
+    simulation: bool = False  # PAYMENT_SIMULATION
     org_grace_days: int = 15
     abandon_hours: int = 24
     total_count_month: int = 120

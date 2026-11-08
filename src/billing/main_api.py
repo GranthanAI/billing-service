@@ -15,9 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog
 from billing.adapters.clock import SystemClock
 from billing.adapters.db.engine import make_engine
+from billing.adapters.db.gateway_mode import ensure_gateway_mode
 from billing.adapters.db.migrations import schema_problem
 from billing.adapters.db.uow import SqlUnitOfWork
-from billing.adapters.gateways import make_gateway
+from billing.adapters.gateways import gateway_mode, make_gateway, sim_config
 from billing.adapters.ids import Uuid7Generator
 from billing.adapters.kafka.health import KafkaProbe
 from billing.adapters.valkey.client import aw, config_problem, make_valkey
@@ -51,7 +52,14 @@ from billing.observability import (
     init_sentry,
     metrics_payload,
 )
-from billing.settings import Settings, gateway_secrets, get_settings, webhook_secrets
+from billing.settings import (
+    Settings,
+    check_simulation_allowed,
+    gateway_secrets,
+    get_settings,
+    payment_mode,
+    webhook_secrets,
+)
 from billing.wiring import (
     config_from_settings,
     install_billing,
@@ -96,8 +104,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             app.state.engine = None  # /readyz reports 503 until the service is configured
     if settings is not None:
+        check_simulation_allowed(settings.payment_simulation, settings.environment)
         owned_engine = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
         app.state.engine = owned_engine
+        await ensure_gateway_mode(
+            owned_engine,
+            gateway_mode(settings),
+            allow_switch=settings.allow_gateway_mode_switch,
+        )
+        app.state.payment_mode = payment_mode(settings)
+        app.state.simulation = settings.payment_simulation
+        app.state.frontend_origin = settings.frontend_origin
         app.state.payg_enabled = settings.payg_enabled
         app.state.kafka_probe = KafkaProbe(settings.kafka_bootstrap_servers)
         app.state.gateway_secrets = gateway_secrets(settings)
@@ -135,6 +152,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             key_secret=settings.razorpay_key_secret,
             webhook_secret=webhook_secrets(settings),
             clock=clock,
+            simulation=settings.payment_simulation,
+            engine=owned_engine,
+            sim=sim_config(settings),
         )
         storage = make_storage(settings)
         install_billing(
@@ -196,7 +216,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         gc.collect()
         gc.freeze()
         gc.set_threshold(50_000, 20, 20)
-        log.info("billing_api_started", grpc_port=settings.grpc_port)
+        log.info(
+            "billing_api_started",
+            grpc_port=settings.grpc_port,
+            payment_mode=app.state.payment_mode,
+        )
+        if settings.payment_simulation:
+            log.warning("payment_simulation_on", note="SIMULATED PAYMENTS - no real money moves")
     yield
     for task in (sampler, lag_watch, invalidation_listener):
         if task is not None:
@@ -243,8 +269,8 @@ async def correlation_id(
 
 
 @app.get("/healthz")
-async def healthz() -> dict[str, str]:
-    return {"status": "ok"}
+async def healthz(request: Request) -> dict[str, str]:
+    return {"status": "ok", "payment_mode": getattr(request.app.state, "payment_mode", "live")}
 
 
 def _not_ready(reason: str) -> JSONResponse:

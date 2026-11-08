@@ -25,6 +25,7 @@ def _record(r: Any) -> PaymentRecord:
         method=r.method,
         fee_paise=Paise(r.fee_paise) if r.fee_paise is not None else None,
         fee_gst_paise=Paise(r.fee_gst_paise) if r.fee_gst_paise is not None else None,
+        gateway=r.gateway,
     )
 
 
@@ -49,6 +50,7 @@ class SqlPaymentRepo:
                 status=record.status,
                 captured_at=record.captured_at,
                 raw=dict(record.raw),
+                gateway=record.gateway,
             )
             .on_conflict_do_nothing(index_elements=["gateway_payment_id"])
         )

@@ -463,3 +463,43 @@ async def env(
     yield built
     await app.dispose()
     await migrator.dispose()
+
+
+@pytest_asyncio.fixture
+async def sim_env(
+    urls: Urls, phase6_template: Template, vk: valkey_asyncio.Valkey
+) -> AsyncIterator[Env]:
+    """Like `env`, but the payment gateway is the Postgres-backed SimulatorGateway (time is the
+    test clock; webhooks go out immediately and are delivered with `pump_webhooks`)."""
+    from billing.adapters.gateway_sim import SimConfig, SimulatorGateway
+    from tests.integration.billing_env import build_env, seed_sim_plans
+
+    await vk.flushall()
+    name = f"sim_{uuid4().hex[:10]}"
+    conn = await asyncpg.connect(
+        host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"
+    )
+    try:
+        await conn.execute(
+            f'CREATE DATABASE "{name}" TEMPLATE "{phase6_template.name}" OWNER billing_migrator'
+        )
+    finally:
+        await conn.close()
+    app = make_engine(urls._url("billing_app", "billing_app", name), pool_size=10)
+    migrator = make_engine(urls.migrator_for(name), pool_size=2)
+    await seed_sim_plans(app, phase6_template.plans)
+
+    def make_sim(clock: object) -> object:
+        return SimulatorGateway(
+            app,
+            key_id="rzp_sim_key",
+            key_secret="sim_key_secret",
+            webhook_secret="sim_webhook_secret",
+            clock=clock,  # type: ignore[arg-type]
+            config=SimConfig(webhook_delay=0, refund_delay=10),
+        )
+
+    built = build_env(app, migrator, vk, phase6_template.plans, make_gateway=make_sim)  # type: ignore[arg-type]
+    yield built
+    await app.dispose()
+    await migrator.dispose()

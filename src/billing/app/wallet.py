@@ -90,6 +90,7 @@ async def apply_topup(
             raw=payment.raw,
             gateway_order_id=order.id,
             method=payment.method,
+            gateway=payment.gateway,
         )
     )
     if not inserted:
@@ -217,6 +218,7 @@ async def _record_without_credit(
             raw=payment.raw,
             gateway_order_id=order.id,
             method=payment.method,
+            gateway=payment.gateway,
         )
     )
     if inserted:
