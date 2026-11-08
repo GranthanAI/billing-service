@@ -32,7 +32,7 @@ async def test_me_follows_the_subscription_through_a_downgrade_and_a_cancel(env:
         assert body["plan"]["code"] == "max" and body["plan"]["interval"] == "month"
         assert body["plan"]["source"] == "subscription" and body["status"] == "active"
         assert body["current_period_end"] == "2026-12-01T10:15:00+05:30"
-        assert body["limits"]["branches_per_tree"] is None  # unlimited
+        assert body["limits"]["branches_per_tree"] == -1  # unlimited
         assert body["limits"]["best_per_day"] == 12
 
         down = await env.service.change_plan(env.user, "pro", Interval.MONTH)

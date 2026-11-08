@@ -472,7 +472,7 @@ async def sim_env(
     """Like `env`, but the payment gateway is the Postgres-backed SimulatorGateway (time is the
     test clock; webhooks go out immediately and are delivered with `pump_webhooks`)."""
     from billing.adapters.gateway_sim import SimConfig, SimulatorGateway
-    from tests.integration.billing_env import build_env, seed_sim_plans
+    from tests.integration.billing_env import build_env, config, seed_sim_plans
 
     await vk.flushall()
     name = f"sim_{uuid4().hex[:10]}"
@@ -499,7 +499,10 @@ async def sim_env(
             config=SimConfig(webhook_delay=0, refund_delay=10),
         )
 
-    built = build_env(app, migrator, vk, phase6_template.plans, make_gateway=make_sim)  # type: ignore[arg-type]
+    cfg = config(
+        simulation=True, invoice_series="SI", bill_of_supply_series="SB", credit_note_series="SC"
+    )
+    built = build_env(app, migrator, vk, phase6_template.plans, cfg, make_gateway=make_sim)  # type: ignore[arg-type]
     yield built
     await app.dispose()
     await migrator.dispose()

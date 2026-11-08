@@ -24,6 +24,7 @@ log = structlog.get_logger()
 RENDER_JOB = "invoice.render"
 BACKFILL_JOB = "invoice.backfill"
 BACKFILL_BATCH = 500
+SIM_WATERMARK = "SIMULATED - NOT A TAX INVOICE"
 TITLES = {
     "tax_invoice": "Tax invoice",
     "bill_of_supply": "Bill of supply",
@@ -91,6 +92,7 @@ def build_document(
         period=period,
         original_number=original.number if original else "",
         original_date=_date(original.issued_at) if original else "",
+        watermark=SIM_WATERMARK if config.simulation else "",
     )
 
 

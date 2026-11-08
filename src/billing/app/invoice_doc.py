@@ -41,3 +41,4 @@ class InvoiceDocument:
     original_number: str = ""  # credit notes only
     original_date: str = ""
     payment_reference: str = ""
+    watermark: str = ""  # simulated invoices: "SIMULATED - NOT A TAX INVOICE"

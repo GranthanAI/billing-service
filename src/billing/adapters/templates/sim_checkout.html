@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulated payment</title>
+<style>
+  body { font-family: system-ui, Arial, sans-serif; margin: 0; background: #f4f4f6; color: #111; }
+  .banner { background: #b00020; color: #fff; text-align: center; font-weight: 800;
+            font-size: 22px; letter-spacing: .5px; padding: 18px 12px; }
+  .card { max-width: 440px; margin: 24px auto; background: #fff; border-radius: 10px;
+          padding: 24px; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+  .amount { font-size: 34px; font-weight: 700; margin: 4px 0 2px; }
+  .label { color: #555; margin-bottom: 18px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .tabs button { flex: 1; padding: 10px; border: 1px solid #ccc; background: #fafafa;
+                 border-radius: 6px; cursor: pointer; font-size: 14px; }
+  .tabs button.on { background: #111; color: #fff; border-color: #111; }
+  input { width: 100%; box-sizing: border-box; padding: 10px; margin: 6px 0 12px;
+          border: 1px solid #bbb; border-radius: 6px; font-size: 15px; }
+  .go { width: 100%; padding: 12px; border: 0; border-radius: 6px; background: #1a73e8;
+        color: #fff; font-size: 16px; cursor: pointer; }
+  .hint { color: #666; font-size: 12px; margin: -6px 0 12px; }
+  #error { color: #b00020; margin: 10px 0; min-height: 18px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="banner">SIMULATED PAYMENT - no real money</div>
+<div class="card">
+  <div class="label">{{ label }}</div>
+  <div class="amount">&#8377;{{ amount_rupees }}</div>
+  <div class="label">{{ gateway_id }}</div>
+
+  <div id="step-method">
+    <div class="tabs">
+      {% for m in methods %}
+      <button type="button" data-method="{{ m }}" class="{{ 'on' if loop.first else '' }}">
+        {{ {'card': 'Card', 'upi': 'UPI', 'emandate': 'eMandate'}[m] }}
+      </button>
+      {% endfor %}
+    </div>
+    <div id="pane-card">
+      <input id="card" placeholder="Card number" value="4111 1111 1111 1111" autocomplete="off">
+      <div class="hint">4111 1111 1111 1111 succeeds &middot; 4000 0000 0000 0002 fails</div>
+    </div>
+    {% if 'upi' in methods %}
+    <div id="pane-upi" class="hidden">
+      <input id="vpa" placeholder="UPI id" value="success@razorpay" autocomplete="off">
+      <div class="hint">success@razorpay succeeds &middot; failure@razorpay fails</div>
+    </div>
+    {% endif %}
+    <div id="pane-emandate" class="hidden">
+      <div class="hint">eMandate always succeeds.</div>
+    </div>
+    <button class="go" id="continue" type="button">Continue</button>
+  </div>
+
+  <div id="step-otp" class="hidden">
+    <div class="label">Enter the OTP sent by your bank</div>
+    <input id="otp" placeholder="6-digit OTP" inputmode="numeric" maxlength="6" autocomplete="off">
+    <div class="hint">Any 6 digits pass, except 000000, which fails.</div>
+    <button class="go" id="pay" type="button">Pay &#8377;{{ amount_rupees }}</button>
+  </div>
+  <div id="error"></div>
+  <div id="done" class="hidden"><strong>Payment successful.</strong> You can close this window.</div>
+</div>
+<script>
+  const ORIGIN = {{ origin|tojson }};
+  let method = {{ methods[0]|tojson }};
+  const $ = (id) => document.getElementById(id);
+  document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
+    method = b.dataset.method;
+    document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
+    ['card', 'upi', 'emandate'].forEach((m) => {
+      const pane = $('pane-' + m);
+      if (pane) pane.classList.toggle('hidden', m !== method);
+    });
+  }));
+  $('continue').addEventListener('click', () => {
+    $('step-method').classList.add('hidden');
+    $('step-otp').classList.remove('hidden');
+  });
+  $('pay').addEventListener('click', async () => {
+    $('error').textContent = '';
+    const body = { method, card_number: $('card').value, vpa: $('vpa') ? $('vpa').value : '', otp: $('otp').value };
+    const url = location.pathname.replace(/\/$/, '') + '/pay' + location.search;
+    const resp = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      $('error').textContent = data.error || 'Payment failed';
+      $('step-otp').classList.add('hidden');
+      $('step-method').classList.remove('hidden');
+      return;
+    }
+    $('step-otp').classList.add('hidden');
+    $('done').classList.remove('hidden');
+    if (window.opener) {
+      window.opener.postMessage({ source: 'granthan-sim-checkout', ...data }, ORIGIN);
+      window.close();
+    }
+  });
+</script>
+</body>
+</html>

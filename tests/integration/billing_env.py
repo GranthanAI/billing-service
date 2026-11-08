@@ -218,6 +218,8 @@ class Env:
                 self.storage,
                 self.clock,
                 self.bctx.config.gst_registered,
+                gateway=self.gateway,
+                payment_mode="simulated" if self.bctx.config.simulation else "live",
             ),
             admin=AdminService(
                 self.bctx.uow_factory,

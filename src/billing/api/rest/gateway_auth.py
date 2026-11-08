@@ -39,6 +39,16 @@ def secret_matches(presented: bytes, secrets: tuple[str, ...]) -> bool:
     return ok
 
 
+SIM_CHECKOUT_PREFIX = "/billing/v1/sim/checkout/"
+
+
+def _sim_checkout(scope: Scope) -> bool:
+    """The simulated checkout page is public (it has its own signed token) in simulation only."""
+    return scope["path"].startswith(SIM_CHECKOUT_PREFIX) and bool(
+        getattr(scope["app"].state, "simulation", False)
+    )
+
+
 class GatewayAuthMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -48,6 +58,7 @@ class GatewayAuthMiddleware:
             scope["type"] != "http"
             or scope["path"] in PUBLIC_PATHS
             or scope["path"].startswith("/internal/")
+            or _sim_checkout(scope)
         ):
             await self.app(scope, receive, send)
             return

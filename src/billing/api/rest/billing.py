@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from billing.api.rest.idempotency import parse_user_id
+from billing.api.rest.provider import provider_fields
 from billing.app.errors import Unauthenticated
 from billing.app.subscriptions import CheckoutOptions, SubscriptionService
 from billing.domain.catalog import Interval
@@ -55,8 +56,9 @@ class ChangeBody(BaseModel):
     interval: Literal["month", "year"]
 
 
-def checkout_json(o: CheckoutOptions) -> dict[str, Any]:
+def checkout_json(o: CheckoutOptions, extra: dict[str, str] | None = None) -> dict[str, Any]:
     body: dict[str, Any] = {
+        **(extra or {}),
         "subscription_id": str(o.subscription_id),
         "status": o.status.value,
         "razorpay": {
@@ -74,7 +76,7 @@ def checkout_json(o: CheckoutOptions) -> dict[str, Any]:
 
 
 @router.post("/checkout")
-async def checkout(body: CheckoutBody, user: User, svc: Svc) -> JSONResponse:
+async def checkout(body: CheckoutBody, user: User, svc: Svc, request: Request) -> JSONResponse:
     options = await svc.checkout(
         user,
         body.plan_code,
@@ -84,7 +86,8 @@ async def checkout(body: CheckoutBody, user: User, svc: Svc) -> JSONResponse:
         body.legal_name,
         body.gstin,
     )
-    return JSONResponse(checkout_json(options), status_code=201)
+    extra = provider_fields(request, options.gateway_subscription_id, user)
+    return JSONResponse(checkout_json(options, extra), status_code=201)
 
 
 @router.post("/checkout/verify")
@@ -98,9 +101,10 @@ async def verify(body: VerifyBody, user: User, svc: Svc) -> JSONResponse:
 
 
 @router.post("/subscription/change")
-async def change(body: ChangeBody, user: User, svc: Svc) -> JSONResponse:
+async def change(body: ChangeBody, user: User, svc: Svc, request: Request) -> JSONResponse:
     options = await svc.change_plan(user, body.plan_code, Interval(body.interval))
-    return JSONResponse(checkout_json(options), status_code=201)
+    extra = provider_fields(request, options.gateway_subscription_id, user)
+    return JSONResponse(checkout_json(options, extra), status_code=201)
 
 
 @router.post("/subscription/cancel")
@@ -112,5 +116,7 @@ async def cancel(user: User, svc: Svc) -> JSONResponse:
 
 
 @router.post("/subscription/resume")
-async def resume(user: User, svc: Svc) -> JSONResponse:
-    return JSONResponse(checkout_json(await svc.resume(user)), status_code=201)
+async def resume(user: User, svc: Svc, request: Request) -> JSONResponse:
+    options = await svc.resume(user)
+    extra = provider_fields(request, options.gateway_subscription_id, user)
+    return JSONResponse(checkout_json(options, extra), status_code=201)

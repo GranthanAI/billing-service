@@ -19,6 +19,7 @@ from billing.app.records import InProgress, Mismatch, Replay
 PREFIX = "/billing/v1/"
 ADMIN_PREFIX = "/admin/billing/v1/"
 WEBHOOK_PATH = "/billing/v1/webhooks/razorpay"
+SIM_PREFIX = "/billing/v1/sim/"
 MAX_BODY = 1_000_000
 LOCK_SECONDS = 30
 
@@ -41,6 +42,7 @@ class IdempotencyMiddleware:
             or scope["method"] != "POST"
             or not path.startswith((PREFIX, ADMIN_PREFIX))
             or path == WEBHOOK_PATH
+            or path.startswith(SIM_PREFIX)  # simulator routes: token or staff header protected
         ):
             await self.app(scope, receive, send)
             return

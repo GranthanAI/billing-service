@@ -7,11 +7,11 @@ from typing import Any
 from uuid import UUID
 
 from billing.app.entitlements import EntitlementService
-from billing.app.errors import NotFound, ValidationFailed
-from billing.app.ports import Clock, Counters, ObjectStorage, UnitOfWork
+from billing.app.errors import GatewayRejected, GatewayUnavailable, NotFound, ValidationFailed
+from billing.app.ports import Clock, Counters, ObjectStorage, PaymentGateway, UnitOfWork
 from billing.app.wallet import wallet_block
 from billing.domain.calendar import IST, ist_day, next_ist_midnight
-from billing.domain.catalog import UNLIMITED, OwnerType
+from billing.domain.catalog import OwnerType
 from billing.domain.subscription import SubscriptionState, SubStatus
 
 PDF_LINK_SECONDS = 300
@@ -23,10 +23,6 @@ def _iso(dt: object) -> str | None:
     return dt.astimezone(IST).isoformat() if dt is not None else None  # type: ignore[attr-defined]
 
 
-def _limit(value: int) -> int | None:
-    return None if value == UNLIMITED else value
-
-
 class AccountViews:
     def __init__(
         self,
@@ -36,7 +32,11 @@ class AccountViews:
         storage: ObjectStorage,
         clock: Clock,
         gst_registered: bool = True,
+        gateway: PaymentGateway | None = None,
+        payment_mode: str = "live",
     ) -> None:
+        self._gateway = gateway
+        self._payment_mode = payment_mode
         self._registered = gst_registered
         self._uow = uow_factory
         self._ent = entitlements
@@ -93,7 +93,9 @@ class AccountViews:
             "grace_until": _iso(sub_state.grace_until) if sub_state else None,
             "cancel_at_period_end": bool(sub_state and sub_state.status is SubStatus.CANCELLING),
             "pending_change": pending,
-            "limits": {k: _limit(v) for k, v in asdict(ent.limits).items()},
+            "limits": asdict(ent.limits),  # every plan limit; -1 means unlimited
+            "payment_mode": self._payment_mode,
+            "payment_action_url": await self._action_url(user_id, sub_state),
             "usage_today": {
                 "total": counts.get("total", 0),
                 "fast": counts.get("fast", 0),
@@ -105,6 +107,25 @@ class AccountViews:
             "usage_month": {"youtube_videos": month.get("youtube", 0)},
             "wallet": wallet_view,
         }
+
+    async def _action_url(self, user_id: UUID, state: SubscriptionState | None) -> str | None:
+        """Where a past_due or suspended user pays: the gateway subscription's short_url (in
+        simulation, a signed link to the simulated pay page)."""
+        gid = state.gateway_subscription_id if state else None
+        if (
+            self._gateway is None
+            or state is None
+            or gid is None
+            or state.status not in (SubStatus.PAST_DUE, SubStatus.SUSPENDED)
+        ):
+            return None
+        signed = getattr(self._gateway, "signed_url", None)
+        if signed is not None:
+            return str(signed(gid, str(user_id)))
+        try:
+            return (await self._gateway.fetch_subscription(gid)).short_url
+        except (GatewayRejected, GatewayUnavailable):
+            return None
 
     async def usage(self, user_id: UUID, start: date | None, end: date | None) -> dict[str, Any]:
         today = ist_day(self._clock.now())

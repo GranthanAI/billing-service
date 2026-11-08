@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from billing.api.rest.billing import User
+from billing.api.rest.provider import provider_fields
 from billing.app.errors import NotFound
 from billing.app.wallet import TopupOptions, WalletService, amounts
 from billing.domain.catalog import OwnerType
@@ -49,8 +50,9 @@ class SettingsBody(BaseModel):
     monthly_cap_paise: int | None = Field(default=None, ge=0)
 
 
-def topup_json(o: TopupOptions) -> dict[str, object]:
+def topup_json(o: TopupOptions, extra: dict[str, str] | None = None) -> dict[str, object]:
     return {
+        **(extra or {}),
         "order_id": o.order_id,
         "amount_paise": o.amount_paise,
         "razorpay": {
@@ -85,11 +87,12 @@ async def transactions(
 
 
 @router.post("/topups", dependencies=[Enabled])
-async def topup(body: TopupBody, user: User, svc: Svc) -> JSONResponse:
+async def topup(body: TopupBody, user: User, svc: Svc, request: Request) -> JSONResponse:
     options = await svc.start_topup(
         OwnerType.USER, user, pack_code=body.pack_code, email=body.email, state_code=body.state_code
     )
-    return JSONResponse(topup_json(options), status_code=201)
+    extra = provider_fields(request, options.order_id, user)
+    return JSONResponse(topup_json(options, extra), status_code=201)
 
 
 @router.post("/topups/verify", dependencies=[Enabled])

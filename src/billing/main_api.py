@@ -35,6 +35,7 @@ from billing.api.rest.models import router as models_router
 from billing.api.rest.orgs import admin_router as org_admin_router
 from billing.api.rest.orgs import internal_router as org_internal_router
 from billing.api.rest.public import router as public_router
+from billing.api.rest.sim import install_sim_routes
 from billing.api.rest.wallet import router as wallet_router
 from billing.api.rest.webhooks import router as webhook_router
 from billing.app.account_views import AccountViews
@@ -176,6 +177,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 storage,
                 clock,
                 config_from_settings(settings).gst_registered,
+                gateway=gateway,
+                payment_mode=app.state.payment_mode,
             ),
             admin=AdminService(
                 uow_factory,
@@ -189,6 +192,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             counters=counters,
             org_service_token=settings.org_service_token,
         )
+        if settings.payment_simulation:
+            install_sim_routes(app)
         reserve = ReserveService(
             entitlements,
             ModelCatalog(uow_factory, clock),
