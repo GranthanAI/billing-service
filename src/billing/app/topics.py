@@ -8,6 +8,7 @@ FILE_YOUTUBE_INGESTED = "file.youtube.ingested"
 USER_DELETED = "user.deleted"
 ORG_MEMBER_JOINED = "org.member.joined"
 ORG_MEMBER_LEFT = "org.member.left"
+USAGE_METERED = "usage.metered"
 
 # produced
 SUBSCRIPTION_CHANGED = "subscription.changed"
@@ -18,6 +19,7 @@ USAGE_THRESHOLD_REACHED = "usage.threshold_reached"
 WALLET_CREDITS_EXPIRING = "wallet.credits_expiring"
 STORAGE_PAYMENT_REQUIRED = "storage.payment_required"
 INVOICE_ISSUED = "invoice.issued"
+ENTITLEMENTS_CHANGED = "entitlements.changed"
 
 # dead letters
 BILLING_USAGE_DLQ = "billing.usage.dlq"
@@ -32,6 +34,7 @@ CONSUMED = (
     USER_DELETED,
     ORG_MEMBER_JOINED,
     ORG_MEMBER_LEFT,
+    USAGE_METERED,
 )
 PRODUCED = (
     SUBSCRIPTION_CHANGED,
@@ -42,6 +45,7 @@ PRODUCED = (
     WALLET_CREDITS_EXPIRING,
     STORAGE_PAYMENT_REQUIRED,
     INVOICE_ISSUED,
+    ENTITLEMENTS_CHANGED,
 )
 DLQS = (BILLING_USAGE_DLQ, BILLING_USER_DLQ, BILLING_ORG_DLQ)
 ALL = (*CONSUMED, *PRODUCED, *DLQS)

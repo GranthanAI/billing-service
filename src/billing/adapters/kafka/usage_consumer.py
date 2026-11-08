@@ -6,7 +6,7 @@ from billing.adapters.kafka import schemas
 from billing.adapters.kafka.consumer import KafkaEventConsumer
 from billing.adapters.kafka.producer import KafkaProducer
 from billing.app import topics
-from billing.app.usage import UsageCall, UsageEvent, UsageService
+from billing.app.usage import MeteredEvent, UsageCall, UsageEvent, UsageService
 from billing.domain.catalog import ReserveKind
 from billing.observability import USAGE_EVENTS
 
@@ -16,6 +16,7 @@ USAGE_TOPICS = [
     topics.CHAT_RESPONSE_CANCELLED,
     topics.ARTIFACT_MANIM_RENDERED,
     topics.FILE_YOUTUBE_INGESTED,
+    topics.USAGE_METERED,
 ]
 
 
@@ -28,7 +29,7 @@ def _calls(calls: list[schemas.LlmCall]) -> tuple[UsageCall, ...]:
     )
 
 
-def to_usage_event(topic: str, payload: bytes) -> UsageEvent:
+def to_usage_event(topic: str, payload: bytes) -> UsageEvent | MeteredEvent:
     """Raises on a malformed body or an unknown topic; the consumer dead-letters it."""
     event = schemas.decode_consumed(topic, payload)
     match event:
@@ -48,7 +49,7 @@ def to_usage_event(topic: str, payload: bytes) -> UsageEvent:
         case schemas.ArtifactManimRendered():
             return UsageEvent(
                 kind=ReserveKind.MANIM_VIDEO,
-                source_id=event.job_id,
+                source_id=event.usage_source_id,
                 dedupe_key=event.dedupe_key,
                 user_id=UUID(event.user_id),
                 occurred_at=event.occurred_at,
@@ -59,12 +60,22 @@ def to_usage_event(topic: str, payload: bytes) -> UsageEvent:
         case schemas.FileYoutubeIngested():
             return UsageEvent(
                 kind=ReserveKind.YOUTUBE_VIDEO,
-                source_id=event.source_id,
+                source_id=event.usage_source_id,
                 dedupe_key=event.dedupe_key,
                 user_id=UUID(event.user_id),
                 occurred_at=event.occurred_at,
                 status=event.status,
                 hold_id=event.hold_id or None,
+            )
+        case schemas.UsageMetered():
+            return MeteredEvent(
+                source_id=event.event_id,
+                dedupe_key=event.dedupe_key,
+                user_id=UUID(event.user_id),
+                occurred_at=event.occurred_at,
+                feature=event.feature,
+                calls=_calls(event.calls),
+                fixed_cost_micro_inr=event.fixed_cost_micro_inr,
             )
     raise ValueError(f"not a usage event: {topic}")
 
@@ -77,9 +88,12 @@ def make_usage_consumer(
     producer: KafkaProducer,
     group_id: str = GROUP_ID,
     backoff: tuple[float, ...] | None = None,
-) -> KafkaEventConsumer[UsageEvent]:
-    async def handle(event: UsageEvent) -> None:
-        await service.apply(event)
+) -> KafkaEventConsumer[UsageEvent | MeteredEvent]:
+    async def handle(event: UsageEvent | MeteredEvent) -> None:
+        if isinstance(event, MeteredEvent):
+            await service.apply_metered(event)
+        else:
+            await service.apply(event)
 
     return KafkaEventConsumer(
         bootstrap_servers=bootstrap_servers,

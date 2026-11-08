@@ -12,6 +12,7 @@ import structlog
 
 from billing.app.charges import _invoice_amounts
 from billing.app.config import BillingContext
+from billing.app.entitlement_events import announce, announce_owner
 from billing.app.errors import InvalidSignature, NotFound, ValidationFailed
 from billing.app.ports import Counters, GatewayOrder, GatewayPayment, UnitOfWork
 from billing.app.records import (
@@ -182,6 +183,7 @@ async def credit_topup(
             await credit(account.id, credited)
 
         uow.after_commit(mirror)
+    await announce_owner(uow, owner_type, owner_id, "wallet", bctx.clock.now())
     if owner_type is OwnerType.USER:
         uow.after_commit(lambda: bctx.invalidate_entitlement(owner_id))
     elif bctx.invalidate_org is not None:
@@ -334,7 +336,10 @@ class WalletService:
         self._require_enabled()
         async with self._b.uow_factory() as uow:
             account = await uow.accounts.get_or_create(OwnerType.USER, user_id)
+            first_wallet = await uow.wallets.get(account.id) is None
             await uow.wallets.ensure(account.id)
+            if first_wallet:  # a first wallet adds the PAYG grant
+                await announce(uow, user_id, "wallet")
             stored = self.stored_cap(cap)
             await uow.wallets.set_cap(account.id, stored)
         if self._counters is not None:

@@ -6,6 +6,7 @@ import structlog
 
 from billing.app.config import BillingContext
 from billing.app.effects import EffectContext, run_effects
+from billing.app.entitlement_events import announce_owner
 from billing.app.ports import UnitOfWork
 from billing.app.records import SubscriptionHistoryEntry, SubscriptionRecord
 from billing.app.revenue import release_deferred
@@ -54,6 +55,7 @@ async def apply_transition(
             await release_deferred(uow, latest, now)
         for seat_payment in await uow.payments.seat_payments(sub.id):
             await release_deferred(uow, seat_payment, now)
+    await announce_owner(uow, account.owner_type, account.owner_id, "subscription", now)
     if account.owner_type is OwnerType.USER:
         owner_id = account.owner_id
         uow.after_commit(lambda: bctx.invalidate_entitlement(owner_id))

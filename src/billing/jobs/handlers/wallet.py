@@ -196,8 +196,9 @@ async def _bill_one(
     async with ctx.uow_factory() as uow:
         if not await uow.processed.claim(STORAGE_CONSUMER, source_id):
             return "duplicate"
-        want = int(taxable_of(price))
-        taken = await uow.wallets.debit(account_id, price, source_id, now)
+        registered = cfg.gst_registered
+        want = int(taxable_of(price)) if registered else int(price)
+        taken = await uow.wallets.debit(account_id, price, source_id, now, registered=registered)
         shortfall = want - taken
         fx = await uow.pricing.fx_at(occurred_at)
         await uow.usage.insert(

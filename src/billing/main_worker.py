@@ -35,6 +35,7 @@ from billing.app.usage import NO_PAYG, UsageService
 from billing.app.user_deletion import UserDeletionService
 from billing.app.webhooks import EventApplier
 from billing.jobs.handlers import billing as billing_jobs
+from billing.jobs.handlers import entitlements as entitlement_jobs  # noqa: F401
 from billing.jobs.handlers import finance as finance_jobs
 from billing.jobs.handlers import holds as holds_job
 from billing.jobs.handlers import invoices as invoice_jobs  # noqa: F401  (registers handlers)
@@ -190,6 +191,7 @@ async def run_worker(
             manim_render_cost_usd=settings.manim_render_cost_usd,
             youtube_ingest_cost_inr=settings.youtube_ingest_cost_inr,
             payg=payg_prices(settings) or NO_PAYG,
+            gst_registered=settings.gst_registered,
         )
         all_consumers.append(
             make_usage_consumer(
@@ -244,6 +246,7 @@ async def run_worker(
                 invoices=invoices,
                 storage_usage=storage_usage,
                 entitlements=entitlements,
+                orgs=org_directory,
             ),
             concurrency=settings.job_concurrency,
         )

@@ -1,5 +1,6 @@
 """Domain events <-> JSON. The only module that knows both."""
 
+import hashlib
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from billing.app import topics
 from billing.app.context import correlation_id_var
 from billing.app.events import (
     CreditsExpiringEvent,
+    EntitlementsChangedEvent,
     InvoiceIssuedEvent,
     OutboxEvent,
     PaymentFailedEvent,
@@ -151,6 +153,18 @@ class EventCodec:
                     allowed=event.allowed,
                     resets_at=event.resets_at,
                 )
+            case EntitlementsChangedEvent():
+                topic, key = topics.ENTITLEMENTS_CHANGED, str(event.user_id)
+                env, headers = self._envelope(topic)
+                digest = hashlib.sha256(
+                    f"{event.user_id}|{event.reason}|{env['event_id']}".encode()
+                ).hexdigest()
+                msg = schemas.EntitlementsChangedMsg(
+                    **env,  # type: ignore[arg-type]
+                    user_id=str(event.user_id),
+                    reason=event.reason,
+                    version_hash=f"sha256:{digest}",
+                )
             case InvoiceIssuedEvent():
                 topic, key = topics.INVOICE_ISSUED, str(event.billing_account_id)
                 env, headers = self._envelope(topic)
@@ -240,6 +254,9 @@ def decode_event(event_type: str, payload: bytes) -> tuple[Envelope, OutboxEvent
                 allowed=u.allowed,
                 resets_at=u.resets_at,
             )
+        case topics.ENTITLEMENTS_CHANGED:
+            e = schemas.EntitlementsChangedMsg.model_validate_json(payload)
+            return e, EntitlementsChangedEvent(user_id=UUID(e.user_id), reason=e.reason)
         case topics.INVOICE_ISSUED:
             i = schemas.InvoiceIssuedMsg.model_validate_json(payload)
             return i, InvoiceIssuedEvent(

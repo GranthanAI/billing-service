@@ -81,6 +81,19 @@ class UsageEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class MeteredEvent:
+    """usage.metered: cost only. Never touches counters or holds."""
+
+    source_id: str  # the event's own id
+    dedupe_key: str
+    user_id: UUID
+    occurred_at: datetime
+    feature: str = ""
+    calls: tuple[UsageCall, ...] = ()
+    fixed_cost_micro_inr: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class Recorded:
     account_id: UUID
     plan_code: str
@@ -131,7 +144,9 @@ class UsageService:
         manim_render_cost_usd: Decimal = Decimal("0.01"),
         youtube_ingest_cost_inr: Decimal = Decimal("0.30"),
         payg: PaygPrices = NO_PAYG,
+        gst_registered: bool = True,
     ) -> None:
+        self._registered = gst_registered
         self._uow = uow_factory
         self._ent = entitlements
         self._counters = counters
@@ -168,6 +183,71 @@ class UsageService:
             if success:
                 await self._thresholds(ev, recorded)
         return result
+
+    async def apply_metered(self, ev: MeteredEvent) -> Literal["applied", "duplicate"]:
+        """A `kind='aux'` usage row: no units, no price, cost = the calls rated by the price book
+        at `occurred_at` plus the fixed cost. An unknown model raises (the consumer dead-letters
+        it, as for chat usage)."""
+        require_aware(ev.occurred_at)
+        ent = await self._ent.resolve(ev.user_id)
+        async with self._uow() as uow:
+            claimed = await uow.processed.claim(CONSUMER, ev.dedupe_key)
+            if not claimed:
+                USAGE_EVENTS.labels(kind="aux", result="duplicate").inc()
+                return "duplicate"
+            grant = ent.grant
+            account_id, plan_version_id = grant.billing_account_id, grant.plan_version.id
+            if account_id is None:
+                account_id = (await uow.accounts.get_or_create(OwnerType.USER, ev.user_id)).id
+            sub = await uow.subscriptions.live_for_account(account_id)
+            book = await uow.pricing.price_book_at(ev.occurred_at)
+            fx = await uow.pricing.fx_at(ev.occurred_at)
+            domain_calls = [
+                LlmCall(
+                    c.provider,
+                    c.model,
+                    "request_analysis",  # cost-only: the purpose matters only for unit counting
+                    max(0, c.input_tokens),
+                    min(max(0, c.cached_input_tokens), max(0, c.input_tokens)),
+                    max(0, c.output_tokens),
+                )
+                for c in ev.calls
+            ]
+            calls_cost = int(cost_micro_inr(domain_calls, book, fx))  # raises on an unknown model
+            fixed = max(0, ev.fixed_cost_micro_inr)
+            per_provider: dict[str, int] = {}
+            for c, d in zip(ev.calls, domain_calls, strict=True):
+                per_provider[c.provider] = per_provider.get(c.provider, 0) + int(
+                    cost_micro_inr([d], book, fx)
+                )
+            rounding = calls_cost - sum(per_provider.values())
+            if rounding or fixed:
+                per_provider["internal"] = rounding + fixed
+            await uow.usage.insert(
+                UsageEventRecord(
+                    kind="aux",
+                    source_id=ev.source_id,
+                    occurred_at=ev.occurred_at,
+                    user_id=ev.user_id,
+                    billing_account_id=account_id,
+                    plan_version_id=plan_version_id,
+                    billable_units=0,
+                    cost_micro_inr=MicroInr(calls_cost + fixed),
+                    fx_usd_inr=fx,
+                    subscription_id=sub.id if sub else None,
+                    model=ev.calls[0].model if ev.calls else None,
+                    aux_input_tokens=sum(max(0, c.input_tokens) for c in ev.calls),
+                    aux_output_tokens=sum(max(0, c.output_tokens) for c in ev.calls),
+                    price_paise=Paise(0),
+                    provider_costs=per_provider,
+                )
+            )
+            plan = await uow.plans.by_id(plan_version_id)
+        USAGE_EVENTS.labels(kind="aux", result="applied").inc()
+        plan_code = plan.plan.plan_code if plan else "unknown"
+        for provider, cost in per_provider.items():
+            USAGE_COST.labels(provider=provider, model_group="aux", plan=plan_code).inc(cost)
+        return "applied"
 
     # --- recording -------------------------------------------------------------------------
 
@@ -287,7 +367,11 @@ class UsageService:
         charged = 0
         if credits and price > 0:
             charged = await uow.wallets.debit(
-                account_id, price, f"usage:{ev.source_id}", self._clock.now()
+                account_id,
+                price,
+                f"usage:{ev.source_id}",
+                self._clock.now(),
+                registered=self._registered,
             )
 
         label = group.value if group else KIND_NAMES[ev.kind]

@@ -98,6 +98,14 @@ class InvoiceIssuedEvent:
     pdf_object_key: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class EntitlementsChangedEvent:
+    """What this user may do may have changed: services drop their cached entitlements."""
+
+    user_id: UUID
+    reason: str  # subscription | override | block | org | wallet | catalog
+
+
 OutboxEvent = (
     SubscriptionChangedEvent
     | PaymentFailedEvent
@@ -107,4 +115,5 @@ OutboxEvent = (
     | StoragePaymentRequiredEvent
     | UsageThresholdReachedEvent
     | InvoiceIssuedEvent
+    | EntitlementsChangedEvent
 )

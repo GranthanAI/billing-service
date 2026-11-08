@@ -86,7 +86,9 @@ class ReserveService:
         hold_ttl_seconds: int = 600,
         payg: PaygPrices | None = None,
         no_credit_fast_per_day: int = NO_CREDIT_FAST_PER_DAY,
+        gst_registered: bool = True,
     ) -> None:
+        self._registered = gst_registered
         self._ent = entitlements
         self._catalog = catalog
         self._counters = counters
@@ -224,7 +226,8 @@ class ReserveService:
             ReserveKind.YOUTUBE_VIDEO: "youtube_video",
             ReserveKind.MANIM_VIDEO: "manim_video",
         }.get(kind, field)
-        return taxable_of(self._payg.unit_prices[key])
+        price = self._payg.unit_prices[key]
+        return taxable_of(price) if self._registered else price
 
     async def _reserve_credits(
         self, req: CheckAndReserveRequest, ent: Entitlement, field: str
@@ -252,7 +255,11 @@ class ReserveService:
             hold_ttl=self._hold_ttl,
             no_credit_fast=self._no_credit_fast,
             member_cap=(
-                int(taxable_of(Paise(ent.member_spend_cap_paise)))
+                (
+                    int(taxable_of(Paise(ent.member_spend_cap_paise)))
+                    if self._registered
+                    else int(ent.member_spend_cap_paise)
+                )
                 if ent.member_spend_cap_paise is not None
                 else -1
             ),

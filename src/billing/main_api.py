@@ -202,6 +202,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ids,
             hold_ttl_seconds=settings.hold_ttl_seconds,
             payg=payg_prices(settings),
+            gst_registered=settings.gst_registered,
         )
         app.state.valkey, app.state.counters, app.state.reserve = client, counters, reserve
         app.state.picker = ModelPicker(

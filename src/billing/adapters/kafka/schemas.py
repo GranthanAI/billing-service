@@ -103,6 +103,12 @@ class InvoiceIssuedMsg(Envelope):
     pdf_object_key: str | None = None
 
 
+class EntitlementsChangedMsg(Envelope):
+    user_id: str
+    reason: str
+    version_hash: str  # "sha256:..." an opaque marker that differs for every announced change
+
+
 # --- consumed ------------------------------------------------------------------------------
 
 
@@ -169,6 +175,7 @@ class ArtifactManimRendered(_Consumed):
     occurred_at: datetime
     user_id: str
     job_id: str
+    attempt: int = 1  # llm-service retries a render with attempt + 1; absent means 1
     hold_id: str | None = None
     status: Literal["success", "error"]
     calls: list[LlmCall] = []
@@ -177,18 +184,52 @@ class ArtifactManimRendered(_Consumed):
     def dedupe_key(self) -> str:
         return self.event_id
 
+    @property
+    def usage_source_id(self) -> str:
+        # Usage is deduplicated on (kind, source_id): a retry that succeeds after a failed first
+        # try must not be dropped as a duplicate, so the attempt is part of the id.
+        return f"{self.job_id}:{self.attempt}"
+
 
 class FileYoutubeIngested(_Consumed):
     event_id: str
     occurred_at: datetime
     user_id: str
     source_id: str
+    document_id: str | None = None
+    attempt: int | None = None  # file-service retries an import with attempt + 1; absent means 1
     hold_id: str | None = None
     status: Literal["success", "error"]
 
     @property
     def dedupe_key(self) -> str:
         return self.event_id
+
+    @property
+    def usage_source_id(self) -> str:
+        # "{document_id}:{attempt}", attempt 1 when absent (see ArtifactManimRendered)
+        attempt = self.attempt or 1
+        if self.document_id:
+            return f"{self.document_id}:{attempt}"
+        return self.source_id if ":" in self.source_id else f"{self.source_id}:{attempt}"
+
+
+class UsageMetered(_Consumed):
+    """usage.metered 1.0: a paid call by a service that needs no limit, only its cost recorded."""
+
+    event_id: str
+    occurred_at: datetime
+    user_id: str
+    producer: str = ""
+    conversation_id: str | None = None
+    request_message_id: str | None = None
+    feature: str = ""
+    calls: list[LlmCall] = []
+    fixed_cost_micro_inr: int = 0
+
+    @property
+    def dedupe_key(self) -> str:
+        return f"usage.metered:{self.event_id}"
 
 
 class UserDeleted(_Consumed):
@@ -229,6 +270,7 @@ ConsumedEvent = (
     | ChatResponseCancelled
     | ArtifactManimRendered
     | FileYoutubeIngested
+    | UsageMetered
     | UserDeleted
 )
 
@@ -237,6 +279,7 @@ CONSUMED_BY_TOPIC: dict[str, type[_Consumed]] = {
     "chat.response.cancelled": ChatResponseCancelled,
     "artifact.manim.rendered": ArtifactManimRendered,
     "file.youtube.ingested": FileYoutubeIngested,
+    "usage.metered": UsageMetered,
     "user.deleted": UserDeleted,
     "org.member.joined": OrgMemberJoined,
     "org.member.left": OrgMemberLeft,

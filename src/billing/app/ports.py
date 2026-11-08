@@ -726,8 +726,17 @@ class WalletRepo(Protocol):
         """Lots with value left, earliest expiry first."""
         ...
 
-    async def debit(self, account_id: UUID, price_incl_gst: Paise, key: str, now: datetime) -> int:
-        """Pay for usage from credits, earliest-expiring lots first. Returns taxable paise taken."""
+    async def debit(
+        self,
+        account_id: UUID,
+        price_incl_gst: Paise,
+        key: str,
+        now: datetime,
+        *,
+        registered: bool = True,
+    ) -> int:
+        """Pay for usage from credits, earliest-expiring lots first. Returns the paise taken:
+        taxable when GST registered; the full price when not (top-ups are credited gross)."""
         ...
 
     async def expired_lots(self, now: datetime, limit: int) -> Sequence[tuple[UUID, CreditLot]]: ...

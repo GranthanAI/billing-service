@@ -11,6 +11,7 @@ from uuid import UUID
 
 import structlog
 
+from billing.app.entitlement_events import announce
 from billing.app.events import PersonalPlanRedundantEvent
 from billing.app.ports import Clock, OrgDirectory, UnitOfWork
 from billing.domain.catalog import OwnerType
@@ -38,6 +39,8 @@ class OrgMembershipService:
     ) -> Literal["applied", "duplicate"]:
         async with self._uow() as uow:
             claimed = await uow.processed.claim(CONSUMER, dedupe_key)
+            if claimed:
+                await announce(uow, user_id, "org")
             if claimed and joined:
                 await self._maybe_redundant(uow, user_id, org_id)
         # Always, even on a replay: forgetting a cached membership and clearing the entitlement

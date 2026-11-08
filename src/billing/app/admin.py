@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from billing.app.effects import REFUND_ISSUE as REFUND_JOB
+from billing.app.entitlement_events import announce_owner
 from billing.app.errors import (
     GatewayUnavailable,
     NotFound,
@@ -63,7 +64,9 @@ class AdminService:
         self._settlements = settlements
         self._invalidate = invalidate
 
-    def _forget(self, uow: UnitOfWork, owner_type: str, owner_id: UUID) -> None:
+    async def _forget(self, uow: UnitOfWork, owner_type: str, owner_id: UUID, reason: str) -> None:
+        """Drop the owner's cached entitlement after commit, and tell the other services."""
+        await announce_owner(uow, OwnerType(owner_type), owner_id, reason, self._clock.now())
         if owner_type == OwnerType.USER.value:
             uow.after_commit(lambda: self._invalidate(owner_id))
 
@@ -162,7 +165,7 @@ class AdminService:
                 {"owner_type": owner_type.value, "owner_id": str(owner_id), "plan": plan_code,
                  "expires_at": expires_at.isoformat()},
             )  # fmt: skip
-            self._forget(uow, owner_type.value, owner_id)
+            await self._forget(uow, owner_type.value, owner_id, "override")
         return record
 
     async def end_override(self, staff: Staff, override_id: UUID, reason: str) -> None:
@@ -177,7 +180,7 @@ class AdminService:
                     staff.id, "override.end", "override", str(override_id), reason,
                     {"ended_at": None}, {"ended_at": self._clock.now().isoformat()},
                 )  # fmt: skip
-                self._forget(uow, found.owner_type.value, found.owner_id)
+                await self._forget(uow, found.owner_type.value, found.owner_id, "override")
 
     # --- refunds -------------------------------------------------------------------------------
 
@@ -237,7 +240,7 @@ class AdminService:
                 str(account_id), reason,
                 {"blocked": account.is_blocked}, {"blocked": blocked},
             )  # fmt: skip
-            self._forget(uow, account.owner_type.value, account.owner_id)
+            await self._forget(uow, account.owner_type.value, account.owner_id, "block")
 
     # --- prices --------------------------------------------------------------------------------
 
@@ -296,7 +299,7 @@ class AdminService:
             new = UUID(row["after"]["plan_version_id"])
             owners = await uow.admin.repoint_plan_version(old, new)
             for owner in owners:
-                self._forget(uow, owner["owner_type"], owner["owner_id"])
+                await self._forget(uow, owner["owner_type"], owner["owner_id"], "catalog")
             await uow.audit.record(
                 staff.id, "catalog.apply_limits", "plan_version", str(new), reason,
                 {"plan_version_id": str(old), "from_audit": audit_id},

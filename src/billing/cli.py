@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from billing.adapters.catalog.seed_loader import load_fx_rates, load_model_prices
 from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog
@@ -38,11 +39,14 @@ class CliSettings(BaseSettings):
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
     razorpay_webhook_secret: str = ""
+    payment_simulation: bool = False
 
 
-def _gateway(settings: CliSettings) -> PlanGateway:
-    if settings.payment_gateway == "razorpay" and not (
-        settings.razorpay_key_id and settings.razorpay_key_secret
+def _gateway(settings: CliSettings, engine: AsyncEngine | None = None) -> PlanGateway:
+    if (
+        not settings.payment_simulation
+        and settings.payment_gateway == "razorpay"
+        and not (settings.razorpay_key_id and settings.razorpay_key_secret)
     ):
         raise ValueError("RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are required")
     return make_gateway(
@@ -52,14 +56,16 @@ def _gateway(settings: CliSettings) -> PlanGateway:
         key_secret=settings.razorpay_key_secret,
         webhook_secret=settings.razorpay_webhook_secret,
         clock=SystemClock(),
+        simulation=settings.payment_simulation,
+        engine=engine,
     )
 
 
 async def _catalog_sync(path: Path, dry_run: bool) -> int:
     spec = load_catalog(path)  # validate before touching the database
     settings = CliSettings()  # type: ignore[call-arg]
-    gateway = _gateway(settings)
     engine = make_engine(settings.billing_migration_database_url, pool_size=2)
+    gateway = _gateway(settings, engine)  # the simulator keeps its plans in Postgres
     ids = Uuid7Generator()
     try:
         report = await sync_catalog(

@@ -108,14 +108,23 @@ class SqlWalletRepo:
         )
         return [_lot(r) for r in (await self._c.execute(q)).all()]
 
-    async def debit(self, account_id: UUID, price_incl_gst: Paise, key: str, now: datetime) -> int:
-        """Pay for usage from credits. Returns the taxable paise taken from the lots, which is
+    async def debit(
+        self,
+        account_id: UUID,
+        price_incl_gst: Paise,
+        key: str,
+        now: datetime,
+        *,
+        registered: bool = True,
+    ) -> int:
+        """Pay for usage from credits. Returns the paise taken from the lots (the taxable value
+        when GST registered, the full price when not: top-ups are credited gross then), which is
         less than asked only if the lots cannot cover it (then only that much is posted)."""
         wallet = await self.get(account_id)
         if wallet is None:
             return 0
         await self._ledger.lock_balance(wallet_code(account_id))  # serialises debits and expiry
-        want = int(taxable_of(price_incl_gst))
+        want = int(taxable_of(price_incl_gst)) if registered else int(price_incl_gst)
         taken = 0
         rows = await self._c.execute(
             sa.select(credit_lots)

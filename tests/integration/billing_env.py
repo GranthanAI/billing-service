@@ -34,6 +34,7 @@ from billing.app.webhooks import EventApplier
 from billing.domain.catalog import Interval
 from billing.domain.entitlements import Entitlement
 from billing.jobs.handlers import billing as billing_jobs  # noqa: F401  (registers handlers)
+from billing.jobs.handlers import entitlements as entitlement_jobs  # noqa: F401
 from billing.jobs.handlers import finance as finance_jobs  # noqa: F401
 from billing.jobs.handlers import holds as hold_jobs  # noqa: F401
 from billing.jobs.handlers import invoices as invoice_jobs  # noqa: F401
@@ -203,6 +204,7 @@ class Env:
                 counters=self.counters,
                 storage_usage=self.storage_usage,
                 entitlements=self.entitlements,
+                orgs=self.orgs,
             ),
             poll_interval=0.01,
         )
@@ -350,6 +352,7 @@ def build_env(
                 counters=counters,
                 storage_usage=storage_usage,
                 entitlements=entitlements,
+                orgs=orgs,
             ),
             poll_interval=0.01,
         ),

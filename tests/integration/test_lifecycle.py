@@ -419,7 +419,10 @@ async def test_a_40_day_timeline_gives_the_expected_states_events_and_invoices(e
     await env.run_jobs()  # render the four invoices, which announces each with invoice.issued
     types = await event_types(env)
     assert types.count("invoice.issued") == 4  # one per invoice, none for the other events
-    types = [t for t in types if t != "invoice.issued"]
+    # entitlements.changed is announced once per state change: as many as there are history rows
+    history = await one(env, "SELECT count(*) FROM billing.subscription_history")
+    assert types.count("entitlements.changed") == history
+    types = [t for t in types if t not in ("invoice.issued", "entitlements.changed")]
     assert types == [
         "subscription.changed",  # D0   incomplete -> active
         "subscription.renewal_upcoming",  # D9
