@@ -219,7 +219,19 @@ async def run_worker(
         )
     try:
         relay = OutboxRelay(engine, ids, clock, producer, batch_size=settings.outbox_batch_size)
-        scheduler = Scheduler(uow_factory, clock, SCHEDULE)
+        schedule: list[Recurring] = list(SCHEDULE)
+        if settings.payment_simulation:  # the sim jobs exist only when the simulator is the gateway
+            from billing.jobs.handlers import sim as sim_jobs
+
+            schedule += sim_jobs.register()
+            if settings.sim_fast_jobs:
+                schedule = sim_jobs.fast_schedule(schedule)
+        scheduler = Scheduler(
+            uow_factory,
+            clock,
+            schedule,
+            tick_seconds=1.0 if settings.payment_simulation else 5.0,
+        )
         runner = JobRunner(
             JobContext(
                 uow_factory,
