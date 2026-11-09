@@ -36,9 +36,9 @@ fmt:
 # The integration tiers reuse the services of docker-compose.test.yml (non-default ports), each
 # xdist worker with its own databases and Valkey db index. Without `make test-up` they would fall
 # back to Testcontainers; the targets below start the services themselves.
-TEST_ENV = TEST_PG_URL=postgresql://postgres:postgres@localhost:55432/postgres \
-	TEST_VALKEY_URL=redis://localhost:56379 TEST_VALKEY_LRU_URL=redis://localhost:56380/0 \
-	TEST_KAFKA_BOOTSTRAP=localhost:59092
+TEST_ENV = TEST_PG_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres \
+	TEST_VALKEY_URL=redis://127.0.0.1:56379 TEST_VALKEY_LRU_URL=redis://127.0.0.1:56380/0 \
+	TEST_KAFKA_BOOTSTRAP=127.0.0.1:59092
 PYTEST = uv run pytest -p no:cacheprovider
 # Docker Desktop on Windows drops connections above ~3 workers; TEST_WORKERS overrides.
 WORKERS = $(or $(TEST_WORKERS),$(if $(findstring Windows,$(OS)),3,4))
