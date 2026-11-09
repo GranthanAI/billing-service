@@ -22,11 +22,13 @@ from aiokafka.structs import OffsetAndMetadata
 
 from billing.adapters.kafka.producer import KafkaProducer
 from billing.app.context import correlation_id_var
-from billing.observability import DLQ_MESSAGES
+from billing.observability import CONSUMER_ERRORS, DLQ_MESSAGES
 
 log = structlog.get_logger()
 
 MAX_ATTEMPTS = 5
+LOOP_BACKOFF_START_S = 1.0  # after an error in the consumer loop itself: 1 s, doubling,
+LOOP_BACKOFF_MAX_S = 30.0  # up to 30 s, until a poll succeeds again
 BACKOFF_SECONDS = (0.5, 1.0, 2.0, 4.0, 8.0)  # delay after attempt 1, 2, ...; capped by MAX_ATTEMPTS
 
 
@@ -45,8 +47,12 @@ class KafkaEventConsumer[T]:
         backoff: tuple[float, ...] = BACKOFF_SECONDS,
         max_attempts: int = MAX_ATTEMPTS,
         on_dead_letter: Callable[[str], None] | None = None,
+        loop_backoff: tuple[float, float] = (LOOP_BACKOFF_START_S, LOOP_BACKOFF_MAX_S),
     ) -> None:
         self._topics = topics
+        self._loop_backoff = loop_backoff
+        # set while the loop is failing (the exception class name); /readyz of the worker reports it
+        self.failing: str | None = None
         self._group_id = group_id
         self._decoder = decoder
         self._handler = handler
@@ -120,16 +126,69 @@ class KafkaEventConsumer[T]:
 
     # --- lifecycle ---------------------------------------------------------------------------
 
+    @property
+    def topic_label(self) -> str:
+        return ",".join(sorted(self._topics))[:120]
+
+    def _record_loop_error(self, exc: BaseException) -> None:
+        name = type(exc).__name__
+        self.failing = name
+        CONSUMER_ERRORS.labels(topic=self.topic_label, error=name).inc()
+        partitions = sorted(f"{tp.topic}:{tp.partition}" for tp in self._consumer.assignment())
+        log.error(
+            "consumer_loop_error",
+            topics=self._topics,
+            group=self._group_id,
+            partitions=partitions,
+            error=name,
+            detail=str(exc)[:300],
+        )
+
+    async def _sleep_or_stop(self, stop: asyncio.Event, seconds: float) -> None:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), seconds)
+
+    async def _rewind_to_committed(self) -> None:
+        """After a processing failure, resume from the last commit (retry it)."""
+        with contextlib.suppress(Exception):
+            assigned = self._consumer.assignment()
+            if assigned:
+                await self._consumer.seek_to_committed(*assigned)
+
     async def run(self, stop: asyncio.Event) -> None:
-        await self._consumer.start()
+        """Poll until `stop`. Nothing that goes wrong in here ends the task.
+
+        An error (fetch, decode, codec, disconnect, a failing DLQ publish or commit) is logged
+        with its topic and partitions, counted in billing_consumer_errors_total{topic,error}, and
+        retried from the same position after 1 s doubling to 30 s. Per-message problems (bad JSON,
+        unknown schema or model) still go to the DLQ exactly as before."""
+        delay = self._loop_backoff[0]
+        started = False
         try:
             while not stop.is_set():
-                batch = await self._consumer.getmany(timeout_ms=500, max_records=100)
-                if not batch:
-                    continue
-                # in-flight messages are always finished and committed before the next poll,
-                # so a rebalance or stop never leaves a half-done message behind
-                await asyncio.gather(*(self._drain_partition(r) for r in batch.values()))
+                try:
+                    if not started:
+                        await self._consumer.start()
+                        started = True
+                    batch = await self._consumer.getmany(timeout_ms=500, max_records=100)
+                    if batch:
+                        # in-flight messages are always finished and committed before the next poll,
+                        # so a rebalance or stop never leaves a half-done message behind
+                        await asyncio.gather(*(self._drain_partition(r) for r in batch.values()))
+                    if self.failing is not None:
+                        log.info(
+                            "consumer_loop_recovered", topics=self._topics, group=self._group_id
+                        )
+                        self.failing = None
+                    delay = self._loop_backoff[0]
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self._record_loop_error(exc)
+                    if started:
+                        await self._rewind_to_committed()
+                    await self._sleep_or_stop(stop, delay)
+                    delay = min(delay * 2, self._loop_backoff[1])
         finally:
             with contextlib.suppress(Exception):
                 await self._consumer.stop()

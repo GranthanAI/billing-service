@@ -8,6 +8,7 @@ from collections.abc import Iterator, Sequence
 import structlog
 import uvicorn
 from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse
 
 from billing.adapters.clock import SystemClock
 from billing.adapters.db import partitions
@@ -17,6 +18,7 @@ from billing.adapters.db.uow import SqlUnitOfWork
 from billing.adapters.email_factory import make_email_sender
 from billing.adapters.gateways import gateway_mode, make_gateway, sim_config
 from billing.adapters.ids import Uuid7Generator
+from billing.adapters.kafka.compression import require_codecs
 from billing.adapters.kafka.consumer import KafkaEventConsumer
 from billing.adapters.kafka.org_consumer import make_org_consumer
 from billing.adapters.kafka.outbox_relay import OutboxRelay
@@ -82,8 +84,21 @@ DRAIN_SECONDS = 30.0
 HEALTH_PORT = 9100
 
 
-def health_app() -> FastAPI:
+def health_app(consumers: Sequence[KafkaEventConsumer[object]] = ()) -> FastAPI:
     app = FastAPI(title="billing-worker")
+
+    @app.get("/readyz")
+    async def readyz() -> Response:
+        """Not ready while a Kafka consumer is failing (it keeps retrying; the rest runs)."""
+        failing = {
+            getattr(c, "topic_label", "?"): c.failing
+            for c in consumers
+            if getattr(c, "failing", None)
+        }
+        if failing:
+            body = {"status": "not_ready", "failing_consumers": failing}
+            return JSONResponse(body, status_code=503)
+        return JSONResponse({"status": "ready"})
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -126,6 +141,7 @@ async def run_worker(
     org_consumer: bool = True,
 ) -> None:
     check_simulation_allowed(settings.payment_simulation, settings.environment)
+    require_codecs()  # fail fast: gzip, snappy, lz4 and zstd must all be readable
     email = make_email_sender(settings, SystemClock())  # refuses an unsafe EMAIL_MODE
     engine = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
     await ensure_gateway_mode(
@@ -258,7 +274,9 @@ async def run_worker(
         health = None
         if health_port is not None:
             health = _HealthServer(
-                uvicorn.Config(health_app(), host="0.0.0.0", port=health_port, log_level="warning")
+                uvicorn.Config(
+                    health_app(all_consumers), host="0.0.0.0", port=health_port, log_level="warning"
+                )
             )
 
         async def watch_stop() -> None:

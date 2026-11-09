@@ -125,6 +125,12 @@ DLQ_MESSAGES = Counter(
     "billing_dlq_messages_total", "Messages sent to a dead-letter topic", ["topic"]
 )
 
+CONSUMER_ERRORS = Counter(
+    "billing_consumer_errors_total",
+    "Kafka consumer loop failures (fetch, decode, codec, disconnect); it backs off and retries",
+    ["topic", "error"],
+)
+
 AI_BUDGET = Gauge(
     "billing_daily_ai_budget_micro_inr", "DAILY_AI_BUDGET_INR in micro-rupees (alert threshold)"
 )
