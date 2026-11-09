@@ -1,5 +1,8 @@
 # What org-service and billing-service owe each other
 
+> **Local dev address:** the shared dev instance (`scripts/dev_up.sh`) serves REST on `http://127.0.0.1:8090` and gRPC on `127.0.0.1:50061` (not 50051: memory-service owns that port). Always `127.0.0.1`, never `localhost` (Windows resolves it to IPv6 first). The service tokens and the gateway secret are printed by `dev_up.sh` and kept in `.env.dev`.
+
+
 ## billing calls org-service (bearer `ORG_SERVICE_TOKEN`, 2 s timeout, one retry)
 
 - `GET /internal/users/{user_id}/membership` -> `{org_id, org_type: college|company, role, status}`,

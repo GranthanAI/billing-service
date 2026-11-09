@@ -1,4 +1,4 @@
-catalog_version: 2026-11-01
+catalog_version: 2026-11-09
 currency: INR
 gst_inclusive: true
 # Each group lists its models in picker order: id, display label, provider.
@@ -15,7 +15,9 @@ model_groups:
   best:
     - {id: claude-sonnet-5-5,     label: Claude Sonnet 5.5,     provider: anthropic}
     - {id: gpt-6.1-sol,           label: GPT-6.1 Sol,           provider: openai}
-    - {id: gemini-3.1-pro,        label: Gemini 3.1 Pro,        provider: google}
+    # gemini-3.1-pro is deliberately NOT listed: Google exposes it only as the preview model "gemini-3.1-pro-preview", so
+    # llm-service ships it disabled. Re-add it here (label "Gemini 3.1 Pro", provider google) when Google lists a GA id; its
+    # price row stays in config/seed/model_prices.yaml, so re-adding needs no new price.
   ultra:
     - {id: claude-opus-5-5,       label: Claude Opus 5.5,       provider: anthropic}
     - {id: gpt-6-astra,           label: GPT-6 Astra,           provider: openai}

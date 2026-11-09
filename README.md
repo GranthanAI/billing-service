@@ -24,3 +24,17 @@ Details:
 - `TEST_PG_URL`, `TEST_VALKEY_URL`, `TEST_VALKEY_LRU_URL`, `TEST_KAFKA_BOOTSTRAP` are set by the make targets. Without them the tests fall back to Testcontainers.
 - The `serial` xdist group (`--dist loadgroup`): Kafka tests run together in one worker.
 - Markers: `slow`, `kafka`, `sim`. pytest-timeout is 60 s per test.
+
+## Shared dev stack (`scripts/dev_up.sh`, `scripts/dev_down.sh`)
+
+One billing instance in simulation serves every repo's integration tests; other repos must not start their own.
+
+| What | Address |
+| --- | --- |
+| REST (`/billing/v1/*`, `/healthz`, `/readyz`) | `http://127.0.0.1:8090` |
+| gRPC `BillingInternal` (+ `grpc.health.v1`) | `127.0.0.1:50061` (50051 belongs to memory-service) |
+| worker health / metrics | `http://127.0.0.1:9100` |
+| Kafka (shared `graphgpt-kafka`) | `127.0.0.1:9092`, never `localhost` on Windows (IPv6 first) |
+
+`dev_up.sh` creates `.env.dev` from `.env.example` on first run (gitignored with `.dev/`), runs migrations and catalog sync, starts the API and the worker with
+logs in `.dev/logs/` and PIDs in `.dev/*.pid`, and prints the gateway secret and the four service tokens. `dev_down.sh` stops exactly the processes it started.

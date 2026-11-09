@@ -47,7 +47,7 @@ async def test_models_list_etag_and_304(stack: Stack, hot: FreshDb) -> None:
         assert r.status_code == 200
         assert r.headers["cache-control"] == "public, max-age=300"
         models = r.json()["models"]
-        assert len(models) == 12
+        assert len(models) == 11
         assert models[0] == {
             "id": "openai/gpt-oss-20b",
             "label": "GPT-OSS 20B",

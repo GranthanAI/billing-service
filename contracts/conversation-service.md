@@ -1,6 +1,9 @@
 # What conversation-service must do with billing-service
 
-billing-service exposes `granthan.billing.v1.BillingInternal` on gRPC port 50051 (inside the
+> **Local dev address:** the shared dev instance (`scripts/dev_up.sh`) serves REST on `http://127.0.0.1:8090` and gRPC on `127.0.0.1:50061` (not 50051: memory-service owns that port). Always `127.0.0.1`, never `localhost` (Windows resolves it to IPv6 first). The service tokens and the gateway secret are printed by `dev_up.sh` and kept in `.env.dev`.
+
+
+billing-service exposes `granthan.billing.v1.BillingInternal` on gRPC port 50061 (inside the
 cluster network only). The proto is `proto/granthan/billing/v1/billing.proto`.
 
 ## Authentication

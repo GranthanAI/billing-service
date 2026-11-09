@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     hold_ttl_seconds: int = 600
     day_counter_ttl_seconds: int = 172_800
     month_counter_ttl_seconds: int = 40 * 86_400
-    grpc_port: int = 50051
+    grpc_port: int = 50061  # not 50051: memory-service owns that port on the shared dev machine
     entitlement_l1_ttl_seconds: float = 5.0
     daily_ai_budget_inr: int = 3000
     manim_render_cost_usd: Decimal = Decimal("0.01")

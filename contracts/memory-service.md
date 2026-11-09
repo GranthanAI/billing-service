@@ -1,5 +1,8 @@
 # What memory-service must do with billing-service
 
+> **Local dev address:** the shared dev instance (`scripts/dev_up.sh`) serves REST on `http://127.0.0.1:8090` and gRPC on `127.0.0.1:50061` (not 50051: memory-service owns that port). Always `127.0.0.1`, never `localhost` (Windows resolves it to IPv6 first). The service tokens and the gateway secret are printed by `dev_up.sh` and kept in `.env.dev`.
+
+
 Source: `docs/Integrations/GranthanAI_Billing_Integration_Plan.md` sections 4.4.5, 4.4.7 and 4.9
 (phase P8). The plan wins where it disagrees with this file. memory-service makes paid LLM calls
 (Groq `openai/gpt-oss-20b`) for summaries and fact extraction, so billing must hear about the cost.

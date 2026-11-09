@@ -136,6 +136,21 @@ async def drop_stale_databases(url: str, max_age_seconds: int = 3600) -> int:
     return dropped
 
 
+async def drop_database(urls: "Urls", name: str) -> None:
+    """DROP the per-test / per-session database (WITH (FORCE): open connections are terminated). Never raises: a failed
+    cleanup must not fail a test (drop_stale_databases sweeps leftovers at the next session start)."""
+    try:
+        conn = await asyncpg.connect(
+            host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"
+        )
+        try:
+            await conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        finally:
+            await conn.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @pytest.fixture(scope="session")
 def urls() -> Iterator[Urls]:
     shared = os.environ.get("TEST_PG_URL")
@@ -273,6 +288,7 @@ async def fresh_db(urls: Urls) -> AsyncIterator[FreshDb]:
     yield FreshDb(urls, name, migrator, app)
     await migrator.dispose()
     await app.dispose()
+    await drop_database(urls, name)
 
 
 # --- Kafka ------------------------------------------------------------------------------------
@@ -405,7 +421,7 @@ async def vk(valkey_url: str) -> AsyncIterator[valkey_asyncio.Valkey]:
 
 
 @pytest.fixture(scope="session")
-def hot_db_name(urls: Urls) -> str:
+def hot_db_name(urls: Urls) -> Iterator[str]:
     from billing.adapters.catalog.seed_loader import load_fx_rates, load_model_prices
     from billing.adapters.catalog.yaml_loader import load_catalog
     from billing.adapters.clock import SystemClock
@@ -458,7 +474,8 @@ def hot_db_name(urls: Urls) -> str:
             await engine.dispose()
 
     asyncio.run(seed())
-    return name
+    yield name
+    asyncio.run(drop_database(urls, name))
 
 
 @pytest_asyncio.fixture
@@ -480,7 +497,7 @@ class Template:
 
 
 @pytest.fixture(scope="session")
-def phase6_template(urls: Urls) -> Template:
+def phase6_template(urls: Urls) -> Iterator[Template]:
     """A migrated database with prices and the real catalog synced, cloned for each test."""
     from billing.adapters.catalog.seed_loader import load_fx_rates, load_model_prices
     from billing.adapters.catalog.yaml_loader import load_catalog
@@ -535,7 +552,8 @@ def phase6_template(urls: Urls) -> Template:
             await engine.dispose()
 
     asyncio.run(seed())
-    return Template(name, dict(gateway.plans))
+    yield Template(name, dict(gateway.plans))
+    asyncio.run(drop_database(urls, name))     # the clones are dropped by their own fixtures; the template goes last
 
 
 @pytest_asyncio.fixture
@@ -561,6 +579,7 @@ async def env(
     yield built
     await app.dispose()
     await migrator.dispose()
+    await drop_database(urls, name)
 
 
 @pytest_asyncio.fixture
@@ -604,6 +623,7 @@ async def sim_env(
     yield built
     await app.dispose()
     await migrator.dispose()
+    await drop_database(urls, name)
 
 
 @pytest_asyncio.fixture
@@ -659,3 +679,4 @@ async def sim_lifecycle_env(
         driver.close()
     await app.dispose()
     await migrator.dispose()
+    await drop_database(urls, name)

@@ -7,6 +7,8 @@ secret on every call.
 
 ## The shared secret
 
+> **Local dev address:** the shared dev billing serves REST on `http://127.0.0.1:8090` (`BILLING_SERVICE_URL`); the secret is `GATEWAY_SHARED_SECRET` in `.env.dev`, printed by `scripts/dev_up.sh`.
+
 - api-gateway sends `X-Gateway-Secret: <secret>` on **every** request it forwards to billing.
 - billing accepts any value in `GATEWAY_SHARED_SECRET` (comma-separated, so it can rotate: add the new
   secret to billing, switch api-gateway, then remove the old one). The comparison is constant time.

@@ -112,7 +112,7 @@ Derived from `docs/hld.md` (HLD) and `docs/lld.md` (LLD). The repo is greenfield
 - `app/reserve.py` `CheckAndReserve` steps 1–5 (v1 uses plan mode only; the credits branch is stubbed behind a "no wallet" check until Phase 11), `Release`, `GetEntitlements`.
 - `holds.sweep` job handler (every 30 s) via `holds:due`; the expire path gives the message back.
 - Valkey rebuild routine: today's `use:*` from `usage_events`.
-- gRPC server (`api/grpc/internal.py`) with service-token auth and `grpc.health.v1`; wired into `main_api.py` on port 50051 in the same event loop as FastAPI.
+- gRPC server (`api/grpc/internal.py`) with service-token auth and `grpc.health.v1`; wired into `main_api.py` on port 50061 (was 50051, which memory-service uses) in the same event loop as FastAPI.
 - Degraded-mode contract documented for conversation-service (Fast only, 10/day, deny Best/Ultra); billing exposes the deadline expectations from the LLD table.
 
 **Tests:** 200 parallel reserves at limit 60 allow exactly 60; Hypothesis interleavings of reserve/commit/release/expire never exceed the limit and never go negative; two tabs racing at 59/60; idempotent retry returns the same hold; Max user's 13th Best request is downgraded to Smart, not denied; IST midnight reset (time-machine); rebuild after wiping Valkey reproduces counters.

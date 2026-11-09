@@ -1,5 +1,8 @@
 # What llm-service must do with billing-service
 
+> **Local dev address:** the shared dev instance (`scripts/dev_up.sh`) serves REST on `http://127.0.0.1:8090` and gRPC on `127.0.0.1:50061` (not 50051: memory-service owns that port). Always `127.0.0.1`, never `localhost` (Windows resolves it to IPv6 first). The service tokens and the gateway secret are printed by `dev_up.sh` and kept in `.env.dev`.
+
+
 Source: `docs/Integrations/GranthanAI_Billing_Integration_Plan.md` sections 4.2, 4.4 and 4.9 (phase
 P5). The plan wins where it disagrees with this file. llm-service never calls billing for chat; the
 grant arrives in the event and the usage goes back in an event.
@@ -13,7 +16,8 @@ block, or `granted_group` null, use the legacy routing unchanged.
 - `granted_model` set: try that model first, then the rest of **its group**.
 - `granted_model` null (Auto): the group's order (Fast: gpt-oss-20b, gemini-2.5-flash-lite; Smart:
   gpt-oss-120b, claude-haiku-5-5, gpt-6-luna, gemini-3.1-flash-lite, gemini-2.5-flash; Best:
-  claude-sonnet-5-5, gpt-6.1-sol, gemini-3.1-pro; Ultra: claude-opus-5-5, gpt-6-astra).
+  claude-sonnet-5-5, gpt-6.1-sol; Ultra: claude-opus-5-5, gpt-6-astra).
+- `gemini-3.1-pro` is not in the catalog (preview only at Google); it comes back in Best when Google lists a GA id.
 - Same-group fallback only. If the whole group fails, publish an error event with the calls so far.
 - Models are named by the catalog IDs of `GET /billing/v1/models`, never by provider strings, in
   events and APIs. Models with no price in billing stay legacy-only.

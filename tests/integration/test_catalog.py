@@ -286,7 +286,7 @@ async def test_sync_fails_when_a_model_has_no_price(fresh_db: FreshDb) -> None:
             effective_from=datetime(2026, 10, 25, tzinfo=UTC),
         )
     gw = FakeGateway()
-    with pytest.raises(CatalogSyncError, match="gemini-3.1-pro") as exc:
+    with pytest.raises(CatalogSyncError, match="gemini-2.5-flash") as exc:
         await run(fresh_db, gw)
     assert "claude-haiku-5-5" not in str(exc.value)
     assert await versions(fresh_db, "pro") == []
@@ -345,7 +345,7 @@ async def models_table(db: FreshDb) -> list[tuple[object, ...]]:
 async def test_sync_stores_default_groups_and_the_models(fresh_db: FreshDb) -> None:
     await seed(fresh_db)
     report = await run(fresh_db, FakeGateway())
-    assert report.models_changed == 12
+    assert report.models_changed == 11
     async with fresh_db.migrator_uow() as uow:
         rows = await uow.connection.execute(
             sa.text("SELECT plan_code, default_group::text FROM billing.plan_versions")
@@ -361,10 +361,10 @@ async def test_sync_stores_default_groups_and_the_models(fresh_db: FreshDb) -> N
     }
 
     table = await models_table(fresh_db)
-    assert len(table) == 12
+    assert len(table) == 11
     assert table[0] == ("openai/gpt-oss-20b", "GPT-OSS 20B", "groq", "fast", 0)
     assert table[7] == ("claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic", "best", 7)
-    assert [r[4] for r in table] == list(range(12))
+    assert [r[4] for r in table] == list(range(11))
     async with fresh_db.app_uow() as uow:  # the app role reads the plan's default group
         pro = await uow.plans.current("pro", None)
         assert pro is not None and pro.plan.default_group is ModelGroup.SMART

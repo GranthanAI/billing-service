@@ -32,7 +32,7 @@ def checksums(text: str) -> dict[tuple[str, OrgVariant | None], str]:
 
 def test_real_catalog_matches_the_workbook() -> None:
     spec = load_catalog(ROOT / "config" / "plans.yaml")
-    assert spec.catalog_version == "2026-11-01"
+    assert spec.catalog_version == "2026-11-09"
     by = {b.key: b for b in blocks(spec)}
     free, pro, mx = by[("free", None)], by[("pro", None)], by[("max", None)]
     assert (free.price_month, pro.price_month, pro.price_year) == (None, 49900, 499000)
@@ -57,9 +57,13 @@ def test_real_catalog_matches_the_workbook() -> None:
 def test_seed_prices_cover_exactly_the_catalog_models() -> None:
     spec = load_catalog(ROOT / "config" / "plans.yaml")
     seed = load_model_prices(ROOT / "config" / "seed" / "model_prices.yaml")
-    assert {p.model for p in seed} == spec.all_models()
+    # Every catalog model has a price. Price rows may exist for models that are deliberately not listed yet:
+    # gemini-3.1-pro (preview only at Google; re-add it to plans.yaml when a GA id exists, no new price needed).
+    unlisted_but_priced = {"gemini-3.1-pro"}
+    assert {p.model for p in seed} - unlisted_but_priced == spec.all_models()
+    assert unlisted_but_priced <= {p.model for p in seed}
     group_of = spec.group_of()
-    assert all(group_of[p.model] == p.group for p in seed)
+    assert all(group_of[p.model] == p.group for p in seed if p.model not in unlisted_but_priced)
     haiku = next(p for p in seed if p.model == "claude-haiku-5-5")
     assert (haiku.input_usd_per_m, haiku.output_usd_per_m) == (Decimal("0.10"), Decimal("0.50"))
     assert all(p.effective_from.utcoffset() is not None for p in seed)
@@ -270,9 +274,9 @@ def test_checksum_changes_on_price_and_limit_edits() -> None:
 
 def test_models_keep_picker_order_with_labels_and_providers() -> None:
     entries = parse(TEXT).model_entries()
-    assert [e.sort_order for e in entries] == list(range(12))
+    assert [e.sort_order for e in entries] == list(range(11))
     groups = [e.group.value for e in entries]
-    assert groups == ["fast"] * 2 + ["smart"] * 5 + ["best"] * 3 + ["ultra"] * 2
+    assert groups == ["fast"] * 2 + ["smart"] * 5 + ["best"] * 2 + ["ultra"] * 2
     first = entries[0]
     assert (first.id, first.label, first.provider) == ("openai/gpt-oss-20b", "GPT-OSS 20B", "groq")
     assert entries[5].id == "gemini-3.1-flash-lite" and entries[5].provider == "google"

@@ -10,6 +10,9 @@ Source of truth: `docs/Integrations/GranthanAI_Billing_Integration_Plan.md` sect
 
 ## Run it
 
+> Shared dev instance: `scripts/dev_up.sh` starts API (REST 8090, gRPC **50061**) and worker (9100) with the settings below; see the README
+> "Shared dev stack". gRPC is on 50061 because memory-service uses 50051 on the same machine.
+
 1. Start the shared infrastructure and billing's Valkey: `make up` (Postgres, Kafka, Valkey), then
    `make topics`.
 2. Migrate (`make migrate`; creates `billing_sim`, `billing.gateway_mode` and `payments.gateway`),
