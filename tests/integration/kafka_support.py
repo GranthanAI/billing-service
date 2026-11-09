@@ -1,8 +1,6 @@
 """Helpers for the Kafka integration tests."""
 
-import asyncio
 import time
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from aiokafka import AIOKafkaConsumer, TopicPartition
@@ -18,6 +16,24 @@ class Rec:
     offset: int
 
 
+CREATED_TOPICS: set[str] = set()
+
+
+async def delete_created_topics(bootstrap: str) -> None:
+    """Remove the topics this process created (never anything that was already there)."""
+    if not CREATED_TOPICS:
+        return
+    admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap)
+    await admin.start()
+    try:
+        await admin.delete_topics(sorted(CREATED_TOPICS))
+    except Exception:  # best effort: a leftover topic is harmless
+        pass
+    finally:
+        await admin.close()
+        CREATED_TOPICS.clear()
+
+
 async def make_topic(bootstrap: str, name: str, partitions: int = 3) -> str:
     admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap)
     await admin.start()
@@ -25,6 +41,7 @@ async def make_topic(bootstrap: str, name: str, partitions: int = 3) -> str:
         existing = set(await admin.list_topics())
         if name not in existing:
             await admin.create_topics([NewTopic(name, partitions, 1)])
+            CREATED_TOPICS.add(name)  # this run made it, so this run removes it
     finally:
         await admin.close()
     return name
@@ -89,16 +106,4 @@ async def committed_offsets(bootstrap: str, group: str, topic: str) -> dict[int,
         await consumer.stop()
 
 
-async def wait_until(
-    condition: Callable[[], Awaitable[bool]] | Callable[[], bool], timeout: float = 30.0
-) -> None:
-    deadline = time.monotonic() + timeout
-    while True:
-        result = condition()
-        if asyncio.iscoroutine(result):
-            result = await result
-        if result:
-            return
-        if time.monotonic() > deadline:
-            raise TimeoutError("condition not met in time")
-        await asyncio.sleep(0.1)
+from tests.support.wait import wait_until as wait_until  # noqa: E402,F401  (re-exported)

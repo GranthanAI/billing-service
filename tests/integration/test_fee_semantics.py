@@ -12,7 +12,7 @@ from billing.app.charges import fee_without_gst
 from billing.app.settlements import SettlementService
 from billing.domain.money import Paise
 from tests.integration.billing_env import PRO_MONTH, Env
-from tests.integration.conftest import Urls, alembic_config
+from tests.integration.conftest import Urls, alembic_config, new_db_name
 
 DAY = date(2026, 11, 2)
 
@@ -91,7 +91,7 @@ async def test_a_payment_without_a_stored_fee_does_not_warn(env: Env) -> None:
 
 
 async def test_the_migration_subtracts_the_gst_from_old_fee_rows(urls: Urls) -> None:
-    name = f"fee_{uuid4().hex[:8]}"
+    name = new_db_name("fee")
     conn = await asyncpg.connect(
         host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"
     )

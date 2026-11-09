@@ -1,6 +1,6 @@
 export BILLING_MIGRATION_DATABASE_URL ?= postgresql+asyncpg://billing_migrator:billing_migrator@localhost:5433/billing_db
 
-.PHONY: test-integration test-all audit alerts-check proto-check loadtest topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
+.PHONY: test-fast test-int test-file test-full-bg test-up test-down test-integration test-all audit alerts-check proto-check loadtest topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
 
 sync:
 	uv sync
@@ -32,15 +32,50 @@ fmt:
 	uv run ruff format src tests
 	uv run ruff check --fix src tests
 
-# Fast: unit and property tests only, no Docker (about 2 minutes on a slow laptop).
+# --- tests: tiers (see README "Testing") ---------------------------------------------------------
+# The integration tiers reuse the services of docker-compose.test.yml (non-default ports), each
+# xdist worker with its own databases and Valkey db index. Without `make test-up` they would fall
+# back to Testcontainers; the targets below start the services themselves.
+TEST_ENV = TEST_PG_URL=postgresql://postgres:postgres@localhost:55432/postgres \
+	TEST_VALKEY_URL=redis://localhost:56379 TEST_VALKEY_LRU_URL=redis://localhost:56380/0 \
+	TEST_KAFKA_BOOTSTRAP=localhost:59092
+PYTEST = uv run pytest -p no:cacheprovider
+# Docker Desktop on Windows drops connections above ~3 workers; TEST_WORKERS overrides.
+WORKERS = $(or $(TEST_WORKERS),$(if $(findstring Windows,$(OS)),3,4))
+
+test-up:
+	docker compose -f docker-compose.test.yml up -d --wait
+
+test-down:
+	docker compose -f docker-compose.test.yml down -v
+
+# Run after every change: unit + property + health, no coverage, stops at the first failure.
+test-fast:
+	HYPOTHESIS_PROFILE=fast $(PYTEST) tests/unit tests/property tests/test_health.py -q -x -n 2 -m "not slow"
+
+# Before each commit: the integration tests that are not marked slow.
+test-int: test-up
+	$(TEST_ENV) $(PYTEST) tests/integration -n $(WORKERS) --dist loadgroup -m "not slow" -q
+
+# One file against the running services: make test-file FILE=tests/integration/test_x.py
+test-file: test-up
+	$(TEST_ENV) $(PYTEST) $(FILE) -x -q
+
+# Once per phase, at the end: everything, with the 95% coverage gate on billing.domain.
+test-all: test-up
+	$(TEST_ENV) $(PYTEST) tests -n $(WORKERS) --dist loadgroup --cov=billing.domain --cov-fail-under=95 \
+		--durations=20 -q -rfE
+
+# test-all in the background; returns at once. Read reports/test-run-latest.txt when it is done.
+test-full-bg:
+	bash scripts/test_full_bg.sh
+
+# Old names, kept: the slow serial runs on Testcontainers.
 test:
 	uv run pytest tests/unit tests/property tests/test_health.py --cov=billing.domain --cov-fail-under=95
 
-# Slow: real Postgres, Valkey and Kafka through Testcontainers (needs Docker, about 7 minutes).
 test-integration:
 	uv run pytest tests/integration
-
-test-all: test test-integration
 
 migrate:
 	uv run alembic upgrade head

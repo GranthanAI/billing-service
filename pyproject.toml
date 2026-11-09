@@ -51,6 +51,8 @@ dev = [
     "time-machine>=2.14",
     "respx>=0.23.1",
     "pip-audit>=2.10.1",
+    "pytest-xdist>=3.8.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 [build-system]
@@ -64,6 +66,14 @@ packages = ["src/billing"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+timeout = 60
+timeout_method = "thread"  # works on Windows
+timeout_func_only = true  # heavy session fixtures (migrations, seeding) do not count
+markers = [
+  "slow: takes more than 5 seconds (left out of `make test-int`)",
+  "kafka: needs Kafka; xdist runs these together in one worker (--dist loadgroup)",
+  "sim: runs against the payment simulator",
+]
 pythonpath = ["src", "."]
 
 [tool.coverage.run]

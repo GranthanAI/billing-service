@@ -9,3 +9,4 @@ __pycache__/
 htmlcov/
 .env
 .email-outbox/
+reports/test-run-latest.*

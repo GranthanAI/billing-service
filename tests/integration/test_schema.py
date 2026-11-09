@@ -19,7 +19,7 @@ from billing.app.records import BillingAccount, UsageEventRecord
 from billing.domain import ledger
 from billing.domain.catalog import ModelGroup, OwnerType
 from billing.domain.money import MicroInr, Paise
-from tests.integration.conftest import Urls, alembic_config
+from tests.integration.conftest import Urls, alembic_config, new_db_name
 from tests.support import plans
 
 
@@ -47,7 +47,7 @@ async def _version(url: str) -> str | None:
 
 
 def test_upgrade_downgrade_upgrade(urls: Urls) -> None:
-    name = f"mig_{uuid4().hex[:8]}"
+    name = new_db_name("mig")
     asyncio.run(_create_db(urls, name))
     url = urls.migrator_for(name)
     cfg = alembic_config(url)

@@ -278,7 +278,7 @@ async def test_rebuild_reproduces_the_counters(
     assert before_day == {"fast": 3, "smart": 2, "manim": 1, "total": 6}
     assert before_month == {"youtube": "2", "total": "2"}
 
-    await vk.flushall()
+    await vk.flushdb()
     assert await stack.counters.day_counts(uid, day) == {}
     monkeypatch.setenv("BILLING_DATABASE_URL", hot.app_url)
     monkeypatch.setenv("BILLING_VALKEY_URL", valkey_url)
@@ -316,7 +316,7 @@ async def test_invalidation_on_one_replica_reaches_the_other_within_100_ms(
         await a.invalidate(uid)
         started = time.monotonic()
         while uid in b._l1 and time.monotonic() - started < 1:
-            await asyncio.sleep(0.005)
+            await asyncio.sleep(0.005)  # kept at 5 ms: this loop measures the propagation delay
         assert uid not in b._l1
         assert time.monotonic() - started < 0.1
         assert (await b.resolve(uid)).version_hash == first.version_hash

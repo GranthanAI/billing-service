@@ -23,6 +23,7 @@ from tests.integration.conftest import FreshDb
 from tests.integration.hot_support import make_stack, make_user
 from tests.integration.kafka_support import make_topic, read_all
 from tests.support.clock import TestClock
+from tests.support.wait import wait_until
 
 NOW = datetime(2026, 11, 10, 6, 0, tzinfo=UTC)
 
@@ -83,14 +84,7 @@ async def dead_letters(kafka: str, key: bytes) -> list[tuple[dict[str, bytes], b
     ]
 
 
-async def wait_for(check, seconds: float = 30.0) -> None:  # type: ignore[no-untyped-def]
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + seconds
-    while loop.time() < deadline:
-        if await check():
-            return
-        await asyncio.sleep(0.3)
-    raise AssertionError("condition not reached in time")
+wait_for = wait_until  # the shared 50 ms poller
 
 
 async def test_json_events_are_applied_and_bad_input_is_dead_lettered_then_replayed(
