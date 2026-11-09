@@ -1,7 +1,7 @@
 # P2: billing-service, report
-- **Commits:** <<FILL: hashes from `git log 7f4d5b4..HEAD`>> (T1 7b1ed2b, P2a-P2e, T2); **pushed:** <<FILL>>
+- **Commits:** P2a c67d9de, P2b 7cf3d3e, P2c 340821f, P2d 7f4d5b4 (pushed earlier); T1 7b1ed2b, P2e ab6c366, T2 39d988e + merge 771aea5, test-host fix f4b8740; **pushed:** yes, all to main
 - **Contracts touched:** email port and adapters (console/file/smtp, selected by EMAIL_MODE, worker-only), `email.send` job type, metric `billing_email_failed_total`, `/me/models` (`-1` = unlimited), `ENVIRONMENT` setting normalisation; deviations: <<FILL: none known / list>>
-- **Tests:** unit <<FILL: X>>, integration <<FILL: Y>>, simulation scenarios run: <<FILL: list>>. Full run: <<FILL: test-all result, coverage, duration>>. Known failing: <<FILL: list or none>>.
+- **Tests:** unit+property 423 passed (`make test-fast`, ~38 s); `test_me_api.py` 4 passed (single file); simulation scenarios: email demo (receipt, payment_failed, subscription_suspended, no duplicates on webhook re-delivery), 40-day lifecycle timeline on the simulator (10-day months). **Full `make test-all` was NOT run to completion** (stopped on request); the last parallel run before the `127.0.0.1` fix is not valid. Run `make test-full-bg` and read `reports/test-run-latest.txt`.
   - P2a: email port and adapters (console, file, smtp); EMAIL_MODE guards; sending happens in the worker only.
   - P2b: `email.send` job; seven triggers enqueued in the same transaction as the business change: receipt, payment_failed, subscription_suspended, renewal_upcoming, subscription_cancelled, refund_issued, credits_expiring. Dedupe key `template:entity`; 5 attempts; failures counted in `billing_email_failed_total`.
   - P2c: templates with golden tests; subject prefix `[SIMULATED]` in simulation.
@@ -10,4 +10,4 @@
   - T2: `ENVIRONMENT` normalised (`prod`, `Production`, `" production "` -> `production`); other values rejected.
 - **Exit check:** demo run in simulation with `EMAIL_MODE=file` (`scripts/sim_email_demo.sh`) produced exactly one receipt (SI-2627-000001.pdf attached), one payment_failed and one subscription_suspended `.eml`: `SIMULATED-Receipt-SI-2627-000001-from-Gr-f44964f72a.eml` [receipt], `SIMULATED-Payment-failed-for-your-Pro-pl-f4e8805ba0.eml` [payment_failed], `SIMULATED-Your-Pro-plan-is-paused-you-re-45e51b3efa.eml` [subscription_suspended]. Re-delivering the 4 simulator webhooks produced no duplicates (inbox 4 rows, 3 email jobs). Runbook: `runbooks/email.md`.
 - **Decisions needed:** confirm SUPPORT_EMAIL default `support@granthan.ai`; confirm keeping `-1` unlimited semantics (already done); PDF attach for refund emails retries until the credit note PDF exists (accept?).
-- **Not done:** <<FILL: anything left>>
+- **Not done:** a valid final full-suite run (see Tests). Root cause of the earlier "flaky under load" failures: `localhost` resolved to IPv6 first on Docker Desktop (WinError 64); fixed by using 127.0.0.1 (f4b8740), so the serial xdist group may now be unnecessary and could be trimmed once a full run is green.
