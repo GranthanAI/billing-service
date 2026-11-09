@@ -1,0 +1,15 @@
+GranthanAI
+
+
+We couldn't collect payment for your Max plan in time, so your account is on the Free plan now.
+
+Your data is safe: your conversations, files and memories are kept. Some limits are lower on Free until the plan is paid again.
+
+Pay now to get your Max plan back: https://rzp.io/i/abc123
+Billing settings: https://app.granthan.ai/settings/billing
+
+--
+Billing account: ada@example.com
+Questions? Write to support@granthan.ai.
+You're receiving this because you have a GranthanAI billing account.
+

@@ -1,0 +1,12 @@
+GranthanAI
+
+
+A courtesy reminder: your Pro plan renews on 1 Dec 2026 for ₹499.00.
+
+Your bank sends its own pre-debit notice too. To change or cancel your plan before then: https://app.granthan.ai/settings/billing
+
+--
+Billing account: ada@example.com
+Questions? Write to support@granthan.ai.
+You're receiving this because you have a GranthanAI billing account.
+

@@ -1,0 +1,17 @@
+This is a simulated payment. No money moved.
+
+GranthanAI
+
+
+We've issued a refund of ₹249.50.
+Credit note: CN/2627/000001 (attached as a PDF).
+
+It can take 5-7 working days to reach your original payment method.
+
+Billing settings: https://app.granthan.ai/settings/billing
+
+--
+Billing account: ada@example.com
+Questions? Write to support@granthan.ai.
+You're receiving this because you have a GranthanAI billing account.
+

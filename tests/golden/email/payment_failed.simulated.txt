@@ -1,0 +1,19 @@
+This is a simulated payment. No money moved.
+
+GranthanAI
+
+
+We couldn't collect ₹499.00 for your Pro plan. Your bank or card issuer did not complete the payment.
+
+Your Pro plan stays active until 4 Dec 2026 (IST). After that you'll be moved to the Free plan; your data stays safe.
+
+The payment provider is expected to try the charge again on 2 Dec 2026.
+
+Pay now to keep your plan: https://rzp.io/i/abc123
+Billing settings: https://app.granthan.ai/settings/billing
+
+--
+Billing account: ada@example.com
+Questions? Write to support@granthan.ai.
+You're receiving this because you have a GranthanAI billing account.
+

@@ -1,0 +1,16 @@
+This is a simulated payment. No money moved.
+
+GranthanAI
+
+
+As you asked, your Pro subscription is cancelled.
+
+You keep your Pro plan until 1 Dec 2026 (IST). After that you'll be on the Free plan; your data stays safe.
+
+Changed your mind? You can resume from https://app.granthan.ai/settings/billing
+
+--
+Billing account: ada@example.com
+Questions? Write to support@granthan.ai.
+You're receiving this because you have a GranthanAI billing account.
+
