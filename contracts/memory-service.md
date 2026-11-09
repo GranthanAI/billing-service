@@ -51,3 +51,7 @@ user's cache entry. Billing unreachable: cached value up to 1 hour, then Free li
 
 Any new code path that calls a paid external API must emit a reserve-and-usage pair or a
 `usage.metered` event. A change that adds a paid call without one is rejected.
+
+Note (same rules as in `contracts/conversation-service.md`): `entitlements.changed` is not emitted for
+Free users on catalog limit changes, so rely on the 60 s cache TTL for those; `version_hash` is an
+opaque change marker, not a hash, and must not be compared with anything.

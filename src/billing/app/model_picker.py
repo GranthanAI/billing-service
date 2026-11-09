@@ -25,8 +25,9 @@ class _Snapshot:
     payg_groups: frozenset[ModelGroup]  # what Pay as you Go credits can buy
 
 
-def _or_null(limit: int) -> int | None:
-    return None if limit == UNLIMITED else limit
+def _left(limit: int, used: int) -> int:
+    """What is left of a limit today; UNLIMITED (-1) stays -1, as in every billing response."""
+    return UNLIMITED if limit == UNLIMITED else max(0, limit - used)
 
 
 class ModelPicker:
@@ -98,14 +99,11 @@ class ModelPicker:
         counts = await self._counters.day_counts(user_id, ist_day(now))
         limits = ent.limits
         used_total = counts.get("total", 0)
-        left_total = (
-            None if limits.messages_per_day == UNLIMITED
-            else max(0, limits.messages_per_day - used_total)
-        )  # fmt: skip
+        left_total = _left(limits.messages_per_day, used_total)
 
-        def cap(*values: int | None) -> int | None:
-            real = [v for v in values if v is not None]
-            return min(real) if real else None
+        def cap(*values: int) -> int:
+            real = [v for v in values if v != UNLIMITED]
+            return min(real) if real else UNLIMITED
 
         # PAYG_ENABLED and spendable credits: a group the plan lacks but Pay as you Go offers
         # (Ultra) is usable, paid from the wallet
@@ -121,23 +119,18 @@ class ModelPicker:
             allowed = plan_allows or by_credits
             entry: dict[str, Any] = {"group": group.value, "allowed": allowed}
             if by_credits:
-                entry.update(daily_limit=None, remaining_today=None, funded_by="credits")
+                entry.update(daily_limit=UNLIMITED, remaining_today=UNLIMITED, funded_by="credits")
             elif not allowed:
                 entry.update(daily_limit=0, remaining_today=0)
                 entry["upgrade_to"] = self._upgrade_to(group, snap)
             elif group is ModelGroup.BEST:
-                best_left = (
-                    None if limits.best_per_day == UNLIMITED
-                    else max(0, limits.best_per_day - counts.get("best", 0))
-                )  # fmt: skip
+                best_left = _left(limits.best_per_day, counts.get("best", 0))
                 entry.update(
-                    daily_limit=_or_null(limits.best_per_day),
+                    daily_limit=limits.best_per_day,
                     remaining_today=cap(best_left, left_total),
                 )
             else:  # the other groups share the daily total
-                entry.update(
-                    daily_limit=_or_null(limits.messages_per_day), remaining_today=left_total
-                )
+                entry.update(daily_limit=limits.messages_per_day, remaining_today=left_total)
             entry["models"] = [
                 {
                     "id": m.id,
@@ -157,7 +150,7 @@ class ModelPicker:
             },
             "default_group": ent.grant.plan_version.default_group.value,
             "messages": {
-                "daily_limit": _or_null(limits.messages_per_day),
+                "daily_limit": limits.messages_per_day,
                 "used_today": used_total,
                 "remaining_today": left_total,
                 "resets_at": next_ist_midnight(now).astimezone(IST).isoformat(),

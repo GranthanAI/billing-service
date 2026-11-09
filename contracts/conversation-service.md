@@ -164,6 +164,15 @@ have changed; an organisation change sends one event per member (a short moment 
 because org-service is asked for the member list). `version_hash` is an opaque marker that differs
 for every announcement; do not compare it with anything.
 
+**Free users and catalog changes.** `entitlements.changed` is **not** sent to Free users when a plan's
+limits change in the catalog (`apply-limits`): a Free user has no billing row to enumerate. It is sent
+for users on a subscription, an override, a wallet or an organisation. Consumers must therefore rely on
+the 60 s cache TTL to pick up new limits for Free users.
+
+**`version_hash`** is an opaque change marker, **not** a hash of the entitlement. It differs for every
+announcement. Consumers must not compare it with anything, not with an earlier value and not with a
+value they computed; the event itself is the signal to drop the cache entry.
+
 ### Usage topics billing reads
 
 `chat.response.generated` 2.2 and `chat.response.cancelled` are produced by llm-service (see

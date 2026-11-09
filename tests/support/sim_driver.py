@@ -49,6 +49,9 @@ class SimDriver(SimulatorGateway):
             config=config,
         )
         self.calls: list[tuple[str, object]] = []
+        self.plans: dict[
+            str, object
+        ] = {}  # the fake has plan specs here; Env.set_period edits them
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()

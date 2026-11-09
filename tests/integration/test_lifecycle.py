@@ -454,11 +454,12 @@ async def test_a_40_day_timeline_gives_the_expected_states_events_and_invoices(e
         "SELECT i.number, l.description, i.total_paise FROM billing.invoices i "
         "JOIN billing.invoice_lines l ON l.invoice_id = i.id ORDER BY i.number"
     )
+    series = env.bctx.config.invoice_series  # GA, or SI when the simulator is the gateway
     assert [(r[0], r[2]) for r in invoices] == [
-        ("GA/2627/000001", MAX_MONTH),  # D0
-        ("GA/2627/000002", MAX_MONTH),  # D10, from the poll
-        ("GA/2627/000003", MAX_MONTH),  # D24, the late retry
-        ("GA/2627/000004", PRO_MONTH),  # D30, the downgrade boundary
+        (f"{series}/2627/000001", MAX_MONTH),  # D0
+        (f"{series}/2627/000002", MAX_MONTH),  # D10, from the poll
+        (f"{series}/2627/000003", MAX_MONTH),  # D24, the late retry
+        (f"{series}/2627/000004", PRO_MONTH),  # D30, the downgrade boundary
     ]
     assert [r[1].split(" · ")[0] for r in invoices] == [
         "GranthanAI Max", "GranthanAI Max", "GranthanAI Max", "GranthanAI Pro",

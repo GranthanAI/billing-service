@@ -7,8 +7,8 @@ import pytest
 from tests.integration import test_lifecycle as lifecycle
 from tests.integration.billing_env import Env
 
-# Written around the fake's "10days" billing period, which the simulator does not have.
-NOT_APPLICABLE = {"test_a_40_day_timeline_gives_the_expected_states_events_and_invoices"}
+NOT_APPLICABLE: set[str] = set()
+TIMELINE = "test_a_40_day_timeline_gives_the_expected_states_events_and_invoices"
 
 
 # These depend on real durations: a downgrade needs 10 minutes of lead, a renewal reminder looks
@@ -23,6 +23,11 @@ CALENDAR_MONTHS = {
 
 
 def month_seconds_for(test_name: str) -> int:
+    if test_name == TIMELINE:
+        # The timeline is written around 10-day periods (the fake's "10days"). A 60 s month cannot
+        # carry it: the reminder window (24-48 h) and the downgrade lead (10 min) are real-time
+        # constants. A 10-day month (864000 s) is the same timeline, driven by the test clock.
+        return 864_000
     return 0 if test_name in CALENDAR_MONTHS else 60
 
 

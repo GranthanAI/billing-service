@@ -54,7 +54,7 @@ async def test_pro_user_with_credits_sees_ultra_funded_by_credits(env: Env) -> N
     assert body["plan"] == {"code": "pro", "source": "subscription"}  # the plan still wins
     ultra = group(body, "ultra")
     assert ultra["allowed"] is True and ultra["funded_by"] == "credits"
-    assert ultra["daily_limit"] is None and ultra["remaining_today"] is None
+    assert ultra["daily_limit"] == -1 and ultra["remaining_today"] == -1
     assert "upgrade_to" not in ultra
     assert [m["allowed"] for m in ultra["models"]] == [True, True]
     smart = group(body, "smart")

@@ -73,3 +73,7 @@ Web search uses free providers only today; any paid search provider added later 
 
 At startup and every 10 minutes, fetch `GET /billing/v1/models`; log and count models that have no
 adapter or credentials, and registry models that are not in the catalog. Never block startup.
+
+Note (same rules as in `contracts/conversation-service.md`): `entitlements.changed` is not emitted for
+Free users on catalog limit changes, so rely on the 60 s cache TTL for those; `version_hash` is an
+opaque change marker, not a hash, and must not be compared with anything.

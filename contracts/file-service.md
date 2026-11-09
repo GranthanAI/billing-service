@@ -110,3 +110,7 @@ unreachable: cached value up to 1 hour, then Free limits.
 - Consume `storage.payment_required`: block new uploads for that user until `entitlements.changed`
   or a top-up arrives; the message is `credits.empty`.
 - `user.deleted`: schedule deletion of the user's files per the retention policy.
+
+Note (same rules as in `contracts/conversation-service.md`): `entitlements.changed` is not emitted for
+Free users on catalog limit changes, so rely on the 60 s cache TTL for those; `version_hash` is an
+opaque change marker, not a hash, and must not be compared with anything.
