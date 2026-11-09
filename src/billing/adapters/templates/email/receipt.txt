@@ -1,0 +1,12 @@
+{% include "email/_top.txt" %}
+
+{{ title }} {{ invoice_number }}
+
+Thank you. We received {{ total_paise|inr }} on {{ issued_at|ist_date }}.
+
+{{ description }}
+{% if period_start %}Service period: {{ period_start|ist_date }} to {{ period_end|ist_date }}
+{% endif %}
+The {{ title|lower }} is attached as a PDF ({{ filename }}).
+Manage your plan and invoices: {{ billing_url }}
+{% include "email/_footer.txt" %}

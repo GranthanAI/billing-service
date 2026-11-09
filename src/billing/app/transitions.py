@@ -1,21 +1,89 @@
 """The one place a subscription's status changes: domain transition + history + effects."""
 
+from collections.abc import Sequence
 from dataclasses import replace
+from datetime import datetime
 
 import structlog
 
+from billing.app.billing_emails import enqueue_email, iso
 from billing.app.config import BillingContext
 from billing.app.effects import EffectContext, run_effects
 from billing.app.entitlement_events import announce_owner
 from billing.app.ports import UnitOfWork
-from billing.app.records import SubscriptionHistoryEntry, SubscriptionRecord
+from billing.app.records import BillingAccount, SubscriptionHistoryEntry, SubscriptionRecord
 from billing.app.revenue import release_deferred
 from billing.domain.catalog import Interval, OwnerType
-from billing.domain.subscription import IllegalTransition, SubStatus, Trigger, transition
+from billing.domain.subscription import (
+    CancelledExternally,
+    Effect,
+    EmitPaymentFailed,
+    GraceExpired,
+    IllegalTransition,
+    SubStatus,
+    Trigger,
+    UserCancelled,
+    transition,
+)
 
 log = structlog.get_logger()
 
 __all__ = ["IllegalTransition", "apply_transition"]
+
+
+async def _transition_emails(
+    uow: UnitOfWork,
+    bctx: BillingContext,
+    trigger: Trigger,
+    effects: Sequence[Effect],
+    before: SubscriptionRecord,
+    after: SubscriptionRecord,
+    account: BillingAccount,
+    ctx: EffectContext | None,
+    now: datetime,
+) -> None:
+    """Emails the transition calls for, queued in the transition's own transaction."""
+    period = iso(after.state.current_period_end)
+    entity = f"{after.id}:{period}"
+    plan = await uow.plans.by_id(before.state.plan_version_id)
+    plan_code = plan.plan.plan_code if plan else ""
+    if any(isinstance(e, EmitPaymentFailed) for e in effects):
+        price = (
+            (
+                plan.plan.price_month
+                if after.state.interval is Interval.MONTH
+                else plan.plan.price_year
+            )
+            if plan
+            else 0
+        )
+        failed = ctx.failed_payment if ctx else None
+        await enqueue_email(
+            uow, bctx.config, "payment_failed", entity, account,
+            {
+                "subscription_id": str(after.id),
+                "plan_code": plan_code,
+                "amount_paise": int(failed.amount) if failed else int(price or 0),
+                "grace_until": iso(after.state.grace_until),
+                "next_retry_at": iso(ctx.next_retry_at) if ctx else None,
+            },
+            now,
+        )  # fmt: skip
+    if isinstance(trigger, GraceExpired):
+        await enqueue_email(
+            uow, bctx.config, "subscription_suspended", entity, account,
+            {"subscription_id": str(after.id), "plan_code": plan_code}, now,
+        )  # fmt: skip
+    if isinstance(trigger, UserCancelled | CancelledExternally):
+        await enqueue_email(
+            uow, bctx.config, "subscription_cancelled", entity, account,
+            {
+                "plan_code": plan_code,
+                "access_until": period,
+                "by": "user" if isinstance(trigger, UserCancelled) else "payment_app",
+            },
+            now,
+        )  # fmt: skip
 
 
 async def apply_transition(
@@ -56,6 +124,7 @@ async def apply_transition(
         for seat_payment in await uow.payments.seat_payments(sub.id):
             await release_deferred(uow, seat_payment, now)
     await announce_owner(uow, account.owner_type, account.owner_id, "subscription", now)
+    await _transition_emails(uow, bctx, trigger, result.effects, sub, saved, account, ctx, now)
     if account.owner_type is OwnerType.USER:
         owner_id = account.owner_id
         uow.after_commit(lambda: bctx.invalidate_entitlement(owner_id))

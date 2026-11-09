@@ -1,0 +1,9 @@
+{% include "email/_top.txt" %}
+
+We've issued a refund of {{ amount_paise|inr }}.
+{% if credit_note_number %}Credit note: {{ credit_note_number }} (attached as a PDF).
+{% endif %}
+It can take 5-7 working days to reach your original payment method.
+
+Billing settings: {{ billing_url }}
+{% include "email/_footer.txt" %}

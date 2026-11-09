@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>{{ subject }}</title></head>
+<body style="margin:0;padding:0;background:#f4f4f6;font-family:Arial,Helvetica,sans-serif;color:#111;">
+<div style="max-width:600px;margin:0 auto;padding:24px;background:#ffffff;">
+{% if simulated %}<p style="margin:0 0 16px 0;padding:8px 12px;background:#b00020;color:#ffffff;font-weight:bold;">This is a simulated payment. No money moved.</p>{% endif %}
+<h1 style="font-size:20px;margin:0 0 16px 0;">{{ product }}</h1>
+{% block content %}{% endblock %}
+<p style="margin:24px 0 0 0;font-size:13px;color:#555;">Billing account: {{ account_email }}<br>
+Questions? Write to <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
+<p style="margin:16px 0 0 0;font-size:12px;color:#777;">You're receiving this because you have a GranthanAI billing account.</p>
+</div>
+</body>
+</html>

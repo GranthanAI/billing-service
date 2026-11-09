@@ -1,0 +1,1 @@
+{{ remaining_paise|inr }} of your credits expire on {{ expires_at|ist_date }}

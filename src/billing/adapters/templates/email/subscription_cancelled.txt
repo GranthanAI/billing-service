@@ -1,0 +1,8 @@
+{% include "email/_top.txt" %}
+
+{% if by == "user" %}As you asked, your {{ plan_name }} subscription is cancelled.{% else %}Your {{ plan_name }} payment mandate was cancelled from your bank or UPI app, so your subscription will not renew.{% endif %}
+
+You keep your {{ plan_name }} plan until {{ access_until|ist_date }} (IST). After that you'll be on the Free plan; your data stays safe.
+
+Changed your mind? You can resume from {{ billing_url }}
+{% include "email/_footer.txt" %}

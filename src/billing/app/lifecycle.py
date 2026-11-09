@@ -8,6 +8,7 @@ from datetime import timedelta
 
 import structlog
 
+from billing.app.billing_emails import enqueue_email, iso
 from billing.app.config import BillingContext
 from billing.app.errors import GatewayRejected, GatewayUnavailable
 from billing.app.events import RenewalUpcomingEvent
@@ -149,6 +150,16 @@ class Lifecycle:
                     )
                 )
                 sent += 1
+                await enqueue_email(
+                    uow, self._b.config, "renewal_upcoming",
+                    f"{rec.id}:{period_end:%Y%m%dT%H%M}", account,
+                    {
+                        "plan_code": plan.plan.plan_code,
+                        "amount_paise": int(price or 0),
+                        "charge_at": iso(period_end),
+                    },
+                    now,
+                )  # fmt: skip
         return sent
 
     # --- subscription.poll ------------------------------------------------------------------

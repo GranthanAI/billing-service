@@ -36,6 +36,7 @@ from billing.app.usage import NO_PAYG, UsageService
 from billing.app.user_deletion import UserDeletionService
 from billing.app.webhooks import EventApplier
 from billing.jobs.handlers import billing as billing_jobs
+from billing.jobs.handlers import email as email_jobs  # noqa: F401  (registers email.send)
 from billing.jobs.handlers import entitlements as entitlement_jobs  # noqa: F401
 from billing.jobs.handlers import finance as finance_jobs
 from billing.jobs.handlers import holds as holds_job

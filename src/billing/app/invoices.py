@@ -5,10 +5,12 @@
 """
 
 from collections.abc import Callable
+from datetime import timedelta
 from uuid import UUID
 
 import structlog
 
+from billing.app.billing_emails import enqueue_email, iso
 from billing.app.config import BillingConfig
 from billing.app.events import InvoiceIssuedEvent
 from billing.app.invoice_doc import DocLine, DocTax, InvoiceDocument
@@ -24,6 +26,7 @@ log = structlog.get_logger()
 RENDER_JOB = "invoice.render"
 BACKFILL_JOB = "invoice.backfill"
 BACKFILL_BATCH = 500
+RECEIPT_MAX_AGE = timedelta(days=7)  # a backfilled old invoice is not re-announced
 SIM_WATERMARK = "SIMULATED - NOT A TAX INVOICE"
 TITLES = {
     "tax_invoice": "Tax invoice",
@@ -141,6 +144,24 @@ class InvoiceService:
                     pdf_object_key=key,
                 )
             )
+            if (
+                inv.kind in ("tax_invoice", "bill_of_supply")
+                and self._clock.now() - inv.issued_at <= RECEIPT_MAX_AGE
+            ):
+                await enqueue_email(
+                    uow, self._config, "receipt", str(inv.id), account,
+                    {
+                        "invoice_id": str(inv.id),
+                        "invoice_number": inv.number,
+                        "kind": inv.kind,
+                        "issued_at": iso(inv.issued_at),
+                        "total_paise": int(inv.total_paise),
+                        "description": lines[0].description if lines else "",
+                        "period_start": iso(inv.period_start),
+                        "period_end": iso(inv.period_end),
+                    },
+                    self._clock.now(),
+                )  # fmt: skip
         log.info("invoice_rendered", number=inv.number, kind=inv.kind)
         return True
 

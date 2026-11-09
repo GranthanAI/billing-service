@@ -1,0 +1,3 @@
+{% if simulated %}This is a simulated payment. No money moved.
+
+{% endif %}{{ product }}

@@ -22,6 +22,9 @@ class BillingConfig:
     grace_period_seconds: int | None = None  # GRACE_PERIOD_SECONDS: overrides grace_days
     poll_after_seconds: int = 7200  # subscription.poll looks at periods ended this long ago
     simulation: bool = False  # PAYMENT_SIMULATION
+    email_enabled: bool = True  # EMAIL_ENABLED: false enqueues no emails at all
+    frontend_origin: str = "http://localhost:5173"  # emails link here, never to a token URL
+    support_email: str = "support@granthan.ai"
     org_grace_days: int = 15
     abandon_hours: int = 24
     total_count_month: int = 120

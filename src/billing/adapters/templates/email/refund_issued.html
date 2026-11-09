@@ -1,0 +1,8 @@
+{% extends "email/_layout.html" %}
+{% block content %}
+<h2 style="font-size:18px;margin:0 0 12px 0;">Refund issued</h2>
+<p>We've issued a refund of <strong>{{ amount_paise|inr }}</strong>.</p>
+{% if credit_note_number %}<p>Credit note: {{ credit_note_number }} (attached as a PDF).</p>{% endif %}
+<p>It can take 5-7 working days to reach your original payment method.</p>
+<p><a href="{{ billing_url }}">Billing settings</a></p>
+{% endblock %}

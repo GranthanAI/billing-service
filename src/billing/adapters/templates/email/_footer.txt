@@ -1,0 +1,5 @@
+
+--
+Billing account: {{ account_email }}
+Questions? Write to {{ support_email }}.
+You're receiving this because you have a GranthanAI billing account.

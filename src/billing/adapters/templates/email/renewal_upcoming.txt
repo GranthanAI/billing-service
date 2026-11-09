@@ -1,0 +1,6 @@
+{% include "email/_top.txt" %}
+
+A courtesy reminder: your {{ plan_name }} plan renews on {{ charge_at|ist_date }} for {{ amount_paise|inr }}.
+
+Your bank sends its own pre-debit notice too. To change or cancel your plan before then: {{ billing_url }}
+{% include "email/_footer.txt" %}

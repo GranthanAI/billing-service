@@ -7,7 +7,8 @@ from typing import Any
 from uuid import UUID
 
 from billing.app.entitlements import EntitlementService
-from billing.app.errors import GatewayRejected, GatewayUnavailable, NotFound, ValidationFailed
+from billing.app.errors import NotFound, ValidationFailed
+from billing.app.payment_links import payment_action_url
 from billing.app.ports import Clock, Counters, ObjectStorage, PaymentGateway, UnitOfWork
 from billing.app.wallet import wallet_block
 from billing.domain.calendar import IST, ist_day, next_ist_midnight
@@ -119,13 +120,7 @@ class AccountViews:
             or state.status not in (SubStatus.PAST_DUE, SubStatus.SUSPENDED)
         ):
             return None
-        signed = getattr(self._gateway, "signed_url", None)
-        if signed is not None:
-            return str(signed(gid, str(user_id)))
-        try:
-            return (await self._gateway.fetch_subscription(gid)).short_url
-        except (GatewayRejected, GatewayUnavailable):
-            return None
+        return await payment_action_url(self._gateway, user_id, gid)
 
     async def usage(self, user_id: UUID, start: date | None, end: date | None) -> dict[str, Any]:
         today = ist_day(self._clock.now())

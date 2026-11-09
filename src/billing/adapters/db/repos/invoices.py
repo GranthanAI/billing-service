@@ -206,6 +206,14 @@ class SqlInvoiceRepo:
         )
         return Paise(int((await self._c.execute(q)).scalar_one()))
 
+    async def credit_notes_for_payment(self, payment_id: UUID) -> list[InvoiceRecord]:
+        q = (
+            sa.select(t)
+            .where(t.c.payment_id == payment_id, t.c.kind == "credit_note")
+            .order_by(t.c.issued_at.desc(), t.c.number.desc())
+        )
+        return [_record(r) for r in (await self._c.execute(q)).all()]
+
     async def by_payment(self, payment_id: UUID) -> InvoiceRecord | None:
         q = sa.select(t).where(t.c.payment_id == payment_id, t.c.kind != "credit_note")
         r = (await self._c.execute(q)).first()

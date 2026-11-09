@@ -1,0 +1,9 @@
+{% extends "email/_layout.html" %}
+{% block content %}
+<h2 style="font-size:18px;margin:0 0 12px 0;">Payment failed</h2>
+<p>We couldn't collect <strong>{{ amount_paise|inr }}</strong> for your {{ plan_name }} plan. Your bank or card issuer did not complete the payment.</p>
+<p>Your {{ plan_name }} plan stays active until <strong>{{ grace_until|ist_date }}</strong> (IST). After that you'll be moved to the Free plan; your data stays safe.</p>
+{% if next_retry_at %}<p>The payment provider is expected to try the charge again on {{ next_retry_at|ist_date }}.</p>{% endif %}
+<p><a href="{{ pay_url }}" style="display:inline-block;padding:10px 18px;background:#1a73e8;color:#ffffff;text-decoration:none;border-radius:4px;">Pay now</a></p>
+<p><a href="{{ billing_url }}">Billing settings</a></p>
+{% endblock %}

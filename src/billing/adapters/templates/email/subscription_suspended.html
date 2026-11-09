@@ -1,0 +1,8 @@
+{% extends "email/_layout.html" %}
+{% block content %}
+<h2 style="font-size:18px;margin:0 0 12px 0;">You're on the Free plan now</h2>
+<p>We couldn't collect payment for your {{ plan_name }} plan in time, so your account is on the Free plan now.</p>
+<p>Your data is safe: your conversations, files and memories are kept. Some limits are lower on Free until the plan is paid again.</p>
+<p><a href="{{ pay_url }}" style="display:inline-block;padding:10px 18px;background:#1a73e8;color:#ffffff;text-decoration:none;border-radius:4px;">Pay now</a></p>
+<p><a href="{{ billing_url }}">Billing settings</a></p>
+{% endblock %}

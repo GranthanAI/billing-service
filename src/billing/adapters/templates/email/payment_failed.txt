@@ -1,0 +1,11 @@
+{% include "email/_top.txt" %}
+
+We couldn't collect {{ amount_paise|inr }} for your {{ plan_name }} plan. Your bank or card issuer did not complete the payment.
+
+Your {{ plan_name }} plan stays active until {{ grace_until|ist_date }} (IST). After that you'll be moved to the Free plan; your data stays safe.
+{% if next_retry_at %}
+The payment provider is expected to try the charge again on {{ next_retry_at|ist_date }}.
+{% endif %}
+Pay now to keep your plan: {{ pay_url }}
+Billing settings: {{ billing_url }}
+{% include "email/_footer.txt" %}

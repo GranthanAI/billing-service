@@ -1,0 +1,9 @@
+{% extends "email/_layout.html" %}
+{% block content %}
+<h2 style="font-size:18px;margin:0 0 12px 0;">{{ title }} {{ invoice_number }}</h2>
+<p>Thank you. We received <strong>{{ total_paise|inr }}</strong> on {{ issued_at|ist_date }}.</p>
+<p>{{ description }}</p>
+{% if period_start %}<p>Service period: {{ period_start|ist_date }} to {{ period_end|ist_date }}</p>{% endif %}
+<p>The {{ title|lower }} is attached as a PDF ({{ filename }}).</p>
+<p><a href="{{ billing_url }}">Manage your plan and invoices</a></p>
+{% endblock %}

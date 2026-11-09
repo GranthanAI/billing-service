@@ -1,0 +1,9 @@
+{% include "email/_top.txt" %}
+
+We couldn't collect payment for your {{ plan_name }} plan in time, so your account is on the Free plan now.
+
+Your data is safe: your conversations, files and memories are kept. Some limits are lower on Free until the plan is paid again.
+
+Pay now to get your {{ plan_name }} plan back: {{ pay_url }}
+Billing settings: {{ billing_url }}
+{% include "email/_footer.txt" %}

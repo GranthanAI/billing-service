@@ -34,6 +34,7 @@ from billing.app.webhooks import EventApplier
 from billing.domain.catalog import Interval
 from billing.domain.entitlements import Entitlement
 from billing.jobs.handlers import billing as billing_jobs  # noqa: F401  (registers handlers)
+from billing.jobs.handlers import email as email_jobs  # noqa: F401
 from billing.jobs.handlers import entitlements as entitlement_jobs  # noqa: F401
 from billing.jobs.handlers import finance as finance_jobs  # noqa: F401
 from billing.jobs.handlers import holds as hold_jobs  # noqa: F401
@@ -48,6 +49,7 @@ from billing.main_api import app
 from billing.wiring import install_billing
 from tests.support.clock import TestClock
 from tests.support.fake_gateway import FakeGateway, Webhook
+from tests.support.mail import RecordingEmail
 
 START = datetime(2026, 11, 1, 4, 45, tzinfo=UTC)  # 10:15 IST on 1 Nov 2026: financial year 2627
 STATE_BIHAR = "10"
@@ -86,6 +88,7 @@ class Env:
     orgs: FakeOrgDirectory
     storage_usage: FakeStorageUsage
     invalidated: list[UUID] = field(default_factory=list)
+    mailbox: RecordingEmail = field(default_factory=RecordingEmail)
     user: UUID = field(default_factory=uuid4)
     _job_seq: int = 0
 
@@ -205,6 +208,8 @@ class Env:
                 storage_usage=self.storage_usage,
                 entitlements=self.entitlements,
                 orgs=self.orgs,
+                email=self.mailbox,
+                storage=self.storage,
             ),
             poll_interval=0.01,
         )
@@ -311,6 +316,7 @@ def build_env(
         payg_enabled=cfg.payg_enabled,
     )
     invalidated: list[UUID] = []
+    mailbox = RecordingEmail()
 
     async def invalidate(user_id: UUID) -> None:
         invalidated.append(user_id)
@@ -353,6 +359,8 @@ def build_env(
                 storage_usage=storage_usage,
                 entitlements=entitlements,
                 orgs=orgs,
+                email=mailbox,
+                storage=storage,
             ),
             poll_interval=0.01,
         ),
@@ -363,4 +371,5 @@ def build_env(
         orgs=orgs,
         storage_usage=storage_usage,
         invalidated=invalidated,
+        mailbox=mailbox,
     )

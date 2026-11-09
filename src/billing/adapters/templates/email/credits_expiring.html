@@ -1,0 +1,6 @@
+{% extends "email/_layout.html" %}
+{% block content %}
+<h2 style="font-size:18px;margin:0 0 12px 0;">Your credits expire soon</h2>
+<p><strong>{{ remaining_paise|inr }}</strong> of your GranthanAI credits expire on {{ expires_at|ist_date }} (IST).</p>
+<p>Use them before then, or <a href="{{ billing_url }}">add more credits</a>.</p>
+{% endblock %}

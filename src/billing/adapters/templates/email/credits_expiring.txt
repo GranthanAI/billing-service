@@ -1,0 +1,6 @@
+{% include "email/_top.txt" %}
+
+{{ remaining_paise|inr }} of your GranthanAI credits expire on {{ expires_at|ist_date }} (IST).
+
+Use them before then, or add more credits: {{ billing_url }}
+{% include "email/_footer.txt" %}

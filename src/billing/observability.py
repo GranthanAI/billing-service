@@ -43,6 +43,13 @@ OUTBOX_OLDEST_UNPUBLISHED = Gauge(
     "Age of the oldest outbox row that has not been published yet",
 )
 JOBS_DEAD = Counter("billing_jobs_dead_total", "Jobs that ran out of attempts", ["kind"])
+EMAIL_FAILED = Counter(
+    "billing_email_failed_total", "Email sends that failed (each attempt)", ["template"]
+)
+EMAIL_SKIPPED = Counter(
+    "billing_email_skipped_total", "Emails not sent, by reason", ["template", "reason"]
+)
+EMAIL_SENT = Counter("billing_email_sent_total", "Emails handed to the sender", ["template"])
 
 RESERVE_REQUESTS = Counter(
     "billing_reserve_requests_total",

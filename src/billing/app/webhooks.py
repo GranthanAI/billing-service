@@ -8,6 +8,7 @@ from uuid import UUID
 
 import structlog
 
+from billing.app.billing_emails import enqueue_email
 from billing.app.charges import record_charge
 from billing.app.config import BillingContext
 from billing.app.effects import REFUND_ISSUE, EffectContext
@@ -369,7 +370,29 @@ class EventApplier:
             if await uow.payments.by_gateway_id(refund.payment_id) is None:
                 return IGNORED  # not one of ours
             raise LookupError(f"refund {refund.id} is not recorded yet")  # retry shortly
+        if event.type == "refund.processed" and status == "processed":
+            await self._refund_email(uow, refund.id)
         if event.type == "refund.failed":
             REFUND_FAILED.inc()
             log.error("refund_failed", refund_id=refund.id, payment_id=refund.payment_id)
         return PROCESSED
+
+    async def _refund_email(self, uow: UnitOfWork, gateway_refund_id: str) -> None:
+        """refund_issued: queued with the refund's processing, in its transaction. The credit note
+        is the one of that payment with the refund's amount; its PDF is attached when sent."""
+        rec = await uow.refunds.by_gateway_id(gateway_refund_id)
+        pay = await uow.payments.get(rec.payment_id) if rec else None
+        if rec is None or pay is None:
+            return
+        account = await uow.accounts.get(pay.billing_account_id)
+        notes = await uow.invoices.credit_notes_for_payment(rec.payment_id)
+        note = next((n for n in notes if int(n.total_paise) == int(rec.amount_paise)), None)
+        await enqueue_email(
+            uow, self._b.config, "refund_issued", str(rec.id), account,
+            {
+                "amount_paise": int(rec.amount_paise),
+                "credit_note_id": str(note.id) if note else None,
+                "credit_note_number": note.number if note else None,
+            },
+            self._b.clock.now(),
+        )  # fmt: skip

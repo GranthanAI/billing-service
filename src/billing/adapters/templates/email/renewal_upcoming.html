@@ -1,0 +1,6 @@
+{% extends "email/_layout.html" %}
+{% block content %}
+<h2 style="font-size:18px;margin:0 0 12px 0;">Your plan renews soon</h2>
+<p>A courtesy reminder: your {{ plan_name }} plan renews on <strong>{{ charge_at|ist_date }}</strong> for {{ amount_paise|inr }}.</p>
+<p>Your bank sends its own pre-debit notice too. <a href="{{ billing_url }}">Change or cancel your plan</a> before then.</p>
+{% endblock %}

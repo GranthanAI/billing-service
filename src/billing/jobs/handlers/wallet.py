@@ -10,6 +10,7 @@ from uuid import UUID
 
 import structlog
 
+from billing.app.billing_emails import enqueue_email
 from billing.app.events import CreditsExpiringEvent, StoragePaymentRequiredEvent
 from billing.app.records import UsageEventRecord
 from billing.domain.calendar import IST
@@ -82,6 +83,16 @@ async def credits_expire(payload: dict[str, Any], ctx: JobContext) -> None:
                     lot.expires_at,
                 )
             )
+            if ctx.billing is not None:
+                await enqueue_email(
+                    uow, ctx.billing.config, "credits_expiring",
+                    f"{account.id}:{lot.expires_at.date()}", account,
+                    {
+                        "remaining_paise": int(display_paise(lot.remaining_paise, registered)),
+                        "expires_at": lot.expires_at.isoformat(),
+                    },
+                    now,
+                )  # fmt: skip
             reminded += 1
     if expired or reminded:
         log.info("credits_expire", lots_expired=expired, reminders=reminded)

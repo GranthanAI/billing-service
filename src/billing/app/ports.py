@@ -691,6 +691,10 @@ class InvoiceRepo(Protocol):
         """Taxable value of the credit notes issued against a payment."""
         ...
 
+    async def credit_notes_for_payment(self, payment_id: UUID) -> list[InvoiceRecord]:
+        """Credit notes issued against a payment, newest first."""
+        ...
+
     async def by_payment(self, payment_id: UUID) -> InvoiceRecord | None:
         """The tax invoice (or bill of supply) issued for a payment; never a credit note."""
         ...

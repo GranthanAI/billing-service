@@ -1,0 +1,1 @@
+Your {{ plan_name }} plan is paused: you're on Free now
