@@ -506,3 +506,58 @@ async def sim_env(
     yield built
     await app.dispose()
     await migrator.dispose()
+
+
+@pytest_asyncio.fixture
+async def sim_lifecycle_env(
+    request: pytest.FixtureRequest,
+    urls: Urls,
+    phase6_template: Template,
+    vk: valkey_asyncio.Valkey,
+) -> AsyncIterator[Env]:
+    """`env` with the simulator (SIM_MONTH_SECONDS=60) as the gateway, scripted through SimDriver
+    so the lifecycle tests written for the fake gateway run unchanged."""
+    from billing.adapters.gateway_sim import SimConfig
+    from tests.integration.billing_env import build_env, config, seed_sim_plans
+    from tests.support.sim_driver import SimDriver
+
+    await vk.flushall()
+    name = f"siml_{uuid4().hex[:10]}"
+    conn = await asyncpg.connect(
+        host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"
+    )
+    try:
+        await conn.execute(
+            f'CREATE DATABASE "{name}" TEMPLATE "{phase6_template.name}" OWNER billing_migrator'
+        )
+    finally:
+        await conn.close()
+    url = urls._url("billing_app", "billing_app", name)
+    app = make_engine(url, pool_size=10)
+    migrator = make_engine(urls.migrator_for(name), pool_size=2)
+    await seed_sim_plans(app, phase6_template.plans)
+    drivers: list[SimDriver] = []
+    # SIM_MONTH_SECONDS=60, unless the test module says the test needs calendar months
+    month_seconds = getattr(request.module, "month_seconds_for", lambda _name: 60)(
+        request.node.originalname
+    )
+
+    def make_driver(clock: object) -> object:
+        driver = SimDriver(
+            app,
+            url,
+            clock=clock,  # type: ignore[arg-type]
+            config=SimConfig(month_seconds=month_seconds, webhook_delay=0),
+        )
+        drivers.append(driver)
+        return driver
+
+    cfg = config(
+        simulation=True, invoice_series="SI", bill_of_supply_series="SB", credit_note_series="SC"
+    )
+    built = build_env(app, migrator, vk, phase6_template.plans, cfg, make_gateway=make_driver)  # type: ignore[arg-type]
+    yield built
+    for driver in drivers:
+        driver.close()
+    await app.dispose()
+    await migrator.dispose()

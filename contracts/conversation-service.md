@@ -87,3 +87,89 @@ through `chat.response.generated` (they carry no `hold_id`), so billing counts t
 | `INVALID_ARGUMENT` | bad `user_id`, missing `kind`, `idempotency_key`, or group/model | fix the caller |
 | `DEADLINE_EXCEEDED` | deadline too close, or billing too slow | count towards the breaker |
 | `UNAVAILABLE` | billing down | count towards the breaker |
+
+## Integration plan, phase P1 additions
+
+Source: `docs/Integrations/GranthanAI_Billing_Integration_Plan.md` sections 4.1 to 4.8. The plan wins
+where it disagrees with this file.
+
+### `chat.message.created` 2.4: the `billing` block
+
+Add this optional block (all fields additive; llm-service falls back to its legacy routing when the
+block is absent or `granted_group` is null):
+
+```json
+"billing": {
+  "hold_id": "0193...", "requested_model": null, "granted_group": "best",
+  "granted_model": null, "max_context_tokens": 128000, "funded_by": "plan",
+  "downgraded": false, "enforcement": "enforce"
+}
+```
+
+`hold_id` is null in degraded mode or after a shadow-mode deny; `requested_model` null means Auto;
+`funded_by` is `plan` or `credits`; `enforcement` is `enforce`, `shadow` or `degraded`.
+
+### Idempotency keys
+
+Chat message and regenerate: the reserve `idempotency_key` and the usage `source_id` are both the
+`request_message_id` (a new UUIDv7 per send; a regenerate gets a new one).
+
+### Order inside one request
+
+Service-owned limits first (no side effects), then `CheckAndReserve` (spends a count), then the work.
+A failure after the reserve is compensated with `Release`. Service-owned limits (plan 4.8):
+`messages_per_conversation`, `branches_per_tree`, `documents_per_tree`, `custom_modes`,
+`mode_instruction_chars`; a breach is `403` with `reason: plan_limit`
+and `message_key: limit.<name>` (for example `limit.branches_per_tree`), and nothing is reserved.
+
+### Deny error shape
+
+```json
+{"detail": {"code": "billing_denied", "reason": "daily_limit", "message_key": "limit.daily",
+            "message": "Daily limit reached. Resets at midnight, or upgrade / top up.",
+            "resets_at": "2026-11-09T00:00:00+05:30", "upgrade_to": "max"}}
+```
+
+| reason | HTTP | message_key |
+| --- | --- | --- |
+| `daily_limit` | 429 | `limit.daily` |
+| `monthly_limit` | 429 | `limit.monthly` |
+| `model_not_in_plan` | 403 | `plan.model_not_included` |
+| `account_blocked` | 403 | `account.blocked` |
+| `no_credit` | 402 | `credits.empty` |
+| `spend_cap` | 402 | `credits.spend_cap` |
+| `member_spend_cap` | 402 | `credits.member_cap` |
+| `billing_unavailable` | 503 | `billing.degraded` |
+| `plan_limit` | 403 | `limit.<name>` |
+
+An allowed-but-downgraded answer carries `notice_key: "limit.best_switched"`.
+
+### Entitlements cache
+
+Call `GetEntitlements` and cache per user for 60 s. Consume the new topic **`entitlements.changed`**
+(and `user.deleted`) and drop that user's entry. Billing unreachable: use the cached value for up to
+1 hour, then Free limits. `-1` means unlimited in every limit. Never delete data when limits shrink:
+make it read-only.
+
+#### `entitlements.changed` 1.0 (billing produces it, key `user_id`)
+
+```json
+{"event_type": "entitlements.changed", "schema_version": "1.0", "event_id": "...",
+ "occurred_at": "2026-11-08T10:00:00Z", "producer": "billing-service", "user_id": "...",
+ "reason": "subscription|override|block|org|wallet|catalog", "version_hash": "sha256:..."}
+```
+
+Sent through billing's outbox in the transaction of the change, for every user whose entitlement may
+have changed; an organisation change sends one event per member (a short moment later, from a job,
+because org-service is asked for the member list). `version_hash` is an opaque marker that differs
+for every announcement; do not compare it with anything.
+
+### Usage topics billing reads
+
+`chat.response.generated` 2.2 and `chat.response.cancelled` are produced by llm-service (see
+`contracts/llm-service.md`); conversation-service only stores `model` and `model_group` from them.
+
+### `usage.threshold_reached`
+
+Consume it to push a `notice` SSE event to the user's open stream (80% and 100% of daily messages,
+Best and YouTube).

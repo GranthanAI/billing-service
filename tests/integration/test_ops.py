@@ -100,6 +100,7 @@ EXPECTED: dict[str, set[str]] = {
     "ledger_balances": UPDATE, "credit_lots": UPDATE, "wallets": UPDATE,
     "wallet_topup_requests": UPDATE, "usage_daily": UPDATE,
     "provider_costs": UPDATE,
+    "gateway_mode": UPDATE,  # the start-up guard records the payment mode
     "webhook_inbox": FULL,  # housekeeping prunes old rows
     # plumbing the app owns
     "processed_events": FULL, "outbox": FULL, "idempotency_keys": FULL, "jobs": FULL,

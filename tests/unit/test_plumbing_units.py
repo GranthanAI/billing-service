@@ -110,6 +110,8 @@ def test_topic_names_are_exactly_the_agreed_ones() -> None:
         "wallet.credits_expiring",
         "storage.payment_required",
         "invoice.issued",
+        "entitlements.changed",
+        "usage.metered",
         "billing.usage.dlq",
         "billing.user.dlq",
         "billing.org.dlq",

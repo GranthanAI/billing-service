@@ -61,3 +61,52 @@ One YouTube video was ingested; billing charges it (a plan's monthly allowance, 
 Storage over 10 GiB is billed to Pay as you Go users at `storage_over_10gb_per_gb_month`
 (1,000 paise, GST included, per started GB per month) on the 1st of the month at 03:30 IST for the
 month that just ended. 1 GiB = 1,073,741,824 bytes.
+
+## Integration plan, phase P1 additions
+
+Source: `docs/Integrations/GranthanAI_Billing_Integration_Plan.md` sections 4.2, 4.4.4, 4.4.7, 4.6
+to 4.8. The plan wins where it disagrees with this file.
+
+### Limits file-service enforces (plan 4.8)
+
+| Limit (from `GetEntitlements`) | Free / Pro / Max | Where |
+| --- | --- | --- |
+| `file_size_mb` | 10 / 50 / 100 | `POST /files/upload/initiate`: declared size at most the limit |
+| `storage_mb` | 100 MB / 2 GB / 10 GB | same call: stored bytes plus the new size at most the limit |
+
+A breach is `403` with `detail.code: "plan_limit"` and `message_key` `limit.file_size_mb` or
+`limit.storage_mb`. The global `MAX_UPLOAD_SIZE_BYTES` stays as a hard ceiling. Track `bytes_stored`
+per user (active documents; update on complete and on delete). `-1` means unlimited.
+
+### YouTube sources: reserve before, event after
+
+- Before creating a source and before a retry: `CheckAndReserve(kind = YOUTUBE_VIDEO,
+  idempotency_key = "{document_id}:{attempt}")`. `attempt` starts at 1 and goes up by 1 on each
+  retry route call. A deny is the billing deny shape with `429` / `limit.monthly`.
+- Billing unreachable: deny new YouTube sources with `503` (they cost proxy money).
+- On the final success or failure, publish `file.youtube.ingested` through your outbox:
+
+```json
+{"event_type": "file.youtube.ingested", "schema_version": "1.0", "event_id": "...",
+ "occurred_at": "2026-11-08T10:00:00Z", "user_id": "...", "source_id": "<document_id>:<attempt>",
+ "document_id": "...", "attempt": 1, "hold_id": "... or null", "status": "success|error",
+ "proxy_bytes": 0}
+```
+
+Billing deduplicates usage on `(kind, source_id)`. It builds the usage id as
+`"{document_id}:{attempt}"` (attempt defaults to 1 when absent), so **a retry that succeeds after a
+failed first try is billed**. Send one event per attempt. `proxy_bytes` is optional.
+
+### Entitlements
+
+`GetEntitlements(user_id)` cached 60 s per user; consume **`entitlements.changed`** (schema in
+`contracts/conversation-service.md`) and `user.deleted` and drop that user's entry. Billing
+unreachable: cached value up to 1 hour, then Free limits.
+
+### Later (Pay as you Go, v3)
+
+- `GET /internal/storage/usage?user_id=` (service token) returns
+  `{"user_id", "bytes_used", "measured_at"}`; billing's `storage.bill` job calls it.
+- Consume `storage.payment_required`: block new uploads for that user until `entitlements.changed`
+  or a top-up arrives; the message is `credits.empty`.
+- `user.deleted`: schedule deletion of the user's files per the retention policy.

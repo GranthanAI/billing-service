@@ -112,14 +112,16 @@ def test_manim_and_youtube_events_become_usage_events() -> None:
         json.dumps({"event_id": "e1", "occurred_at": "2026-11-10T06:00:00Z", "user_id": uid,
                     "job_id": "j9", "hold_id": "", "status": "error"}).encode(),
     )  # fmt: skip
-    assert manim.kind is ReserveKind.MANIM_VIDEO and manim.source_id == "j9"
+    assert (
+        manim.kind is ReserveKind.MANIM_VIDEO and manim.source_id == "j9:1"
+    )  # attempt 1 when the event has none
     assert manim.hold_id is None and manim.dedupe_key == "e1"
     video = to_usage_event(
         topics.FILE_YOUTUBE_INGESTED,
         json.dumps({"event_id": "e2", "occurred_at": "2026-11-10T06:00:00Z", "user_id": uid,
                     "source_id": "yt7", "hold_id": "h", "status": "success"}).encode(),
     )  # fmt: skip
-    assert video.kind is ReserveKind.YOUTUBE_VIDEO and video.source_id == "yt7"
+    assert video.kind is ReserveKind.YOUTUBE_VIDEO and video.source_id == "yt7:1"
 
 
 def test_malformed_and_unroutable_input_raises() -> None:
