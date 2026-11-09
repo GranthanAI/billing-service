@@ -3,7 +3,8 @@
 Enqueued in the transaction of the triggering change (app/billing_emails.py). Five attempts with
 the job runner's backoff (2, 4, 8, 16 s), then the job is dead (see runbooks/email.md to replay).
 Every failed attempt counts in billing_email_failed_total{template}. A receipt or refund email
-whose PDF does not exist yet raises, so it is retried instead of going out without its PDF.
+whose PDF does not exist yet raises, so it is retried; on the last attempt it is sent without the
+PDF and with a line pointing to Settings → Billing instead of going dead.
 """
 
 from typing import Any
@@ -20,6 +21,7 @@ from billing.observability import EMAIL_FAILED, EMAIL_SENT, EMAIL_SKIPPED
 
 log = structlog.get_logger()
 PAYMENT_LINK_TEMPLATES = frozenset({"payment_failed", "subscription_suspended"})
+NO_PDF_LINE = "Your {document} will be available in Settings → Billing"
 
 
 class PdfNotReady(RuntimeError):
@@ -75,24 +77,45 @@ async def _send(template: str, payload: dict[str, Any], ctx: JobContext) -> None
         "billing_url": f"{origin}/settings/billing",
     }
     attachments: list[tuple[str, str, bytes]] = []
+    no_pdf = False  # last attempt and the PDF is still missing: send without it
     if template == "receipt":
-        number, pdf, kind = await _pdf(ctx, data["invoice_id"])
-        data["title"] = "Bill of supply" if kind == "bill_of_supply" else "Receipt"
-        data["filename"] = pdf_filename(number)
-        attachments.append((data["filename"], "application/pdf", pdf))
+        try:
+            number, pdf, kind = await _pdf(ctx, data["invoice_id"])
+            data["title"] = "Bill of supply" if kind == "bill_of_supply" else "Receipt"
+            data["filename"] = pdf_filename(number)
+            attachments.append((data["filename"], "application/pdf", pdf))
+        except PdfNotReady:
+            if not ctx.last_attempt:
+                raise
+            no_pdf = True
+            data["title"] = "Receipt"
+            data["filename"] = ""
     elif template == "refund_issued" and data.get("credit_note_id"):
-        number, pdf, _ = await _pdf(ctx, data["credit_note_id"])
-        attachments.append((pdf_filename(number), "application/pdf", pdf))
+        try:
+            number, pdf, _ = await _pdf(ctx, data["credit_note_id"])
+            attachments.append((pdf_filename(number), "application/pdf", pdf))
+        except PdfNotReady:
+            if not ctx.last_attempt:
+                raise
+            no_pdf = True
     elif template in PAYMENT_LINK_TEMPLATES:
         data["pay_url"] = await _pay_url(ctx, account.owner_id, data, origin)
 
     rendered = render_email(template, data, simulated=cfg.simulation)
+    text, html = rendered.text, rendered.html
+    if no_pdf:
+        log.warning("email_sent_without_pdf", template=template)
+        line = NO_PDF_LINE.format(document="receipt" if template == "receipt" else "credit note")
+        text = f"{text}\n\n{line}\n"
+        html = html.replace("</body>", f"<p>{line}</p></body>", 1)
+        if "</body>" not in rendered.html:
+            html = f"{html}<p>{line}</p>"
     await ctx.email.send(
         EmailMessage(
             to=account.billing_email,
             subject=rendered.subject,
-            text=rendered.text,
-            html=rendered.html,
+            text=text,
+            html=html,
             attachments=tuple(attachments),
             headers={"X-GranthanAI-Template": template},
             idempotency_key=str(payload["key"]),

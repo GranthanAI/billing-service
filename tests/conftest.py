@@ -24,16 +24,10 @@ if sys.platform == "win32" and os.environ.get("TEST_SELECTOR_LOOP") == "1":
 
 KAFKA_FIXTURES = {"kafka", "producer"}
 SIM_FIXTURES = {"sim_env", "sim_lifecycle_env", "sim_http"}
-# Files whose tests hit connection resets (Docker Desktop, WinError 64) or failed only when run in
-# parallel. They run together in ONE xdist worker, one after the other (--dist loadgroup).
-SERIAL_FILES = (
-    "test_hot_path.py", "test_jobs.py", "test_ops.py", "test_readyz.py",
-    "test_member_cap_model.py", "test_billing_api.py",
-)  # fmt: skip
 
 
 def pytest_collection_modifyitems(items):  # type: ignore[no-untyped-def]
-    """Kafka tests and the SERIAL_FILES share one worker. Simulator tests are marked `sim`."""
+    """Kafka tests share one xdist worker (--dist loadgroup). Simulator tests are marked `sim`."""
     import pytest
 
     for item in items:
@@ -41,8 +35,6 @@ def pytest_collection_modifyitems(items):  # type: ignore[no-untyped-def]
         path = item.nodeid.split("::")[0]
         if fixtures & KAFKA_FIXTURES or "kafka" in path:
             item.add_marker(pytest.mark.kafka)
-            item.add_marker(pytest.mark.xdist_group("serial"))
-        elif path.endswith(SERIAL_FILES):
             item.add_marker(pytest.mark.xdist_group("serial"))
         if fixtures & SIM_FIXTURES or "test_sim_" in path or "lifecycle_sim" in path:
             item.add_marker(pytest.mark.sim)

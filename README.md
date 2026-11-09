@@ -22,5 +22,5 @@ Details:
 - `TEST_WORKERS`: xdist workers for the integration tiers. Default 3 on Windows, 4 elsewhere (Docker Desktop drops connections under higher load).
 - `TEST_RUN_ID` / `RUN_ID`: a short random id per run, included in database names. Valkey uses a per-run-and-worker database index. Leftover test databases older than an hour are dropped at session start.
 - `TEST_PG_URL`, `TEST_VALKEY_URL`, `TEST_VALKEY_LRU_URL`, `TEST_KAFKA_BOOTSTRAP` are set by the make targets. Without them the tests fall back to Testcontainers.
-- The `serial` xdist group (`--dist loadgroup`): Kafka tests and a few other files run together in one worker.
+- The `serial` xdist group (`--dist loadgroup`): Kafka tests run together in one worker.
 - Markers: `slow`, `kafka`, `sim`. pytest-timeout is 60 s per test.

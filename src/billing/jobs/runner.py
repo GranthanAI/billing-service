@@ -6,7 +6,7 @@ Handlers must be idempotent: a job can run twice after a crash (the reaper reque
 import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import structlog
@@ -47,6 +47,7 @@ class JobContext:
     orgs: OrgDirectory | None = None
     email: EmailSender | None = None
     storage: ObjectStorage | None = None
+    last_attempt: bool = False  # set per run by the runner: no retry follows a failure of this run
 
 
 Handler = Callable[[dict[str, Any], JobContext], Awaitable[None]]
@@ -87,7 +88,8 @@ class JobRunner:
         try:
             if handler is None:
                 raise LookupError(f"no handler for job kind {job.kind!r}")
-            await asyncio.wait_for(handler(job.payload, self._ctx), self._timeout)
+            ctx = replace(self._ctx, last_attempt=job.attempts >= job.max_attempts)
+            await asyncio.wait_for(handler(job.payload, ctx), self._timeout)
         except Exception as exc:
             message = str(exc) or type(exc).__name__
             async with self._ctx.uow_factory() as uow:
