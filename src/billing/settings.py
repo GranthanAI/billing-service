@@ -2,8 +2,22 @@ from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ENVIRONMENTS = ("development", "test", "staging", "production")
+
+
+def normalise_environment(value: object) -> str:
+    """strip + lowercase, "prod" -> "production"; anything but the four known names is an error."""
+    env = str(value).strip().lower()
+    if env == "prod":
+        env = "production"
+    if env not in ENVIRONMENTS:
+        raise ValueError(
+            f"ENVIRONMENT must be one of {', '.join(ENVIRONMENTS)} (or prod): {value!r}"
+        )
+    return env
 
 
 class Settings(BaseSettings):
@@ -50,6 +64,12 @@ class Settings(BaseSettings):
     credit_note_series: str = "CN"
     bill_of_supply_series: str = "BS"
     environment: str = "development"
+
+    @field_validator("environment", mode="before")
+    @classmethod
+    def _normalise_environment(cls, v: object) -> str:
+        return normalise_environment(v)
+
     payment_gateway: Literal["razorpay", "fake"] = "razorpay"
     payg_enabled: bool = False
     plans_file: str = "/app/config/plans.yaml"
@@ -114,13 +134,13 @@ def get_settings() -> Settings:
 
 def check_gateway_allowed(payment_gateway: str, environment: str) -> None:
     """The in-memory fake gateway must never run in production."""
-    if payment_gateway == "fake" and environment == "production":
+    if payment_gateway == "fake" and normalise_environment(environment) == "production":
         raise ValueError("PAYMENT_GATEWAY=fake is refused when ENVIRONMENT=production")
 
 
 def check_simulation_allowed(simulation: bool, environment: str) -> None:
     """The payment simulator must never run in production."""
-    if simulation and environment == "production":
+    if simulation and normalise_environment(environment) == "production":
         raise ValueError("PAYMENT_SIMULATION=true is refused when ENVIRONMENT=production")
 
 
@@ -131,7 +151,7 @@ def payment_mode(s: "Settings") -> str:
 
 def check_email_config(mode: str, environment: str, smtp_host: str, email_from: str) -> None:
     """console and file mail must never run in production; smtp needs a host and a sender."""
-    if mode in ("console", "file") and environment == "production":
+    if mode in ("console", "file") and normalise_environment(environment) == "production":
         raise ValueError(f"EMAIL_MODE={mode} is refused when ENVIRONMENT=production")
     if mode == "smtp" and not (smtp_host and email_from):
         raise ValueError("EMAIL_MODE=smtp needs SMTP_HOST and EMAIL_FROM")
