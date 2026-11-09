@@ -55,6 +55,7 @@ from billing.observability import (
 )
 from billing.settings import (
     Settings,
+    check_email_config,
     check_simulation_allowed,
     gateway_secrets,
     get_settings,
@@ -106,6 +107,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.engine = None  # /readyz reports 503 until the service is configured
     if settings is not None:
         check_simulation_allowed(settings.payment_simulation, settings.environment)
+        check_email_config(
+            settings.email_mode, settings.environment, settings.smtp_host, settings.email_from
+        )
         owned_engine = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
         app.state.engine = owned_engine
         await ensure_gateway_mode(

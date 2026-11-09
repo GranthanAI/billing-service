@@ -14,6 +14,7 @@ from billing.adapters.db import partitions
 from billing.adapters.db.engine import make_engine
 from billing.adapters.db.gateway_mode import ensure_gateway_mode
 from billing.adapters.db.uow import SqlUnitOfWork
+from billing.adapters.email_factory import make_email_sender
 from billing.adapters.gateways import gateway_mode, make_gateway, sim_config
 from billing.adapters.ids import Uuid7Generator
 from billing.adapters.kafka.consumer import KafkaEventConsumer
@@ -124,6 +125,7 @@ async def run_worker(
     org_consumer: bool = True,
 ) -> None:
     check_simulation_allowed(settings.payment_simulation, settings.environment)
+    email = make_email_sender(settings, SystemClock())  # refuses an unsafe EMAIL_MODE
     engine = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
     await ensure_gateway_mode(
         engine, gateway_mode(settings), allow_switch=settings.allow_gateway_mode_switch
@@ -247,6 +249,8 @@ async def run_worker(
                 storage_usage=storage_usage,
                 entitlements=entitlements,
                 orgs=org_directory,
+                email=email,
+                storage=storage,
             ),
             concurrency=settings.job_concurrency,
         )

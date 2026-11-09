@@ -28,6 +28,15 @@ class S3Storage:
         async with self._client() as s3:
             await s3.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)
 
+    async def get(self, key: str) -> bytes | None:
+        async with self._client() as s3:
+            try:
+                obj = await s3.get_object(Bucket=self._bucket, Key=key)
+            except s3.exceptions.NoSuchKey:
+                return None
+            data: bytes = await obj["Body"].read()
+            return data
+
     async def presigned_get(self, key: str, expires_s: int) -> str:
         async with self._client() as s3:
             url: str = await s3.generate_presigned_url(
@@ -48,6 +57,10 @@ class InMemoryStorage:
 
     async def put(self, key: str, data: bytes, content_type: str) -> None:
         self.objects[key] = (data, content_type)
+
+    async def get(self, key: str) -> bytes | None:
+        found = self.objects.get(key)
+        return found[0] if found else None
 
     async def presigned_get(self, key: str, expires_s: int) -> str:
         self.presigned.append((key, expires_s))

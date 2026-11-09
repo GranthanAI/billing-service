@@ -81,6 +81,18 @@ class Settings(BaseSettings):
     sim_webhook_drop_pct: int = Field(0, ge=0, le=100)
     sim_webhook_reorder: bool = False
     frontend_origin: str = "http://localhost:5173"
+    # --- transactional email (worker only) ---
+    email_mode: Literal["console", "file", "smtp"] = "console"
+    email_enabled: bool = True
+    email_outbox_dir: str = "./.email-outbox"
+    email_from: str = ""
+    email_reply_to: str = ""
+    support_email: str = "support@granthan.ai"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_security: Literal["auto", "starttls", "ssl", "none"] = "auto"
 
 
 def webhook_secrets(s: "Settings") -> str:
@@ -115,3 +127,11 @@ def check_simulation_allowed(simulation: bool, environment: str) -> None:
 def payment_mode(s: "Settings") -> str:
     """ "simulated" or "live": what /me and /healthz report."""
     return "simulated" if s.payment_simulation else "live"
+
+
+def check_email_config(mode: str, environment: str, smtp_host: str, email_from: str) -> None:
+    """console and file mail must never run in production; smtp needs a host and a sender."""
+    if mode in ("console", "file") and environment == "production":
+        raise ValueError(f"EMAIL_MODE={mode} is refused when ENVIRONMENT=production")
+    if mode == "smtp" and not (smtp_host and email_from):
+        raise ValueError("EMAIL_MODE=smtp needs SMTP_HOST and EMAIL_FROM")

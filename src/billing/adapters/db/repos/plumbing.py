@@ -232,12 +232,20 @@ class SqlJobs:
         self._c = conn
 
     async def enqueue(
-        self, kind: str, payload: Mapping[str, Any], run_at: datetime, dedupe_key: str | None
+        self,
+        kind: str,
+        payload: Mapping[str, Any],
+        run_at: datetime,
+        dedupe_key: str | None,
+        max_attempts: int | None = None,
     ) -> bool:
+        values: dict[str, Any] = dict(
+            kind=kind, payload=dict(payload), run_at=run_at, dedupe_key=dedupe_key
+        )
+        if max_attempts is not None:
+            values["max_attempts"] = max_attempts
         result = await self._c.execute(
-            pg_insert(jobs)
-            .values(kind=kind, payload=dict(payload), run_at=run_at, dedupe_key=dedupe_key)
-            .on_conflict_do_nothing(index_elements=["dedupe_key"])
+            pg_insert(jobs).values(**values).on_conflict_do_nothing(index_elements=["dedupe_key"])
         )
         return result.rowcount == 1
 

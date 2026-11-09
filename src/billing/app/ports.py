@@ -5,7 +5,7 @@ contract. All methods are async and take or return domain types or `app/records.
 """
 
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from types import TracebackType
@@ -60,6 +60,26 @@ class Clock(Protocol):
 
 class IdGenerator(Protocol):
     def new(self) -> UUID: ...
+
+
+# --- email -------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class EmailMessage:
+    to: str
+    subject: str
+    text: str
+    html: str = ""
+    attachments: tuple[tuple[str, str, bytes], ...] = ()  # (filename, content_type, bytes)
+    headers: Mapping[str, str] = field(default_factory=dict)
+    idempotency_key: str = ""  # a retried send keeps the same Message-ID
+
+
+class EmailSender(Protocol):
+    """Worker-only. Raises when the message could not be handed over (the job then retries)."""
+
+    async def send(self, message: EmailMessage) -> None: ...
 
 
 # --- payment gateway -------------------------------------------------------------------
@@ -379,6 +399,10 @@ class InvoiceRenderer(Protocol):
 
 class ObjectStorage(Protocol):
     async def put(self, key: str, data: bytes, content_type: str) -> None: ...
+
+    async def get(self, key: str) -> bytes | None:
+        """The object's bytes, or None when there is no such object."""
+        ...
 
     async def presigned_get(self, key: str, expires_s: int) -> str: ...
 
@@ -802,7 +826,12 @@ class WebhookInboxRepo(Protocol):
 
 class JobRepo(Protocol):
     async def enqueue(
-        self, kind: str, payload: Mapping[str, Any], run_at: datetime, dedupe_key: str | None
+        self,
+        kind: str,
+        payload: Mapping[str, Any],
+        run_at: datetime,
+        dedupe_key: str | None,
+        max_attempts: int | None = None,
     ) -> bool: ...
 
     async def claim(self, limit: int, lock_seconds: int, now: datetime) -> list[Job]:

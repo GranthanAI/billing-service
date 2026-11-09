@@ -18,7 +18,9 @@ from billing.app.invoices import InvoiceService
 from billing.app.ports import (
     Clock,
     Counters,
+    EmailSender,
     IdGenerator,
+    ObjectStorage,
     OrgDirectory,
     PlanGateway,
     StorageUsage,
@@ -43,6 +45,8 @@ class JobContext:
     storage_usage: StorageUsage | None = None
     entitlements: EntitlementService | None = None
     orgs: OrgDirectory | None = None
+    email: EmailSender | None = None
+    storage: ObjectStorage | None = None
 
 
 Handler = Callable[[dict[str, Any], JobContext], Awaitable[None]]
