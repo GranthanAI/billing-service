@@ -77,6 +77,11 @@ FRONTEND_ORIGIN=http://localhost:5173
 SIM_WEBHOOK_URL=http://127.0.0.1:8080/api/v1/billing/webhooks/razorpay
 # api-gateway sends this as X-Gateway-Secret (its BILLING_GATEWAY_SECRET)
 GATEWAY_SHARED_SECRET=$gw
+# invoices (PDFs) go to the shared dev object store, so the api and the worker see the same bytes
+OBJECT_STORE_ENDPOINT=http://127.0.0.1:9010
+OBJECT_STORE_BUCKET=billing-invoices
+OBJECT_STORE_ACCESS_KEY=minioadmin
+OBJECT_STORE_SECRET_KEY=minioadmin123
 # one gRPC service token per calling service (each service puts its own in its .env)
 # conversation-service
 CONV_BILLING_TOKEN=$(tok conversation)
@@ -102,6 +107,7 @@ set +a
 export PYTHONUNBUFFERED=1
 
 # --- 4. migrations and catalog (simulation) ----------------------------------------------------------------------------------
+echo "== invoices bucket";       PYTHONPATH=src "$PY" scripts/ensure_dev_bucket.py 2>&1 | tail -1
 echo "== alembic upgrade head";   "$PY" -m alembic upgrade head 2>&1 | tail -2
 echo "== pricing seed";           "$PY" -m billing.cli pricing seed 2>&1 | tail -2
 echo "== catalog sync (simulation)"; "$PY" -m billing.cli catalog sync 2>&1 | tail -3
