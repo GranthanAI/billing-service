@@ -42,6 +42,7 @@ class PlanVersionRecord:
     razorpay_plan_month: str | None = None
     razorpay_plan_year: str | None = None
     retired_at: datetime | None = None
+    gateway_kind: str | None = None  # which gateway the two plan ids above belong to
 
 
 @dataclass(frozen=True, slots=True)

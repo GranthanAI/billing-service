@@ -49,6 +49,8 @@ def _rejection(resp: httpx.Response) -> GatewayRejected:
 
 
 class RazorpayGateway:
+    kind = "razorpay"
+
     def __init__(
         self,
         key_id: str,

@@ -11,12 +11,14 @@ from uuid import UUID, uuid4
 
 import structlog
 
+from billing.app.catalog import kind_of_plan_id
 from billing.app.config import BillingContext
 from billing.app.context import correlation_id_var
 from billing.app.effects import GATEWAY_CANCEL
 from billing.app.errors import (
     ChangePending,
     InvalidSignature,
+    PlanGatewayMismatch,
     PlanNotAllowed,
     SubscriptionStateError,
     ValidationFailed,
@@ -80,10 +82,22 @@ def _word(interval: Interval) -> str:
     return "monthly" if interval is Interval.MONTH else "yearly"
 
 
-def _plan_id(plan: PlanVersionRecord, interval: Interval) -> str:
+def _plan_id(plan: PlanVersionRecord, interval: Interval, gateway_kind: str | None = None) -> str:
     plan_id = plan.razorpay_plan_month if interval is Interval.MONTH else plan.razorpay_plan_year
     if not plan_id:
         raise ValidationFailed(f"{plan.plan.plan_code} has no {_word(interval)} price")
+    if gateway_kind is not None:
+        stored = plan.gateway_kind or kind_of_plan_id(plan_id)
+        if stored != gateway_kind:
+            # Never call a gateway with an id that belongs to another one: it answers "id does not exist" (502).
+            log.error(
+                "plan_gateway_mismatch", plan=plan.plan.plan_code, version=plan.plan.version, interval=interval.value,
+                stored_gateway=stored, running_gateway=gateway_kind, fix="python -m billing.cli catalog sync",
+            )
+            raise PlanGatewayMismatch(
+                f"{plan.plan.plan_code} is set up on the {stored} payment gateway but billing is running with "
+                f"{gateway_kind}; run `python -m billing.cli catalog sync` to create its plans here."
+            )
     return plan_id
 
 
@@ -160,7 +174,7 @@ class SubscriptionService:
 
         async with self._b.uow_factory() as uow:
             plan = await self._self_serve_plan(uow, plan_code)
-            plan_id = _plan_id(plan, interval)
+            plan_id = _plan_id(plan, interval, self._b.gateway.kind)
             account = await uow.accounts.get_or_create(OwnerType.USER, user_id, email)
             await uow.accounts.update_checkout(
                 account.id, state_code=state_code, email=email, legal_name=legal_name, gstin=gstin
@@ -270,7 +284,7 @@ class SubscriptionService:
                 if direction is Direction.UPGRADE
                 else None
             )
-            plan_id = _plan_id(target, interval)
+            plan_id = _plan_id(target, interval, self._b.gateway.kind)
             period_end = sub.state.current_period_end
         if direction is Direction.DOWNGRADE and (
             period_end is None or period_end - now < MIN_START_LEAD
@@ -301,7 +315,7 @@ class SubscriptionService:
                 raise ChangePending("A resume is already waiting for authorisation.")
             plan = await uow.plans.by_id(sub.state.plan_version_id)
             assert plan is not None
-            plan_id = _plan_id(plan, sub.state.interval)
+            plan_id = _plan_id(plan, sub.state.interval, self._b.gateway.kind)
             end = sub.state.current_period_end
         if end is None or end - now < MIN_START_LEAD:
             raise SubscriptionStateError("Your period is about to end; start a new checkout.")

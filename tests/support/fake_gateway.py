@@ -54,6 +54,8 @@ def sub_id(sub: "GatewaySubscription | str") -> str:
 
 
 class FakeGateway(InMemoryGateway):
+    kind = "fake"
+
     def __init__(self, *, crash_after_creates: int | None = None, **kw: Any) -> None:
         super().__init__(**kw)
         self.calls: list[tuple[str, object]] = []

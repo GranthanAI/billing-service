@@ -35,6 +35,8 @@ def add_months(dt: datetime, months: int) -> datetime:
 
 
 class InMemoryGateway:
+    kind = "fake"
+
     def __init__(
         self,
         *,

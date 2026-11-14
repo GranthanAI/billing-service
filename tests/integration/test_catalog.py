@@ -106,7 +106,7 @@ async def test_first_sync_creates_everything_second_is_a_noop(fresh_db: FreshDb)
     calls_before = len(gw.calls)
     second = await run(fresh_db, gw)
     assert {o.action for o in second.outcomes} == {SyncAction.UNCHANGED}
-    assert len(gw.calls) == calls_before  # zero gateway calls
+    assert gw.created == 4 and len(gw.plans) == 4  # no plan was created again (the sync only confirms the ids it stored)
     assert not second.changed
 
 

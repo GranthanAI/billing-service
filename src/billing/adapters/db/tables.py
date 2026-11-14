@@ -47,6 +47,7 @@ plan_versions = sa.Table(
     sa.Column("allowed_models", pg.ARRAY(sa.Text), nullable=False),
     sa.Column("razorpay_plan_month", sa.Text),
     sa.Column("razorpay_plan_year", sa.Text),
+    sa.Column("gateway_kind", sa.Text),
     sa.Column("default_group", model_group, nullable=False),
     sa.Column("min_seats", sa.Integer),
     _ts("effective_from", nullable=False),

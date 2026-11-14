@@ -38,6 +38,7 @@ class PlanOutcome:
     action: SyncAction
     version: int | None
     gateway_plans_created: int = 0
+    gateway_notes: list[str] = field(default_factory=list)
 
     @property
     def label(self) -> str:
@@ -73,21 +74,52 @@ class SyncReport:
 
     def lines(self) -> list[str]:
         prefix = "[dry run] " if self.dry_run else ""
-        return [prefix + o.line() for o in self.outcomes]
+        out: list[str] = []
+        for o in self.outcomes:
+            out.append(prefix + o.line())
+            out.extend(f"{prefix}  gateway plan {n}" for n in o.gateway_notes)
+        return out
 
 
-def _gateway_specs(block: PlanBlock, record: PlanVersionRecord) -> dict[str, GatewayPlanSpec]:
-    """interval -> plan spec, only for the intervals this version has no gateway plan id for."""
+class PlanIdAction(StrEnum):
+    KEEP = "keep"  # the stored id belongs to this gateway: confirm it still exists, never overwrite a good one
+    MISSING = "missing"  # no id stored: create one
+    FOREIGN = "foreign"  # the id belongs to another gateway (fake / simulator / razorpay): create one here
+
+
+def kind_of_plan_id(plan_id: str | None) -> str | None:
+    """Best guess of the gateway an id came from, by its prefix (used to backfill and as a fallback)."""
+    if not plan_id:
+        return None
+    if plan_id.startswith("plan_fake_"):
+        return "fake"
+    if plan_id.startswith("plan_SIM"):
+        return "simulator"
+    return "razorpay" if plan_id.startswith("plan_") else None
+
+
+def decide_plan_id(stored_id: str | None, stored_kind: str | None, current_kind: str) -> PlanIdAction:
+    """What to do with one stored gateway plan id (pure; unit-tested)."""
+    if not stored_id:
+        return PlanIdAction.MISSING
+    kind = stored_kind or kind_of_plan_id(stored_id)
+    return PlanIdAction.KEEP if kind == current_kind else PlanIdAction.FOREIGN
+
+
+def _gateway_specs(
+    block: PlanBlock, record: PlanVersionRecord, current_kind: str
+) -> dict[str, tuple[GatewayPlanSpec, PlanIdAction, str | None]]:
+    """interval -> (plan spec, decision, stored id) for every interval this version sells."""
     plan = record.plan
-    out: dict[str, GatewayPlanSpec] = {}
+    out: dict[str, tuple[GatewayPlanSpec, PlanIdAction, str | None]] = {}
     for interval, price, existing in (
         ("month", plan.price_month, record.razorpay_plan_month),
         ("year", plan.price_year, record.razorpay_plan_year),
     ):
-        if price is None or existing is not None:
+        if price is None:
             continue
         period = "monthly" if interval == "month" else "yearly"
-        out[interval] = GatewayPlanSpec(
+        spec = GatewayPlanSpec(
             name=f"GranthanAI {block.plan_code.capitalize()} · {period}",
             period=period,
             interval=1,
@@ -100,6 +132,7 @@ def _gateway_specs(block: PlanBlock, record: PlanVersionRecord) -> dict[str, Gat
                 "checksum": record.checksum,
             },
         )
+        out[interval] = (spec, decide_plan_id(existing, record.gateway_kind, current_kind), existing)
     return out
 
 
@@ -199,22 +232,31 @@ async def sync_catalog(
         gblock = wanted.get((rec.plan.plan_code, rec.plan.variant))
         if gblock is None or not gblock.sells_on_gateway:
             continue
-        specs = _gateway_specs(gblock, rec)
+        specs = _gateway_specs(gblock, rec, gateway.kind)
         if not specs:
             continue
         outcome = next(o for o in report.outcomes if (o.plan_code, o.variant) == gblock.key)
-        outcome.gateway_plans_created += len(specs)
-        if dry_run:
-            continue
-        found: dict[str, str] = {}
-        for interval, gspec in specs.items():
-            found[interval] = await gateway.ensure_plan(gspec)
-        async with uow_factory() as uow:
-            await uow.plans.set_gateway_plan_ids(
-                rec.plan.id,
-                found.get("month", rec.razorpay_plan_month),
-                found.get("year", rec.razorpay_plan_year),
-            )
+        ids: dict[str, str | None] = {"month": rec.razorpay_plan_month, "year": rec.razorpay_plan_year}
+        changed = False
+        for interval, (gspec, action, stored) in specs.items():
+            label = f"{rec.plan.plan_code} v{rec.plan.version} {interval}"
+            if dry_run:
+                if action is not PlanIdAction.KEEP:
+                    outcome.gateway_plans_created += 1
+                    outcome.gateway_notes.append(f"{label}: {action.value} id {stored} -> would create on {gateway.kind}")
+                continue
+            # KEEP still asks the gateway: ensure_plan returns the existing plan with this checksum + interval
+            # (an id that exists is returned unchanged and never rewritten), or creates one if it is gone.
+            new_id = await gateway.ensure_plan(gspec)
+            if action is PlanIdAction.KEEP and new_id == stored:
+                continue
+            why = action.value if action is not PlanIdAction.KEEP else "gone"
+            outcome.gateway_plans_created += 1
+            outcome.gateway_notes.append(f"{label}: {why} id {stored} -> {new_id} ({gateway.kind})")
+            ids[interval], changed = new_id, True
+        if changed:
+            async with uow_factory() as uow:
+                await uow.plans.set_gateway_plan_ids(rec.plan.id, ids["month"], ids["year"], gateway.kind)
     return report
 
 

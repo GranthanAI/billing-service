@@ -143,6 +143,8 @@ def _j(value: Mapping[str, Any] | None) -> str:
 
 
 class SimulatorGateway:
+    kind = "simulator"
+
     def __init__(
         self,
         engine: AsyncEngine,

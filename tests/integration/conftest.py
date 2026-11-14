@@ -49,7 +49,7 @@ class Urls:
 
     @property
     def superuser(self) -> str:
-        return self._url("postgres", "postgres", "postgres")
+        return self._url("postgres", superuser_password(), "postgres")
 
     @property
     def migrator(self) -> str:
@@ -61,6 +61,12 @@ class Urls:
 
     def migrator_for(self, db: str) -> str:
         return self._url("billing_migrator", "billing_migrator", db)
+
+
+def superuser_password() -> str:
+    """The superuser password of the shared Postgres (TEST_PG_URL), else the Testcontainers default."""
+    shared = os.environ.get("TEST_PG_URL")
+    return (urlparse(shared).password if shared else None) or "postgres"
 
 
 def alembic_config(url: str) -> Config:
@@ -141,7 +147,7 @@ async def drop_database(urls: "Urls", name: str) -> None:
     cleanup must not fail a test (drop_stale_databases sweeps leftovers at the next session start)."""
     try:
         conn = await asyncpg.connect(
-            host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"
+            host=urls.host, port=urls.port, user="postgres", password=superuser_password(), database="postgres"
         )
         try:
             await conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
@@ -276,7 +282,7 @@ _IDS = Uuid7Generator()
 async def fresh_db(urls: Urls) -> AsyncIterator[FreshDb]:
     name = new_db_name("cat")
     conn = await asyncpg.connect(
-        host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"
+        host=urls.host, port=urls.port, user="postgres", password=superuser_password(), database="postgres"
     )
     try:
         await conn.execute(f'CREATE DATABASE "{name}" OWNER billing_migrator')
@@ -565,7 +571,7 @@ async def env(
     await vk.flushdb()  # counters from earlier tests would show up in reconciliation
     name = new_db_name("p6")
     conn = await asyncpg.connect(
-        host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"
+        host=urls.host, port=urls.port, user="postgres", password=superuser_password(), database="postgres"
     )
     try:
         await conn.execute(
@@ -594,7 +600,7 @@ async def sim_env(
     await vk.flushdb()
     name = new_db_name("sim")
     conn = await asyncpg.connect(
-        host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"
+        host=urls.host, port=urls.port, user="postgres", password=superuser_password(), database="postgres"
     )
     try:
         await conn.execute(
@@ -642,7 +648,7 @@ async def sim_lifecycle_env(
     await vk.flushdb()
     name = new_db_name("siml")
     conn = await asyncpg.connect(
-        host=urls.host, port=urls.port, user="postgres", password="postgres", database="postgres"
+        host=urls.host, port=urls.port, user="postgres", password=superuser_password(), database="postgres"
     )
     try:
         await conn.execute(

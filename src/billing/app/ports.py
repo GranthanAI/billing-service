@@ -174,6 +174,8 @@ class GatewayOrder:
 
 
 class PlanGateway(Protocol):
+    kind: str  # fake | simulator | razorpay: which provider the plan ids it returns belong to
+
     async def ensure_plan(self, spec: GatewayPlanSpec) -> str:
         """Idempotent: returns the id of an existing plan with the same notes.checksum and
         notes.interval, and creates one only when there is none."""

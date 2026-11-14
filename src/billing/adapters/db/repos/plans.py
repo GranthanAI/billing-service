@@ -48,6 +48,7 @@ def _record(r: Any) -> PlanVersionRecord:
         razorpay_plan_month=r.razorpay_plan_month,
         razorpay_plan_year=r.razorpay_plan_year,
         retired_at=r.retired_at,
+        gateway_kind=r.gateway_kind,
     )
 
 
@@ -93,6 +94,7 @@ class SqlPlanRepo:
                 allowed_models=encode_models(p),
                 razorpay_plan_month=record.razorpay_plan_month,
                 razorpay_plan_year=record.razorpay_plan_year,
+                gateway_kind=record.gateway_kind,
                 default_group=p.default_group.value,
                 min_seats=p.min_seats,
                 effective_from=record.effective_from,
@@ -105,12 +107,12 @@ class SqlPlanRepo:
         await self._c.execute(sa.update(t).where(t.c.id == plan_version_id).values(retired_at=at))
 
     async def set_gateway_plan_ids(
-        self, plan_version_id: UUID, month: str | None, year: str | None
+        self, plan_version_id: UUID, month: str | None, year: str | None, gateway_kind: str | None = None
     ) -> None:
         await self._c.execute(
             sa.update(t)
             .where(t.c.id == plan_version_id)
-            .values(razorpay_plan_month=month, razorpay_plan_year=year)
+            .values(razorpay_plan_month=month, razorpay_plan_year=year, gateway_kind=gateway_kind)
         )
 
     async def list_models(self) -> list[ModelEntry]:

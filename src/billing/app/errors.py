@@ -26,6 +26,11 @@ class SubscriptionStateError(BillingError):
     title = "This action is not valid in the subscription's current state"
 
 
+class PlanGatewayMismatch(BillingError):
+    code = "PLAN_GATEWAY_MISMATCH"
+    title = "The plan is not set up on the active payment gateway"
+
+
 class ChangePending(BillingError):
     code = "CHANGE_PENDING"
     title = "A plan change is already waiting for authorisation"
