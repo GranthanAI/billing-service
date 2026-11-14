@@ -100,6 +100,9 @@ ENV
   "$PY" scripts/tidy_env.py .env.dev
   echo "created .env.dev"
 fi
+# `.env` mirrors `.env.dev` (both git-ignored), so billing has the same `.env` every other service has. The settings class
+# itself reads the process environment only (this script sources the file); a stray .env never changes what tests see.
+{ echo "# Mirror of .env.dev, rewritten by scripts/dev_up.sh. Edit .env.dev."; cat .env.dev; } > .env
 set -a
 # shellcheck disable=SC1091
 . ./.env.dev
