@@ -89,8 +89,9 @@ MEM_BILLING_TOKEN=$(tok memory)
 SERVICE_TOKEN_KEYS=\${CONV_BILLING_TOKEN},\${FILE_BILLING_TOKEN},\${LLM_BILLING_TOKEN},\${MEM_BILLING_TOKEN}
 ENV
   } > .env.dev
-  # Rule for .env.dev: comments on their own lines only, never after a value (copying `KEY=value  # note` into another
-  # service's .env would make the note part of the token). Move any trailing comment inherited from .env.example.
+  # Rules for .env.dev: comments on their own lines only, never after a value (copying `KEY=value  # note` into another
+  # service's .env would make the note part of the token), and each key exactly once (the generated value, written
+  # last, wins over the .env.example default written first).
   "$PY" scripts/tidy_env.py .env.dev
   echo "created .env.dev"
 fi
