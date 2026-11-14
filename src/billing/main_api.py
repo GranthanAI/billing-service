@@ -215,6 +215,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         with contextlib.suppress(Exception):
             await counters.ensure_scripts_loaded()
         tokens = [t.strip() for t in settings.service_token_keys.split(",")]
+        log.info("service_tokens_loaded", count=len(tokens), lengths=[len(t) for t in tokens])  # never the values
         grpc_server, _ = await start_grpc_server(
             reserve, tokens, settings.grpc_port, production=settings.environment == "production"
         )

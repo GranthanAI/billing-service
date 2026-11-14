@@ -78,13 +78,20 @@ SIM_WEBHOOK_URL=http://127.0.0.1:8080/api/v1/billing/webhooks/razorpay
 # api-gateway sends this as X-Gateway-Secret (its BILLING_GATEWAY_SECRET)
 GATEWAY_SHARED_SECRET=$gw
 # one gRPC service token per calling service (each service puts its own in its .env)
-CONV_BILLING_TOKEN=$(tok conversation)    # conversation-service
-FILE_BILLING_TOKEN=$(tok file)            # file-service
-LLM_BILLING_TOKEN=$(tok llm)              # llm-service (BILLING_SERVICE_TOKEN)
-MEM_BILLING_TOKEN=$(tok memory)           # memory-service
+# conversation-service
+CONV_BILLING_TOKEN=$(tok conversation)
+# file-service
+FILE_BILLING_TOKEN=$(tok file)
+# llm-service (its BILLING_SERVICE_TOKEN)
+LLM_BILLING_TOKEN=$(tok llm)
+# memory-service
+MEM_BILLING_TOKEN=$(tok memory)
 SERVICE_TOKEN_KEYS=\${CONV_BILLING_TOKEN},\${FILE_BILLING_TOKEN},\${LLM_BILLING_TOKEN},\${MEM_BILLING_TOKEN}
 ENV
   } > .env.dev
+  # Rule for .env.dev: comments on their own lines only, never after a value (copying `KEY=value  # note` into another
+  # service's .env would make the note part of the token). Move any trailing comment inherited from .env.example.
+  "$PY" scripts/tidy_env.py .env.dev
   echo "created .env.dev"
 fi
 set -a
@@ -134,9 +141,22 @@ echo "  REST   http://127.0.0.1:$REST_PORT     gRPC 127.0.0.1:$GRPC_PORT_DEV    
 echo "  healthz: $(curl -fsS http://127.0.0.1:$REST_PORT/healthz)"
 echo
 echo "api-gateway   BILLING_GATEWAY_SECRET=$GATEWAY_SHARED_SECRET   BILLING_SERVICE_URL=http://127.0.0.1:$REST_PORT"
-echo "conversation  CONV_BILLING_TOKEN=$CONV_BILLING_TOKEN"
-echo "file          FILE_BILLING_TOKEN=$FILE_BILLING_TOKEN"
-echo "llm           LLM_BILLING_TOKEN=$LLM_BILLING_TOKEN   (BILLING_SERVICE_TOKEN; BILLING_GRPC_TARGET=127.0.0.1:$GRPC_PORT_DEV)"
-echo "memory        MEM_BILLING_TOKEN=$MEM_BILLING_TOKEN"
-echo "all services  BILLING_GRPC_TARGET=127.0.0.1:$GRPC_PORT_DEV   KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092"
+echo "== service token check (GetEntitlements with each token, against the running billing)"
+PYTHONPATH=src "$PY" scripts/check_service_tokens.py || { echo "a service token is NOT accepted: see the lines above and .dev/logs/api.err.log" >&2; exit 1; }
+echo
+echo "Ready-to-paste lines (one value per line, no trailing comment):"
+echo "--- api-gateway .env"
+echo "BILLING_GATEWAY_SECRET=$GATEWAY_SHARED_SECRET"
+echo "BILLING_SERVICE_URL=http://127.0.0.1:$REST_PORT"
+echo "--- conversation-service .env"
+echo "BILLING_SERVICE_TOKEN=$CONV_BILLING_TOKEN"
+echo "--- file-service .env"
+echo "BILLING_SERVICE_TOKEN=$FILE_BILLING_TOKEN"
+echo "--- llm-service .env"
+echo "BILLING_SERVICE_TOKEN=$LLM_BILLING_TOKEN"
+echo "--- memory-service .env"
+echo "BILLING_SERVICE_TOKEN=$MEM_BILLING_TOKEN"
+echo "--- every service"
+echo "BILLING_GRPC_TARGET=127.0.0.1:$GRPC_PORT_DEV"
+echo "KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092"
 echo "logs: .dev/logs/   stop: scripts/dev_down.sh"

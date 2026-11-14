@@ -1,6 +1,6 @@
 export BILLING_MIGRATION_DATABASE_URL ?= postgresql+asyncpg://billing_migrator:billing_migrator@localhost:5433/billing_db
 
-.PHONY: test-fast test-int test-file test-full-bg test-up test-down test-integration test-all audit alerts-check proto-check loadtest topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
+.PHONY: start stop test-fast test-int test-file test-full-bg test-up test-down test-integration test-all audit alerts-check proto-check loadtest topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
 
 sync:
 	uv sync
@@ -111,3 +111,10 @@ PROMTOOL = $(if $(shell which promtool 2>/dev/null),promtool,MSYS_NO_PATHCONV=1 
 alerts-check:
 	$(PROMTOOL) check rules billing-alerts.yml
 	$(PROMTOOL) test rules billing-alerts.test.yml
+
+# Shared dev billing (simulation) on 127.0.0.1:8090 / :50061 / :9100; prints the ready-to-paste .env lines.
+start:
+	bash scripts/dev_up.sh
+
+stop:
+	bash scripts/dev_down.sh
