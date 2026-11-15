@@ -59,6 +59,8 @@ class SyncReport:
     dry_run: bool
     outcomes: list[PlanOutcome] = field(default_factory=list)
     models_changed: int = 0
+    # priced but offered in no plan (allowed: a price can wait for the plan that will offer it)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def gateway_plans_created(self) -> int:
@@ -78,6 +80,7 @@ class SyncReport:
         for o in self.outcomes:
             out.append(prefix + o.line())
             out.extend(f"{prefix}  gateway plan {n}" for n in o.gateway_notes)
+        out.extend(f"{prefix}warning: {w}" for w in self.warnings)
         return out
 
 
@@ -98,7 +101,9 @@ def kind_of_plan_id(plan_id: str | None) -> str | None:
     return "razorpay" if plan_id.startswith("plan_") else None
 
 
-def decide_plan_id(stored_id: str | None, stored_kind: str | None, current_kind: str) -> PlanIdAction:
+def decide_plan_id(
+    stored_id: str | None, stored_kind: str | None, current_kind: str
+) -> PlanIdAction:
     """What to do with one stored gateway plan id (pure; unit-tested)."""
     if not stored_id:
         return PlanIdAction.MISSING
@@ -132,7 +137,11 @@ def _gateway_specs(
                 "checksum": record.checksum,
             },
         )
-        out[interval] = (spec, decide_plan_id(existing, record.gateway_kind, current_kind), existing)
+        out[interval] = (
+            spec,
+            decide_plan_id(existing, record.gateway_kind, current_kind),
+            existing,
+        )
     return out
 
 
@@ -159,6 +168,8 @@ async def sync_catalog(
                 + ", ".join(missing)
                 + " (run `python -m billing.cli pricing seed` or add prices first)"
             )
+        for unoffered in sorted(book.models() - spec.all_models()):
+            report.warnings.append(f"model '{unoffered}' has a price but is offered in no plan")
         current = {(r.plan.plan_code, r.plan.variant): r for r in await uow.plans.all_current()}
         removed = [r for key, r in current.items() if key not in wanted]
         for r in removed:
@@ -203,7 +214,11 @@ async def sync_catalog(
                     str(new_id),
                     f"catalog sync: limits-only change to {block.plan_code}",
                     {"plan_version_id": str(old.plan.id), "limits": asdict(old.plan.limits)},
-                    {"plan_version_id": str(new_id), "plan_code": block.plan_code, "limits": asdict(block.limits)},
+                    {
+                        "plan_version_id": str(new_id),
+                        "plan_code": block.plan_code,
+                        "limits": asdict(block.limits),
+                    },
                 )
 
     async with uow_factory() as uow:
@@ -236,14 +251,19 @@ async def sync_catalog(
         if not specs:
             continue
         outcome = next(o for o in report.outcomes if (o.plan_code, o.variant) == gblock.key)
-        ids: dict[str, str | None] = {"month": rec.razorpay_plan_month, "year": rec.razorpay_plan_year}
+        ids: dict[str, str | None] = {
+            "month": rec.razorpay_plan_month,
+            "year": rec.razorpay_plan_year,
+        }
         changed = False
         for interval, (gspec, action, stored) in specs.items():
             label = f"{rec.plan.plan_code} v{rec.plan.version} {interval}"
             if dry_run:
                 if action is not PlanIdAction.KEEP:
                     outcome.gateway_plans_created += 1
-                    outcome.gateway_notes.append(f"{label}: {action.value} id {stored} -> would create on {gateway.kind}")
+                    outcome.gateway_notes.append(
+                        f"{label}: {action.value} id {stored} -> would create on {gateway.kind}"
+                    )
                 continue
             # KEEP still asks the gateway: ensure_plan returns the existing plan with this checksum + interval
             # (an id that exists is returned unchanged and never rewritten), or creates one if it is gone.
@@ -256,7 +276,9 @@ async def sync_catalog(
             ids[interval], changed = new_id, True
         if changed:
             async with uow_factory() as uow:
-                await uow.plans.set_gateway_plan_ids(rec.plan.id, ids["month"], ids["year"], gateway.kind)
+                await uow.plans.set_gateway_plan_ids(
+                    rec.plan.id, ids["month"], ids["year"], gateway.kind
+                )
     return report
 
 

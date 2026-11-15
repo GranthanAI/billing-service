@@ -103,10 +103,14 @@ async def test_first_sync_creates_everything_second_is_a_noop(fresh_db: FreshDb)
     assert pro.razorpay_plan_month and pro.razorpay_plan_year
     assert (await versions(fresh_db, "free"))[0].razorpay_plan_month is None
 
-    calls_before = len(gw.calls)
+    created_before = (
+        gw.created
+    )  # sync asks the gateway about every plan on every run (G1) but creates none here
     second = await run(fresh_db, gw)
     assert {o.action for o in second.outcomes} == {SyncAction.UNCHANGED}
-    assert gw.created == 4 and len(gw.plans) == 4  # no plan was created again (the sync only confirms the ids it stored)
+    assert (
+        gw.created == 4 and len(gw.plans) == 4
+    )  # no plan was created again (the sync only confirms the ids it stored)
     assert not second.changed
 
 
@@ -250,7 +254,10 @@ async def test_prices_and_fx_are_effective_dated(fresh_db: FreshDb) -> None:
         assert old.for_model("gemini-2.5-flash").input_usd_per_m == Decimal("0.30")
         assert new.for_model("gemini-2.5-flash").input_usd_per_m == Decimal("0.60")
         assert old.for_model("claude-haiku-5-5") == new.for_model("claude-haiku-5-5")
-        assert old.models() == plans.SPEC.all_models()
+        assert plans.SPEC.all_models() <= old.models()  # every offered model is priced
+        assert old.models() - plans.SPEC.all_models() == {
+            "gemini-3.1-pro"
+        }  # priced, offered in no plan: allowed
 
         assert await uow.pricing.fx_at(NOW) == Decimal("95.0000")
         with pytest.raises(NoFxRate):
@@ -377,7 +384,9 @@ async def test_a_label_change_updates_models_without_a_new_plan_version(
     gw = FakeGateway()
     await run(fresh_db, gw)
     versions_before = {c: len(await versions(fresh_db, c)) for c in ("free", "pro", "max")}
-    calls_before = len(gw.calls)
+    created_before = (
+        gw.created
+    )  # sync asks the gateway about every plan on every run (G1) but creates none here
 
     relabelled = TEXT.replace("label: GPT-OSS 20B,", "label: GPT-OSS Twenty-B,")
     assert relabelled != TEXT
@@ -385,7 +394,7 @@ async def test_a_label_change_updates_models_without_a_new_plan_version(
     assert report.models_changed == 1
     assert {o.action for o in report.outcomes} == {SyncAction.UNCHANGED}
     assert {c: len(await versions(fresh_db, c)) for c in ("free", "pro", "max")} == versions_before
-    assert len(gw.calls) == calls_before  # no gateway plan was touched either
+    assert gw.created == created_before  # no new gateway plan either: the existing ones are found
     assert (await models_table(fresh_db))[0][1] == "GPT-OSS Twenty-B"
 
     again = await run(fresh_db, gw, relabelled)
@@ -411,3 +420,24 @@ async def test_default_group_change_is_a_new_version(fresh_db: FreshDb) -> None:
     out = by_label(report)["pro"]
     assert out.action is SyncAction.LIMITS_ONLY and out.version == 2
     assert [r.default_group for r in await versions(fresh_db, "pro")] == ["smart", "fast"]
+
+
+async def test_a_priced_model_that_no_plan_offers_is_a_warning_and_an_unpriced_offered_model_is_an_error(
+    fresh_db: FreshDb,
+) -> None:
+    await seed(fresh_db)
+    report = await run(fresh_db, FakeGateway())
+    assert "warning: model 'gemini-3.1-pro' has a price but is offered in no plan" in report.lines()
+    assert not any(
+        o.action is SyncAction.RETIRED for o in report.outcomes
+    )  # a warning, not a failure
+    unpriced = TEXT.replace(
+        "    - {id: gpt-6-astra,",
+        "    - {id: model-with-no-price, label: X, provider: x}\n    - {id: gpt-6-astra,",
+        1,
+    )
+    assert unpriced != TEXT
+    with pytest.raises(
+        CatalogSyncError, match="no model price is effective now for: model-with-no-price"
+    ):
+        await run(fresh_db, FakeGateway(), unpriced)
