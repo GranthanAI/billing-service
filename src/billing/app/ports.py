@@ -453,6 +453,16 @@ class AccountRepo(Protocol):
 
     async def set_state_code(self, account_id: UUID, code: str) -> None: ...
 
+    async def update_profile(
+        self,
+        account_id: UUID,
+        *,
+        email: str,
+        state_code: str,
+        gstin: str | None,
+        legal_name: str | None,
+    ) -> None: ...
+
     async def set_gstin(
         self, account_id: UUID, gstin: str | None, legal_name: str | None
     ) -> None: ...

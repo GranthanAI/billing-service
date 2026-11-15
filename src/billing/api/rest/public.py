@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from billing.adapters.db.uow import SqlUnitOfWork
 from billing.adapters.ids import Uuid7Generator
+from billing.app.billing_profile import gst_states
 from billing.app.records import PlanVersionRecord
 
 router = APIRouter(prefix="/billing/v1")
@@ -34,6 +35,14 @@ def _plan_json(rec: PlanVersionRecord) -> dict[str, Any]:
         "extra_models": sorted(p.extra_models),
         "limits": asdict(p.limits),
     }
+
+
+@router.get("/gst-states")
+async def gst_states_list() -> JSONResponse:
+    """The GST state codes billing accepts (public; changes almost never, so it is cacheable for a day)."""
+    return JSONResponse(
+        {"states": gst_states()}, headers={"Cache-Control": "public, max-age=86400"}
+    )
 
 
 @router.get("/plans")

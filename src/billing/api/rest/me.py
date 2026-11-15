@@ -5,10 +5,12 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from billing.api.rest.billing import User
 from billing.app.account_views import AccountViews
+from billing.app.billing_profile import BillingProfileService
 from billing.app.errors import NotFound
 
 router = APIRouter(prefix="/billing/v1")
@@ -20,6 +22,33 @@ def _views(request: Request) -> AccountViews:
 
 
 Views = Annotated[AccountViews, Depends(_views)]
+
+
+class ProfileBody(BaseModel):
+    billing_email: str = Field(max_length=254)
+    state_code: str = Field(pattern=r"^\d{2}$")
+    gstin: str | None = Field(default=None, max_length=15)
+    legal_name: str | None = Field(default=None, max_length=200)
+
+
+def _profile(request: Request) -> BillingProfileService:
+    svc: BillingProfileService = request.app.state.profile
+    return svc
+
+
+Profile = Annotated[BillingProfileService, Depends(_profile)]
+
+
+@router.get("/me/billing-profile")
+async def get_billing_profile(user: User, svc: Profile) -> JSONResponse:
+    return JSONResponse((await svc.get(user)).as_json(), headers={"Cache-Control": "no-store"})
+
+
+@router.put("/me/billing-profile")
+async def put_billing_profile(body: ProfileBody, user: User, svc: Profile) -> JSONResponse:
+    """Applies to future invoices only; every invoice keeps the details it was issued with."""
+    saved = await svc.update(user, body.billing_email, body.state_code, body.gstin, body.legal_name)
+    return JSONResponse(saved.as_json())
 
 
 @router.get("/me")

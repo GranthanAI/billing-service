@@ -77,6 +77,22 @@ class SqlAccountRepo:
             values["gstin"] = gstin
         await self._c.execute(sa.update(t).where(t.c.id == account_id).values(**values))
 
+    async def update_profile(
+        self,
+        account_id: UUID,
+        *,
+        email: str,
+        state_code: str,
+        gstin: str | None,
+        legal_name: str | None,
+    ) -> None:
+        """The customer's own change: unlike a checkout it can also clear the GSTIN and the legal name."""
+        await self._c.execute(
+            sa.update(t)
+            .where(t.c.id == account_id)
+            .values(billing_email=email, state_code=state_code, gstin=gstin, legal_name=legal_name)
+        )
+
     async def set_blocked(self, account_id: UUID, reason: str | None, now: datetime) -> None:
         await self._c.execute(
             sa.update(t)

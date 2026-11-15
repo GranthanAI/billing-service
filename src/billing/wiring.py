@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog
 from billing.adapters.storage import InMemoryStorage, S3Storage
 from billing.app.account_views import AccountViews
+from billing.app.billing_profile import BillingProfileService
 from billing.app.admin import AdminService
 from billing.app.catalog_spec import CatalogSpec, PaygSpec
 from billing.app.config import BillingConfig, BillingContext
@@ -146,6 +147,7 @@ def install_billing(
     app.state.uow_factory = bctx.uow_factory
     app.state.gateway = bctx.gateway
     app.state.subscriptions = SubscriptionService(bctx, applier)
+    app.state.profile = BillingProfileService(bctx.uow_factory)
     if views is not None:
         app.state.views = views
     if admin is not None:

@@ -23,6 +23,7 @@ PUBLIC_PATHS = frozenset(
     {
         "/billing/v1/plans",
         "/billing/v1/models",
+        "/billing/v1/gst-states",
         "/billing/v1/webhooks/razorpay",
         "/healthz",
         "/readyz",
