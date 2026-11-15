@@ -11,11 +11,9 @@ up:
 	docker exec -i graphgpt-postgres psql -U postgres < deploy/sql/roles.sql
 	-make topics
 
+# every topic any service produces or consumes: scripts/topics.txt (idempotent)
 topics:
-	@for t in $$(uv run python -m billing.app.topics); do \
-		MSYS_NO_PATHCONV=1 docker exec graphgpt-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
-			--create --if-not-exists --topic $$t --partitions 6 --replication-factor 1; \
-	done
+	bash scripts/topics.sh
 
 db-create:
 	docker exec -i graphgpt-postgres psql -U postgres < deploy/sql/roles.sql

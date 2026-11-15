@@ -1,0 +1,64 @@
+# Every Kafka topic any GranthanAI service produces or consumes. One per line: <topic> | <producer> -> <consumers>.
+# `make topics` (scripts/topics.sh) creates each one if it is missing; existing topics are never touched.
+# Read from each service's own topic settings (auth-service, conversation-service, llm-service, memory-service,
+# file-service, retrieval-service, graph-service, billing-service); embedding, notification and organisation
+# services declare none. When a service adds a topic, add it here in the same change.
+
+# --- auth-service ------------------------------------------------------------------------------------------------------
+auth-logs                          | auth-service -> (audit / log pipeline)
+user-events                        | auth-service -> (downstream user sync)
+user.deleted                       | auth-service -> billing, conversation, file, memory (erase the user's data)
+
+# --- conversation-service ----------------------------------------------------------------------------------------------
+chat.message.created               | conversation-service -> llm-service, memory-service, graph-service
+chat.message.dlq                   | llm-service -> (dead letters of chat.message.created)
+chat.response.completed            | conversation-service -> memory-service (a finished turn)
+conversation.created               | conversation-service -> graph-service
+conversation.updated               | conversation-service -> graph-service
+conversation.deleted               | conversation-service -> graph-service, memory-service
+conversation.title.generated       | conversation-service -> (title updates)
+conversation.summary.generated     | conversation-service -> (summary updates)
+
+# --- llm-service -------------------------------------------------------------------------------------------------------
+chat.response.chunk                | llm-service -> conversation-service (SSE streaming)
+chat.response.generated            | llm-service -> conversation-service, billing-service
+chat.response.cancelled            | llm-service -> conversation-service, billing-service
+memory.update.requested            | llm-service -> memory-service
+artifact.manim.rendered            | llm-service -> billing-service (Manim usage)
+
+# --- memory-service ----------------------------------------------------------------------------------------------------
+memory.summary.request             | memory-service -> memory-service (summary worker)
+memory.fact.request                | memory-service -> memory-service (fact worker)
+memory.embedding.request           | memory-service -> memory-service (embedding worker)
+memory.delete.request              | memory-service -> memory-service (delete worker)
+memory.branch_summary.retry        | memory-service -> memory-service (retry of branch summaries)
+memory.conversation_delete.retry   | memory-service -> memory-service (retry of conversation deletes)
+memory.dlq                         | memory-service -> (dead letters of the memory workers)
+
+# --- file-service / retrieval-service ----------------------------------------------------------------------------------
+minio.object.events                | MinIO -> file-service (upload completed)
+file.uploaded                      | file-service -> retrieval-service
+file.deleted                       | file-service -> retrieval-service
+file.processing_retry              | file-service -> retrieval-service
+file.processing.started            | retrieval-service -> file-service
+file.processing.completed          | retrieval-service -> file-service
+file.processing.failed             | retrieval-service -> file-service
+file.scan_failed                   | file-service -> (security follow-up)
+file.youtube.ingested              | file-service -> billing-service (YouTube usage)
+storage.payment_required           | billing-service -> file-service (storage over the paid limit)
+
+# --- billing-service ---------------------------------------------------------------------------------------------------
+usage.metered                      | llm-service, memory-service -> billing-service (every paid model call)
+usage.threshold_reached            | billing-service -> conversation-service (80% / 100% notices)
+entitlements.changed               | billing-service -> conversation, file, memory, llm (plan limits changed)
+subscription.changed               | billing-service -> (subscribers of plan changes)
+payment.failed                     | billing-service -> (notifications)
+subscription.renewal_upcoming      | billing-service -> (notifications)
+entitlement.personal_plan_redundant | billing-service -> (notifications)
+wallet.credits_expiring            | billing-service -> (notifications)
+invoice.issued                     | billing-service -> (notifications)
+org.member.joined                  | organisation-service -> billing-service
+org.member.left                    | organisation-service -> billing-service
+billing.usage.dlq                  | billing-service -> (dead letters of usage.metered)
+billing.user.dlq                   | billing-service -> (dead letters of user.deleted)
+billing.org.dlq                    | billing-service -> (dead letters of org.member.*)
