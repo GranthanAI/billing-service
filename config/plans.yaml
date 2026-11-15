@@ -1,4 +1,4 @@
-catalog_version: 2026-11-09
+catalog_version: 2026-11-15
 currency: INR
 gst_inclusive: true
 # Each group lists its models in picker order: id, display label, provider.
@@ -112,3 +112,17 @@ plans:
                   {code: ind_999, price: 99900}, {code: ind_1999, price: 199900}]
     org_min_topup: 500000
     credit_validity_months: 12
+    # Pay as you Go is metered by credits, not by caps (plan sheet, Individual Plans / PAYG Prices). -1 = unlimited.
+    limits:
+      messages_per_day: -1
+      best_per_day: -1
+      branches_per_tree: -1
+      messages_per_conversation: -1
+      memory_facts: -1
+      context_tokens: -1               # the model's full window: CheckAndReserve sends max_context_tokens 0 = no cap from billing
+      documents_per_tree: -1
+      file_size_mb: 100
+      youtube_per_month: -1
+      storage_mb: -1                   # billing charges above 10 GB (storage.bill); file-service must not cap
+      custom_modes: -1
+      mode_instruction_chars: 8000

@@ -56,6 +56,7 @@ class PaygSpec:
     topup_packs: tuple[tuple[str, int], ...]
     org_min_topup: int
     credit_validity_months: int
+    limits: Limits  # what a Pay as you Go user gets; the Free limits are NOT inherited
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,7 +192,7 @@ def blocks(spec: CatalogSpec) -> list[PlanBlock]:
             spec.payg.rank,
             None,
             None,
-            spec.base_limits,
+            spec.payg.limits,
             spec.payg.groups,
             (),
             default_group=spec.payg.default_group,

@@ -32,7 +32,7 @@ def checksums(text: str) -> dict[tuple[str, OrgVariant | None], str]:
 
 def test_real_catalog_matches_the_workbook() -> None:
     spec = load_catalog(ROOT / "config" / "plans.yaml")
-    assert spec.catalog_version == "2026-11-09"
+    assert spec.catalog_version == "2026-11-15"
     by = {b.key: b for b in blocks(spec)}
     free, pro, mx = by[("free", None)], by[("pro", None)], by[("max", None)]
     assert (free.price_month, pro.price_month, pro.price_year) == (None, 49900, 499000)
@@ -298,3 +298,48 @@ def test_default_group_joins_the_checksum_but_labels_do_not() -> None:
     moved = checksums(edit(pro + "smart", pro + "fast"))
     assert moved[("pro", None)] != base[("pro", None)]
     assert moved[("max", None)] == base[("max", None)]
+
+
+# --- Pay as you Go limits (plan sheet) -------------------------------------------------------
+
+PAYG_LIMITS = {
+    "messages_per_day": -1, "best_per_day": -1, "branches_per_tree": -1, "messages_per_conversation": -1,
+    "memory_facts": -1, "context_tokens": -1, "documents_per_tree": -1, "file_size_mb": 100,
+    "youtube_per_month": -1, "storage_mb": -1, "custom_modes": -1, "mode_instruction_chars": 8000,
+}
+
+
+def test_payg_limits_match_the_plan_sheet_and_are_not_the_free_limits() -> None:
+    from dataclasses import asdict
+
+    spec = load_catalog(ROOT / "config" / "plans.yaml")
+    payg = {b.key: b for b in blocks(spec)}[("payg", None)]
+    assert asdict(payg.limits) == PAYG_LIMITS
+    assert payg.limits != spec.base_limits
+
+
+def test_payg_without_limits_is_refused() -> None:
+    raw = yaml.safe_load(TEXT)
+    payg = next(p for p in raw["plans"] if p["code"] == "payg")
+    del payg["limits"]
+    with pytest.raises(CatalogError, match="limits"):
+        parse_catalog(raw)
+
+
+def test_payg_limits_are_validated_like_every_other_plan() -> None:
+    raw = yaml.safe_load(TEXT)
+    payg = next(p for p in raw["plans"] if p["code"] == "payg")
+    del payg["limits"]["storage_mb"]
+    with pytest.raises(CatalogError, match="storage_mb"):
+        parse_catalog(raw)
+    payg["limits"]["storage_mb"] = -5
+    with pytest.raises(CatalogError, match="storage_mb"):
+        parse_catalog(raw)
+
+
+def test_context_cap_sent_to_llm_is_zero_when_unlimited() -> None:
+    from billing.app.reserve import _context_cap
+
+    assert _context_cap(-1) == 0
+    assert _context_cap(0) == 0
+    assert _context_cap(64000) == 64000

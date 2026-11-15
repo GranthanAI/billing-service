@@ -47,7 +47,8 @@ resets on the 1st of the next IST month. Clients that do not know value 7 should
    - the **granted** group (`granted_group`), not the requested one: a Max user's 13th Best
      message comes back as `SMART` with `downgraded = true` and
      `message_key = "limit.best_switched"`;
-   - `max_context_tokens` (the plan's reading cap).
+   - `max_context_tokens` (the plan's reading cap; **0 = no cap from billing**, as on Pay as you Go whose `context_tokens` is -1.
+     Pass it through unchanged; `GetEntitlements` still reports -1 and services treat -1 as unlimited).
 4. llm-service generates and publishes `chat.response.generated`. billing turns that into usage
    and commits the hold. conversation-service does nothing more for a successful message.
 5. **If generation fails before any token is produced**, call `Release(user_id, hold_id,

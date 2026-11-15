@@ -10,7 +10,7 @@ grant arrives in the event and the usage goes back in an event.
 ## In: `chat.message.created` 2.4, the `billing` block
 
 See `contracts/conversation-service.md`. Use `granted_group` and `granted_model` (never the
-requested ones), never escalate to a better group, and read at most `max_context_tokens`. With no
+requested ones), never escalate to a better group, and read at most `max_context_tokens`; **`max_context_tokens` 0 (or absent, or negative) means billing sets no cap**: use the model's own window and your own budget (Pay as you Go has unlimited reading). With no
 block, or `granted_group` null, use the legacy routing unchanged.
 
 - `granted_model` set: try that model first, then the rest of **its group**.

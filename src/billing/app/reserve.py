@@ -65,6 +65,11 @@ class CheckAndReserveResult:
     granted_model: str = ""  # only for an explicit model request
 
 
+def _context_cap(context_tokens: int) -> int:
+    """The cap sent to llm-service: 0 = no cap from billing (an unlimited plan means the model's own window)."""
+    return context_tokens if context_tokens > 0 else 0
+
+
 def _deny(reason: DenyReason, ent: Entitlement | None = None) -> CheckAndReserveResult:
     return CheckAndReserveResult(
         allowed=False,
@@ -206,7 +211,7 @@ class ReserveService:
             hold_id=res.hold_id,
             granted_group=granted,
             downgraded=res.downgraded,
-            max_context_tokens=limits.context_tokens,
+            max_context_tokens=_context_cap(limits.context_tokens),
             billing_account_id=ent.grant.billing_account_id,
             hold_expires_at_unix=int((now + timedelta(seconds=self._hold_ttl)).timestamp()),
             remaining_today=-1 if limit < 0 else max(0, limit - res.total),
@@ -273,7 +278,7 @@ class ReserveService:
             allowed=True,
             hold_id=res.hold_id,
             granted_group=ModelGroup(res.field) if req.kind is ReserveKind.MESSAGE else None,
-            max_context_tokens=ent.limits.context_tokens,
+            max_context_tokens=_context_cap(ent.limits.context_tokens),
             billing_account_id=wallet,
             hold_expires_at_unix=int((now + timedelta(seconds=self._hold_ttl)).timestamp()),
             remaining_today=-1,

@@ -70,6 +70,7 @@ class _Payg(_Strict):
     topup_packs: list[dict[str, Any]]
     org_min_topup: StrictInt
     credit_validity_months: StrictInt
+    limits: dict[str, Any]  # required: payg must not fall back to the Free limits
 
 
 def _check(model: type[BaseModel], raw: object, where: str) -> Any:
@@ -199,6 +200,7 @@ def parse_catalog(raw: object) -> CatalogSpec:
                 topup_packs=tuple((str(t["code"]), int(t["price"])) for t in p.topup_packs),
                 org_min_topup=p.org_min_topup,
                 credit_validity_months=p.credit_validity_months,
+                limits=_limits(p.limits, where),
             )
             continue
 
