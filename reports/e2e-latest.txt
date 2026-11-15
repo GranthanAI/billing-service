@@ -1,0 +1,81 @@
+e2e run 2026-11-15 20:04:52  scenarios: 5  real model calls allowed: 3
+
+=== s01 Free: 25 messages a day, the 26th says limit.daily
+--- 26 explicit Fast reserves
+PASS s01 Free: 25 messages a day, the 26th says limit.daily: 25 reserves allowed (= 25)
+PASS s01 Free: 25 messages a day, the 26th says limit.daily: the 26th is refused with message_key limit.daily
+PASS s01 Free: 25 messages a day, the 26th says limit.daily: today's counter is 25 (the refused one is not counted) (= 25)
+PASS s01 Free: 25 messages a day, the 26th says limit.daily: the Free plan says 25 a day (= 25)
+--- reconciliation (today, else yesterday), then the ledger balance
+PASS s01 Free: 25 messages a day, the 26th says limit.daily: the ledger balances (reconciliation check ledger: ok, difference 0)
+NOTE reconciliation provider_cost: error, difference 0: {'error': "DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) cannot call jsonb_each_text on a non-object\n[SQL: \n            WITH r AS (SELECT * FROM 
+NOTE reconciliation valkey_counters: difference, difference 26: {'off': {'2ef8a9d6-fbd5-4794-9e7a-3cd94c10485e': {'fast': -2}, '32080122-edfc-49d1-aaf0-88b7b57face3': {'fast': -18}, 'f3c8ecc8-1c21-46fe-afe8-11f5f902f9e0': {'
+cleanup: deleted e2e_free_179475329324177@example.com (204)
+RESULT s01 Free: 25 messages a day, the 26th says limit.daily PASS (5 passed, 0 failed)
+
+=== s02 Free -> Pro: checkout, SI invoice, the picker shows Smart
+PASS s02 Free -> Pro: checkout, SI invoice, the picker shows Smart: starts on Free
+PASS s02 Free -> Pro: checkout, SI invoice, the picker shows Smart: checkout to pro through the simulator
+PASS s02 Free -> Pro: checkout, SI invoice, the picker shows Smart: Pro is active
+PASS s02 Free -> Pro: checkout, SI invoice, the picker shows Smart: the invoice is from the simulated series (SI/...)
+PASS s02 Free -> Pro: checkout, SI invoice, the picker shows Smart: every Smart model is included on Pro
+PASS s02 Free -> Pro: checkout, SI invoice, the picker shows Smart: Advanced shows 5 a day on Pro
+--- reconciliation (today, else yesterday), then the ledger balance
+PASS s02 Free -> Pro: checkout, SI invoice, the picker shows Smart: the ledger balances (reconciliation check ledger: ok, difference 0)
+NOTE reconciliation provider_cost: error, difference 0: {'error': "DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) cannot call jsonb_each_text on a non-object\n[SQL: \n            WITH r AS (SELECT * FROM 
+NOTE reconciliation valkey_counters: difference, difference 26: {'off': {'2ef8a9d6-fbd5-4794-9e7a-3cd94c10485e': {'fast': -2}, '32080122-edfc-49d1-aaf0-88b7b57face3': {'fast': -18}, 'f3c8ecc8-1c21-46fe-afe8-11f5f902f9e0': {'
+cleanup: deleted e2e_upgrade_17947533064424@example.com (204)
+RESULT s02 Free -> Pro: checkout, SI invoice, the picker shows Smart PASS (7 passed, 0 failed)
+
+=== s05 Renewal fails -> past_due -> recovers
+PASS s05 Renewal fails -> past_due -> recovers: checkout to pro through the simulator
+--- the next charge fails
+PASS s05 Renewal fails -> past_due -> recovers: the subscription is past_due (= past_due)
+PASS s05 Renewal fails -> past_due -> recovers: a Pay now link is offered
+PASS s05 Renewal fails -> past_due -> recovers: the plan limits are still served during the grace period
+--- the next charge succeeds
+PASS s05 Renewal fails -> past_due -> recovers: active again (= active)
+PASS s05 Renewal fails -> past_due -> recovers: still on Pro (= pro)
+--- reconciliation (today, else yesterday), then the ledger balance
+PASS s05 Renewal fails -> past_due -> recovers: the ledger balances (reconciliation check ledger: ok, difference 0)
+NOTE reconciliation provider_cost: error, difference 0: {'error': "DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) cannot call jsonb_each_text on a non-object\n[SQL: \n            WITH r AS (SELECT * FROM 
+NOTE reconciliation valkey_counters: difference, difference 26: {'off': {'2ef8a9d6-fbd5-4794-9e7a-3cd94c10485e': {'fast': -2}, '32080122-edfc-49d1-aaf0-88b7b57face3': {'fast': -18}, 'f3c8ecc8-1c21-46fe-afe8-11f5f902f9e0': {'
+cleanup: deleted e2e_renewfail_17947533242430@example.com (204)
+cleanup: deleted e2e_staff_17947533279959@example.com (204)
+RESULT s05 Renewal fails -> past_due -> recovers PASS (7 passed, 0 failed)
+
+=== s23 30 messages a minute: the 31st says limit.per_minute
+PASS s23 30 messages a minute: the 31st says limit.per_minute: checkout to pro through the simulator
+--- a burst at the start of a clock minute
+PASS s23 30 messages a minute: the 31st says limit.per_minute: 30 reserves allowed in the minute (= 30)
+PASS s23 30 messages a minute: the 31st says limit.per_minute: the 31st is refused with limit.per_minute
+PASS s23 30 messages a minute: the 31st says limit.per_minute: the refused one used no daily message (= 30)
+--- the next minute is allowed again
+PASS s23 30 messages a minute: the 31st says limit.per_minute: a reserve in the next minute is allowed
+--- reconciliation (today, else yesterday), then the ledger balance
+PASS s23 30 messages a minute: the 31st says limit.per_minute: the ledger balances (reconciliation check ledger: ok, difference 0)
+NOTE reconciliation provider_cost: error, difference 0: {'error': "DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) cannot call jsonb_each_text on a non-object\n[SQL: \n            WITH r AS (SELECT * FROM 
+NOTE reconciliation valkey_counters: difference, difference 26: {'off': {'2ef8a9d6-fbd5-4794-9e7a-3cd94c10485e': {'fast': -2}, '32080122-edfc-49d1-aaf0-88b7b57face3': {'fast': -18}, 'f3c8ecc8-1c21-46fe-afe8-11f5f902f9e0': {'
+cleanup: deleted e2e_perminute_179475339931465@example.com (204)
+RESULT s23 30 messages a minute: the 31st says limit.per_minute PASS (6 passed, 0 failed)
+
+=== s24 Unavailable model -> 409 model.unavailable
+PASS s24 Unavailable model -> 409 model.unavailable: me/models: Claude Haiku 5.5 is included but available=false
+PASS s24 Unavailable model -> 409 model.unavailable: me/models: GPT-OSS 120B is available
+PASS s24 Unavailable model -> 409 model.unavailable: the send is refused with 409 (= 409)
+PASS s24 Unavailable model -> 409 model.unavailable: message_key model.unavailable with the model name
+PASS s24 Unavailable model -> 409 model.unavailable: nothing was persisted
+PASS s24 Unavailable model -> 409 model.unavailable: no message was counted (= 0)
+--- reconciliation (today, else yesterday), then the ledger balance
+PASS s24 Unavailable model -> 409 model.unavailable: the ledger balances (reconciliation check ledger: ok, difference 0)
+NOTE reconciliation provider_cost: error, difference 0: {'error': "DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) cannot call jsonb_each_text on a non-object\n[SQL: \n            WITH r AS (SELECT * FROM 
+NOTE reconciliation valkey_counters: difference, difference 26: {'off': {'2ef8a9d6-fbd5-4794-9e7a-3cd94c10485e': {'fast': -2}, '32080122-edfc-49d1-aaf0-88b7b57face3': {'fast': -18}, 'f3c8ecc8-1c21-46fe-afe8-11f5f902f9e0': {'
+cleanup: deleted e2e_unavailable_17947534901014@example.com (204)
+RESULT s24 Unavailable model -> 409 model.unavailable PASS (7 passed, 0 failed)
+
+=== summary
+RESULT s01 Free: 25 messages a day, the 26th says limit.daily PASS (5 passed, 0 failed)  (13s)
+RESULT s02 Free -> Pro: checkout, SI invoice, the picker shows Smart PASS (7 passed, 0 failed)  (17s)
+RESULT s05 Renewal fails -> past_due -> recovers PASS (7 passed, 0 failed)  (76s)
+RESULT s23 30 messages a minute: the 31st says limit.per_minute PASS (6 passed, 0 failed)  (90s)
+RESULT s24 Unavailable model -> 409 model.unavailable PASS (7 passed, 0 failed)  (14s)
