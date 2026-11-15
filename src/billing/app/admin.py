@@ -88,6 +88,14 @@ class AdminService:
             raise NotFound("account not found")
         return detail
 
+    async def model_prices(self) -> list[dict[str, Any]]:
+        async with self._uow() as uow:
+            return await uow.admin.model_price_history()
+
+    async def fx_rates(self) -> list[dict[str, Any]]:
+        async with self._uow() as uow:
+            return await uow.admin.fx_rate_history()
+
     async def costs(self, start: date, end: date, by: str) -> list[dict[str, Any]]:
         if by not in ("plan", "provider", "user"):
             raise ValidationFailed("by must be plan, provider or user")

@@ -107,6 +107,7 @@ class SqlAdminRepo:
         revenue_paise = int(revenue[0]["revenue_paise"])
         return {
             "account": accounts[0],
+            "overrides": await self.overrides_for(account_id),
             "subscriptions": subs,
             "history": history,
             "payments": payments,
@@ -161,6 +162,28 @@ class SqlAdminRepo:
             """,
             s=start,
             e=end,
+        )
+
+    async def model_price_history(self) -> list[dict[str, Any]]:
+        """Every effective-dated price row, newest first (history is never edited, only added to)."""
+        return await self._all(
+            "SELECT model, provider, model_group::text AS model_group, input_usd_per_m, cached_input_usd_per_m, "
+            "output_usd_per_m, effective_from FROM billing.model_prices ORDER BY model, effective_from DESC"
+        )
+
+    async def fx_rate_history(self) -> list[dict[str, Any]]:
+        return await self._all(
+            "SELECT effective_from, usd_inr, source FROM billing.fx_rates ORDER BY effective_from DESC"
+        )
+
+    async def overrides_for(self, account_id: UUID) -> list[dict[str, Any]]:
+        """The owner's plan overrides (a user's own, an organisation's), newest first."""
+        return await self._all(
+            "SELECT o.id, pv.plan_code, o.reason, o.starts_at, o.expires_at, o.ended_at "
+            "FROM billing.plan_overrides o JOIN billing.plan_versions pv ON pv.id = o.plan_version_id "
+            "JOIN billing.billing_accounts a ON a.owner_type = o.owner_type AND a.owner_id = o.owner_id "
+            "WHERE a.id = :a ORDER BY o.created_at DESC LIMIT 50",
+            a=account_id,
         )
 
     async def latest_reconciliation(self, run_date: date) -> list[dict[str, Any]]:

@@ -121,6 +121,16 @@ async def account(account_id: UUID, _: Reader, svc: Svc) -> JSONResponse:
     return _json(await svc.account(account_id))
 
 
+@router.get("/model-prices")
+async def list_model_prices(_: Reader, svc: Svc) -> JSONResponse:
+    return _json({"prices": await svc.model_prices()})
+
+
+@router.get("/fx-rates")
+async def list_fx_rates(_: Reader, svc: Svc) -> JSONResponse:
+    return _json({"rates": await svc.fx_rates()})
+
+
 @router.get("/costs")
 async def costs(
     _: Reader,

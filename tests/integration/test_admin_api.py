@@ -476,3 +476,18 @@ async def test_a_monthly_payment_refund_is_booked_against_revenue(env: Env) -> N
         )
     }
     assert "revenue:subscription" in codes and "liability:deferred_revenue" not in codes
+
+
+async def test_price_and_fx_histories_and_the_overrides_in_the_account_detail(env: Env) -> None:
+    await env.activate()
+    account = await env.scalar("SELECT id FROM billing.billing_accounts")
+    async with env.api() as http:
+        prices = await http.get(f"{ADMIN}/model-prices", headers=staff("support", key=False))
+        assert prices.status_code == 200 and isinstance(prices.json()["prices"], list)
+        fx = await http.get(f"{ADMIN}/fx-rates", headers=staff("support", key=False))
+        assert fx.status_code == 200 and isinstance(fx.json()["rates"], list)
+        assert (await http.get(f"{ADMIN}/model-prices")).status_code == 401  # staff only
+        detail = (
+            await http.get(f"{ADMIN}/accounts/{account}", headers=staff("support", key=False))
+        ).json()
+        assert detail["overrides"] == []
