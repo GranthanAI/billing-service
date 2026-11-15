@@ -39,6 +39,7 @@ from billing.api.rest.public import router as public_router
 from billing.api.rest.sim import install_sim_routes
 from billing.api.rest.wallet import router as wallet_router
 from billing.api.rest.webhooks import router as webhook_router
+from billing.app.model_availability import ModelAvailability
 from billing.app.account_views import AccountViews
 from billing.app.admin import AdminService
 from billing.app.catalog_admin import CatalogAdminService
@@ -141,6 +142,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             month_ttl=settings.month_counter_ttl_seconds,
         )
         clock, ids = SystemClock(), Uuid7Generator()
+        availability = ModelAvailability(client)
 
         def uow_factory() -> SqlUnitOfWork:
             return SqlUnitOfWork(owned_engine, ids, clock)
@@ -231,10 +233,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             payg=payg_prices(settings),
             gst_registered=settings.gst_registered,
             max_messages_per_minute=messages_per_minute(settings),
+            availability=availability,
         )
         app.state.valkey, app.state.counters, app.state.reserve = client, counters, reserve
         app.state.picker = ModelPicker(
-            uow_factory, entitlements, counters, clock, payg_enabled=settings.payg_enabled
+            uow_factory,
+            entitlements,
+            counters,
+            clock,
+            payg_enabled=settings.payg_enabled,
+            availability=availability,
         )
         with contextlib.suppress(Exception):
             await counters.ensure_scripts_loaded()

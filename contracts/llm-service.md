@@ -25,6 +25,13 @@ block, or `granted_group` null, use the legacy routing unchanged.
 - Models are named by the catalog IDs of `GET /billing/v1/models`, never by provider strings, in
   events and APIs. Models with no price in billing stay legacy-only.
 
+## Provided: `GET /internal/models/availability`
+
+Header `X-Service-Token` (setting `INTERNAL_SERVICE_TOKEN`; empty = the route refuses). Not routed by the gateway.
+Answers `{"models":[{"id","available","reason"}],"checked_at"}` for every registry model: available = enabled AND provider
+credentials present AND an adapter AND the breaker not open; `reason` is `disabled | no_credentials | no_adapter |
+breaker_open` (empty when available). billing-service polls it every 5 minutes (plan 4.6.1).
+
 ## Out: `chat.response.generated` 2.2 and `chat.response.cancelled`
 
 Added fields (all optional for old consumers):

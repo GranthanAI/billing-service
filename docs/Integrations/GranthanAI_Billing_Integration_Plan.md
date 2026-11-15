@@ -310,6 +310,20 @@ Emitted through the outbox in the same transaction as the change, for every user
 
 Allowed-but-downgraded responses carry `notice_key: "limit.best_switched"` ("Today's Advanced answers are used, so this one comes from a Smart model.").
 
+### 4.6.1 Model availability (billing <-> llm-service)
+
+llm-service has no keys for some providers in some environments, so billing must not offer models that cannot answer.
+- `GET {LLM_SERVICE_URL}/internal/models/availability` (header `X-Service-Token`; never routed by the gateway) answers
+  `{"models":[{"id","available","reason"}],"checked_at"}`. A model is available when it is enabled in `models.yaml`, its
+  provider has credentials, an adapter exists and its circuit breaker is not open. `reason` is `disabled`, `no_credentials`,
+  `no_adapter` or `breaker_open`.
+- The billing worker job `models.availability` (every 5 minutes, and on the first tick after a start) copies the unavailable ids into
+  Valkey (`billing:models:unavailable`, TTL 15 minutes) and sets the gauge `billing_models_unavailable`.
+- `GET /billing/v1/models` and `/billing/v1/me/models` add `"available": bool` per model. **No data = fail open** (true).
+- `CheckAndReserve` with an explicit model that is unavailable: deny `model_not_in_plan`, `message_key` `model.unavailable`,
+  message "{model} isn't available right now. Please pick another model." conversation-service answers **409** (not 429)
+  and nothing is reserved, so nothing silently answers with a different model.
+
 ### 4.7 Entitlement distribution
 
 - **Read path:** services call `GetEntitlements(user_id)` and cache the result **per user for 60 s** (in process, or in their own Redis).

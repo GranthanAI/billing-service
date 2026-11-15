@@ -42,6 +42,8 @@ from billing.jobs.handlers import email as email_jobs  # noqa: F401  (registers 
 from billing.jobs.handlers import entitlements as entitlement_jobs  # noqa: F401
 from billing.jobs.handlers import finance as finance_jobs
 from billing.jobs.handlers import holds as holds_job
+from billing.jobs.handlers import availability as availability_job
+from billing.app.model_availability import ModelAvailability
 from billing.jobs.handlers import invoices as invoice_jobs  # noqa: F401  (registers handlers)
 from billing.jobs.handlers import lifecycle as lifecycle_jobs
 from billing.jobs.handlers import orgs as org_jobs
@@ -72,6 +74,7 @@ log = structlog.get_logger()
 SCHEDULE: tuple[Recurring, ...] = (
     partitions_job.SCHEDULE,
     holds_job.SCHEDULE,
+    availability_job.SCHEDULE,
     billing_jobs.SCHEDULE,
     usage_jobs.SCHEDULE,
     *lifecycle_jobs.SCHEDULES,
@@ -140,6 +143,7 @@ async def run_worker(
     user_consumer: bool = True,
     org_consumer: bool = True,
 ) -> None:
+    availability_job.URL.update(base=settings.llm_service_url, token=settings.llm_service_token)
     check_simulation_allowed(settings.payment_simulation, settings.environment)
     require_codecs()  # fail fast: gzip, snappy, lz4 and zstd must all be readable
     email = make_email_sender(settings, SystemClock())  # refuses an unsafe EMAIL_MODE
@@ -269,6 +273,7 @@ async def run_worker(
                 orgs=org_directory,
                 email=email,
                 storage=storage,
+                availability=ModelAvailability(valkey_client),
             ),
             concurrency=settings.job_concurrency,
         )

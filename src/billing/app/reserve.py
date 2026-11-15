@@ -14,6 +14,7 @@ from uuid import UUID
 from opentelemetry import trace
 
 from billing.app.entitlements import EntitlementService, ModelCatalog
+from billing.app.model_availability import ModelAvailability
 from billing.app.ports import Clock, Counters, IdGenerator, ReserveArgs
 from billing.domain.catalog import DenyReason, ModelGroup, PaygPrices, ReserveKind
 from billing.domain.entitlements import Entitlement, GrantSource
@@ -72,11 +73,20 @@ def _context_cap(context_tokens: int) -> int:
     return context_tokens if context_tokens > 0 else 0
 
 
-def _deny(reason: DenyReason, ent: Entitlement | None = None) -> CheckAndReserveResult:
+MODEL_UNAVAILABLE_KEY = "model.unavailable"
+
+
+def model_unavailable_message(model: str) -> str:
+    return f"{model} isn't available right now. Please pick another model."
+
+
+def _deny(
+    reason: DenyReason, ent: Entitlement | None = None, message_key: str = ""
+) -> CheckAndReserveResult:
     return CheckAndReserveResult(
         allowed=False,
         deny_reason=reason,
-        message_key=MESSAGE_KEYS[reason],
+        message_key=message_key or MESSAGE_KEYS[reason],
         billing_account_id=ent.grant.billing_account_id if ent else None,
     )
 
@@ -95,7 +105,9 @@ class ReserveService:
         no_credit_fast_per_day: int = NO_CREDIT_FAST_PER_DAY,
         gst_registered: bool = True,
         max_messages_per_minute: int = DEFAULT_MESSAGES_PER_MINUTE,
+        availability: ModelAvailability | None = None,
     ) -> None:
+        self._availability = availability  # None / no data: every model counts as available
         self._per_minute = max_messages_per_minute  # < 0 switches the limit off
         self._registered = gst_registered
         self._ent = entitlements
@@ -164,6 +176,14 @@ class ReserveService:
 
         limits = ent.limits
         best_limit = -1
+        if (
+            req.kind is ReserveKind.MESSAGE
+            and req.requested_model
+            and self._availability is not None
+            and not await self._availability.is_available(req.requested_model)
+        ):
+            # an explicit model that cannot answer: refuse, so nothing silently answers with a different model
+            return _deny(DenyReason.MODEL_NOT_IN_PLAN, ent, MODEL_UNAVAILABLE_KEY)
         if req.kind is ReserveKind.MESSAGE:
             field = await self._field_for_message(ent, req)
             if field is None:

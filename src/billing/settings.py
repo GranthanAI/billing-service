@@ -71,6 +71,9 @@ class Settings(BaseSettings):
 
     payment_gateway: Literal["razorpay", "fake"] = "razorpay"
     payg_enabled: bool = False
+    # llm-service, for GET /internal/models/availability (models.availability job). Empty URL = the job does nothing.
+    llm_service_url: str = ""
+    llm_service_token: str = ""
     plans_file: str = "/app/config/plans.yaml"
     grace_days: int = 3
     # When set, the grace period is this many seconds and GRACE_DAYS is ignored (simulation runs).

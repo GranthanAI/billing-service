@@ -47,6 +47,7 @@ class JobContext:
     orgs: OrgDirectory | None = None
     email: EmailSender | None = None
     storage: ObjectStorage | None = None
+    availability: Any = None  # ModelAvailability (models.availability job)
     last_attempt: bool = False  # set per run by the runner: no retry follows a failure of this run
 
 

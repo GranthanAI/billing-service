@@ -45,7 +45,7 @@ async def test_models_list_etag_and_304(stack: Stack, hot: FreshDb) -> None:
     async with client_for(stack, hot) as http:
         r = await http.get("/billing/v1/models")  # public: no header
         assert r.status_code == 200
-        assert r.headers["cache-control"] == "public, max-age=300"
+        assert r.headers["cache-control"] == "public, max-age=60"
         models = r.json()["models"]
         assert len(models) == 10
         assert models[0] == {
@@ -54,6 +54,7 @@ async def test_models_list_etag_and_304(stack: Stack, hot: FreshDb) -> None:
             "provider": "groq",
             "group": "fast",
             "sort_order": 0,
+            "available": True,
         }
         assert [m["sort_order"] for m in models] == list(range(10))
         assert {m["group"] for m in models} == {"fast", "smart", "best", "ultra"}

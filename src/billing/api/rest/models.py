@@ -22,7 +22,7 @@ async def list_models(request: Request) -> Response:
     models = await _picker(request).all_models()
     body = json.dumps({"models": models}, separators=(",", ":"), sort_keys=True)
     etag = '"' + hashlib.sha256(body.encode()).hexdigest() + '"'
-    headers = {"ETag": etag, "Cache-Control": "public, max-age=300"}
+    headers = {"ETag": etag, "Cache-Control": "public, max-age=60"}
     candidates = [
         t.strip().removeprefix("W/") for t in request.headers.get("if-none-match", "").split(",")
     ]

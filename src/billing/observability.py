@@ -65,6 +65,9 @@ RESERVE_DURATION = Histogram(
 RESERVE_DOWNGRADED = Counter(
     "billing_reserve_downgraded_total", "Best requests served as Smart", ["plan"]
 )
+MODELS_UNAVAILABLE = Gauge(
+    "billing_models_unavailable", "Catalog models llm-service reports it cannot answer right now"
+)
 HOLDS_OPEN = Gauge("billing_holds_open", "Open holds (ZCARD holds:due)")
 HOLDS_EXPIRED = Counter("billing_holds_expired_total", "Holds the sweeper expired", ["mode"])
 RELEASE_TOTAL = Counter("billing_release_total", "Release calls that gave a unit back", ["reason"])

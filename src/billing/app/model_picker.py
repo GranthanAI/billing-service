@@ -39,6 +39,7 @@ class ModelPicker:
         clock: Clock,
         *,
         payg_enabled: bool = False,
+        availability: Any = None,
         ttl_seconds: float = 60.0,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -47,6 +48,7 @@ class ModelPicker:
         self._counters = counters
         self._clock = clock
         self._payg = payg_enabled
+        self._availability = availability
         self._ttl = ttl_seconds
         self._monotonic = monotonic
         self._snap: _Snapshot | None = None
@@ -73,8 +75,15 @@ class ModelPicker:
             self._loaded_at = self._monotonic()
         return self._snap
 
+    async def _down(self) -> dict[str, str]:
+        """Unavailable model ids; empty when there is no data (fail open)."""
+        if self._availability is None:
+            return {}
+        return await self._availability.unavailable() or {}
+
     async def all_models(self) -> list[dict[str, Any]]:
         snap = await self._snapshot()
+        down = await self._down()
         return [
             {
                 "id": m.id,
@@ -82,6 +91,7 @@ class ModelPicker:
                 "provider": m.provider,
                 "group": m.group.value,
                 "sort_order": m.sort_order,
+                "available": m.id not in down,
             }
             for m in snap.models
         ]
@@ -94,6 +104,7 @@ class ModelPicker:
 
     async def for_user(self, user_id: UUID) -> dict[str, Any]:
         snap = await self._snapshot()
+        down = await self._down()
         ent = await self._ent.resolve(user_id)
         now: datetime = self._clock.now()
         counts = await self._counters.day_counts(user_id, ist_day(now))
@@ -143,6 +154,7 @@ class ModelPicker:
                     "label": m.label,
                     "provider": m.provider,
                     "allowed": plan_allows or by_credits or m.id in ent.extra_models,
+                    "available": m.id not in down,
                 }
                 for m in snap.models
                 if m.group is group
