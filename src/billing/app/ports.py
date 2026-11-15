@@ -311,6 +311,14 @@ class Hold:
 class Counters(Protocol):
     async def reserve(self, args: ReserveArgs) -> ReserveResult: ...
 
+    async def rate_check(self, user_id: UUID, request_key: str, now: datetime, limit: int) -> bool:
+        """Per-minute message limit: True = allowed and counted, False = over it (no count)."""
+        ...
+
+    async def rate_release(self, user_id: UUID, request_key: str, now: datetime) -> None:
+        """Undo rate_check for a request that was refused afterwards for another reason."""
+        ...
+
     async def commit(
         self,
         user_id: UUID,

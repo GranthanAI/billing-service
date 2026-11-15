@@ -46,6 +46,7 @@ class DenyReason(StrEnum):
     SPEND_CAP = "spend_cap"
     MEMBER_SPEND_CAP = "member_spend_cap"
     ACCOUNT_BLOCKED = "account_blocked"
+    RATE_LIMIT = "rate_limit"  # too many messages in one minute (every plan)
 
 
 class PlanNotSoldForInterval(Exception):

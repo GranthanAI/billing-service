@@ -42,6 +42,14 @@ def payg_prices(s: Settings) -> PaygPrices | None:
     )
 
 
+def messages_per_minute(s: Settings) -> int:
+    """MAX_MESSAGES_PER_MINUTE, else the catalog's payg.max_messages_per_minute, else 30."""
+    if s.max_messages_per_minute is not None:
+        return s.max_messages_per_minute
+    spec = _payg_spec(s)
+    return spec.max_messages_per_minute if spec else 30
+
+
 def config_from_settings(s: Settings) -> BillingConfig:
     spec = _payg_spec(s)
     wallet: dict[str, Any] = (

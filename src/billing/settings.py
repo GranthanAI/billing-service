@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     razorpay_total_count_month: int = Field(120, ge=1)
     razorpay_total_count_year: int = Field(10, ge=1)
     hold_ttl_seconds: int = 600
+    # Messages one user may send per minute, every plan. Unset = the catalog value (payg.max_messages_per_minute, 30); -1 = off.
+    max_messages_per_minute: int | None = Field(None, ge=-1)
     day_counter_ttl_seconds: int = 172_800
     month_counter_ttl_seconds: int = 40 * 86_400
     grpc_port: int = 50061  # not 50051: memory-service owns that port on the shared dev machine

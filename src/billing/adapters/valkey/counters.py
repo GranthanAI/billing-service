@@ -14,7 +14,8 @@ from billing.domain.catalog import DenyReason, ModelGroup, ReserveKind
 from billing.domain.money import Paise
 from billing.observability import HOLDS_EXPIRED
 
-SCRIPT_NAMES = ("reserve.lua", "commit.lua", "release.lua", "wallet_sync.lua")
+SCRIPT_NAMES = ("reserve.lua", "commit.lua", "release.lua", "wallet_sync.lua", "rate.lua")
+RATE_TTL_SECONDS = 70
 
 
 def load_script(name: str) -> str:
@@ -64,6 +65,7 @@ class ValkeyCounters:
         self._commit = client.register_script(self._sources["commit.lua"])
         self._release = client.register_script(self._sources["release.lua"])
         self._wallet_sync = client.register_script(self._sources["wallet_sync.lua"])
+        self._rate = client.register_script(self._sources["rate.lua"])
 
     async def ensure_scripts_loaded(self) -> bool:
         """SCRIPT LOAD all three; True when the server now has every one of them."""
@@ -110,6 +112,21 @@ class ValkeyCounters:
             ],
         )
         return parse_reserve(raw, a.kind)
+
+    # --- per-minute message limit --------------------------------------------------------
+
+    async def rate_check(self, user_id: UUID, request_key: str, now: datetime, limit: int) -> bool:
+        """Count a message in the user's minute; False = over the limit (nothing consumed)."""
+        allowed = await self._rate(
+            keys=[keys.minute_counter(user_id, now), keys.minute_seen(user_id, request_key)],
+            args=[limit, RATE_TTL_SECONDS],
+        )
+        return int(allowed) == 1
+
+    async def rate_release(self, user_id: UUID, request_key: str, now: datetime) -> None:
+        """Give the minute back: the request was then refused for another reason."""
+        if int(await aw(self._c.delete(keys.minute_seen(user_id, request_key)))) == 1:
+            await aw(self._c.decr(keys.minute_counter(user_id, now)))
 
     # --- commit / release ----------------------------------------------------------------
 

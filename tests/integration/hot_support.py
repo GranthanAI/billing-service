@@ -43,7 +43,9 @@ def make_stack(hot: FreshDb, vk: valkey_asyncio.Valkey, clock: Clock | None = No
 
     counters = ValkeyCounters(vk)
     ent = EntitlementService(uow_factory, ValkeyEntitlementCache(vk), clock)
-    reserve = ReserveService(ent, ModelCatalog(uow_factory, clock), counters, clock, ids)
+    reserve = ReserveService(  # the per-minute limit has its own tests (tests/unit/test_rate_limit.py)
+        ent, ModelCatalog(uow_factory, clock), counters, clock, ids, max_messages_per_minute=-1
+    )
     return Stack(reserve, ent, counters, hot, vk, clock, calls)
 
 

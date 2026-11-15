@@ -68,6 +68,7 @@ from billing.wiring import (
     make_context,
     make_org_directory,
     make_storage,
+    messages_per_minute,
     payg_prices,
 )
 
@@ -207,6 +208,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             hold_ttl_seconds=settings.hold_ttl_seconds,
             payg=payg_prices(settings),
             gst_registered=settings.gst_registered,
+            max_messages_per_minute=messages_per_minute(settings),
         )
         app.state.valkey, app.state.counters, app.state.reserve = client, counters, reserve
         app.state.picker = ModelPicker(

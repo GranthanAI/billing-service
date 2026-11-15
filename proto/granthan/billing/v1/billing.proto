@@ -34,6 +34,7 @@ enum DenyReason {
   DENY_REASON_SPEND_CAP = 5;
   DENY_REASON_ACCOUNT_BLOCKED = 6;
   DENY_REASON_MEMBER_SPEND_CAP = 7;  // an organisation's per-member monthly limit
+  DENY_REASON_RATE_LIMIT = 8;        // more than MAX_MESSAGES_PER_MINUTE messages in a minute (added later: old callers see an unknown value)
 }
 
 message CheckAndReserveRequest {

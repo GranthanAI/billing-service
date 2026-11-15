@@ -36,7 +36,9 @@ MESSAGE_KEYS = {
     DenyReason.SPEND_CAP: "credits.spend_cap",
     DenyReason.MEMBER_SPEND_CAP: "credits.member_cap",
     DenyReason.ACCOUNT_BLOCKED: "account.blocked",
+    DenyReason.RATE_LIMIT: "limit.per_minute",
 }
+DEFAULT_MESSAGES_PER_MINUTE = 30  # the catalog (payg.max_messages_per_minute) is the default source
 BEST_SWITCHED_KEY = "limit.best_switched"
 
 
@@ -66,7 +68,7 @@ class CheckAndReserveResult:
 
 
 def _context_cap(context_tokens: int) -> int:
-    """The cap sent to llm-service: 0 = no cap from billing (an unlimited plan means the model's own window)."""
+    """The cap sent to llm-service: 0 = no cap from billing (the model's own window)."""
     return context_tokens if context_tokens > 0 else 0
 
 
@@ -92,7 +94,9 @@ class ReserveService:
         payg: PaygPrices | None = None,
         no_credit_fast_per_day: int = NO_CREDIT_FAST_PER_DAY,
         gst_registered: bool = True,
+        max_messages_per_minute: int = DEFAULT_MESSAGES_PER_MINUTE,
     ) -> None:
+        self._per_minute = max_messages_per_minute  # < 0 switches the limit off
         self._registered = gst_registered
         self._ent = entitlements
         self._catalog = catalog
@@ -136,6 +140,25 @@ class ReserveService:
         return req.requested_group.value if req.requested_group in ent.allowed_groups else None
 
     async def _decide(self, req: CheckAndReserveRequest, ent: Entitlement) -> CheckAndReserveResult:
+        """The per-minute safety limit first (every plan), then the plan / credits decision.
+
+        A message refused by the minute limit consumes no daily count and no hold; one refused
+        later gives its minute back."""
+        if ent.account_blocked or req.kind is not ReserveKind.MESSAGE or self._per_minute < 0:
+            return await self._decide_plan(req, ent)
+        now = self._clock.now()
+        if not await self._counters.rate_check(
+            req.user_id, req.idempotency_key, now, self._per_minute
+        ):
+            return _deny(DenyReason.RATE_LIMIT, ent)
+        result = await self._decide_plan(req, ent)
+        if not result.allowed:
+            await self._counters.rate_release(req.user_id, req.idempotency_key, now)
+        return result
+
+    async def _decide_plan(
+        self, req: CheckAndReserveRequest, ent: Entitlement
+    ) -> CheckAndReserveResult:
         if ent.account_blocked:
             return _deny(DenyReason.ACCOUNT_BLOCKED, ent)
 

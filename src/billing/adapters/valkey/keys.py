@@ -55,6 +55,16 @@ def member_month(wallet_account: str, uid: UUID, now: datetime) -> str:
     return f"mtdm:{{{wallet_account}}}:{uid}:{ist_month_key(now)}"
 
 
+def minute_counter(uid: UUID, now: datetime) -> str:
+    """Messages one user attempted in one clock minute (INCR, 70 s TTL)."""
+    return f"rl:{{{uid}}}:m:{now:%Y%m%d%H%M}"
+
+
+def minute_seen(uid: UUID, key: str) -> str:
+    """Marks a request id as counted, so a retry of it is not counted twice."""
+    return f"rl:{{{uid}}}:i:{key}"
+
+
 def threshold(uid: UUID, limit: str, period: str, percent: int) -> str:
     return f"thr:{{{uid}}}:{limit}:{period}:{percent}"
 

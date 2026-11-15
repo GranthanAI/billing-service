@@ -74,6 +74,8 @@ class _DenyReasonEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_DenyReason
     DENY_REASON_ACCOUNT_BLOCKED: _DenyReason.ValueType  # 6
     DENY_REASON_MEMBER_SPEND_CAP: _DenyReason.ValueType  # 7
     """an organisation's per-member monthly limit"""
+    DENY_REASON_RATE_LIMIT: _DenyReason.ValueType  # 8
+    """more than MAX_MESSAGES_PER_MINUTE messages in a minute (added later: old callers see an unknown value)"""
 
 class DenyReason(_DenyReason, metaclass=_DenyReasonEnumTypeWrapper): ...
 
@@ -86,6 +88,8 @@ DENY_REASON_SPEND_CAP: DenyReason.ValueType  # 5
 DENY_REASON_ACCOUNT_BLOCKED: DenyReason.ValueType  # 6
 DENY_REASON_MEMBER_SPEND_CAP: DenyReason.ValueType  # 7
 """an organisation's per-member monthly limit"""
+DENY_REASON_RATE_LIMIT: DenyReason.ValueType  # 8
+"""more than MAX_MESSAGES_PER_MINUTE messages in a minute (added later: old callers see an unknown value)"""
 Global___DenyReason: _TypeAlias = DenyReason  # noqa: Y015
 
 @_typing.final
