@@ -32,17 +32,18 @@ def checksums(text: str) -> dict[tuple[str, OrgVariant | None], str]:
 
 def test_real_catalog_matches_the_workbook() -> None:
     spec = load_catalog(ROOT / "config" / "plans.yaml")
-    assert spec.catalog_version == "2026-11-15"
+    assert spec.catalog_version == "2026-11-16-lineup-v2"
     by = {b.key: b for b in blocks(spec)}
     free, pro, mx = by[("free", None)], by[("pro", None)], by[("max", None)]
     assert (free.price_month, pro.price_month, pro.price_year) == (None, 49900, 499000)
     assert (mx.price_month, mx.price_year) == (149900, 1499000)
     assert [b.limits.messages_per_day for b in (free, pro, mx)] == [25, 60, 80]
-    assert mx.limits.best_per_day == 12
+    assert [b.limits.best_per_day for b in (free, pro, mx)] == [0, 5, 15]
     assert [b.limits.context_tokens for b in (free, pro, mx)] == [16000, 64000, 128000]
     assert [b.limits.youtube_per_month for b in (free, pro, mx)] == [3, 20, 60]
     assert mx.limits.branches_per_tree == -1
-    assert free.extra_models == ("openai/gpt-oss-120b",)
+    assert free.extra_models == ("openai/gpt-oss-120b", "claude-haiku-5-5", "gpt-6-luna")
+    assert "gpt-6-astra" not in spec.all_models()  # priced, but not offered
     assert set(by) >= {
         ("org_pro", OrgVariant.COLLEGE),
         ("org_pro", OrgVariant.COMPANY),
@@ -59,7 +60,7 @@ def test_seed_prices_cover_exactly_the_catalog_models() -> None:
     seed = load_model_prices(ROOT / "config" / "seed" / "model_prices.yaml")
     # Every catalog model has a price. Price rows may exist for models that are deliberately not listed yet:
     # gemini-3.1-pro (preview only at Google; re-add it to plans.yaml when a GA id exists, no new price needed).
-    unlisted_but_priced = {"gemini-3.1-pro"}
+    unlisted_but_priced = {"gemini-3.1-pro", "gpt-6-astra"}
     assert {p.model for p in seed} - unlisted_but_priced == spec.all_models()
     assert unlisted_but_priced <= {p.model for p in seed}
     group_of = spec.group_of()
@@ -145,7 +146,7 @@ def test_price_book_membership() -> None:
         ),
         # 3. best_per_day <= messages_per_day
         (
-            "      messages_per_day: 60\n",
+            "      best_per_day: 5\n",
             "      messages_per_day: 60\n      best_per_day: 99\n",
             "plan 'pro': best_per_day (99) must not exceed messages_per_day (60)",
         ),
@@ -169,12 +170,12 @@ def test_price_book_membership() -> None:
             "model 'claude-haiku-5-5' is in more than one group (fast, smart)",
         ),
         (
-            "extra: [openai/gpt-oss-120b]",
+            "extra: [openai/gpt-oss-120b, claude-haiku-5-5, gpt-6-luna]",
             "extra: [not-a-model]",
             "plan 'free': extra model 'not-a-model' is not in any model group",
         ),
         (
-            "models: {groups: [fast, smart]}\n    limits: &pro_limits",
+            "models: {groups: [fast, smart, best]}\n    limits: &pro_limits",
             "models: {groups: [fast, nope]}\n    limits: &pro_limits",
             "plan 'pro': unknown model group 'nope'",
         ),
@@ -184,9 +185,9 @@ def test_price_book_membership() -> None:
             "model_groups: unknown model group 'turbo'",
         ),
         (
-            "label: GPT-6 Astra,           provider: openai",
-            "label: '',                    provider: openai",
-            "model 'gpt-6-astra' needs a label and a provider",
+            "label: Claude Opus 5.5,       provider: anthropic",
+            "label: '',                    provider: anthropic",
+            "model 'claude-opus-5-5' needs a label and a provider",
         ),
         (
             "    default_group: fast\n",
@@ -263,7 +264,7 @@ def test_checksum_changes_on_price_and_limit_edits() -> None:
     groups = checksums(
         edit(
             "default_group: smart\n    prices: {month: 49900, year: 499000}\n"
-            "    models: {groups: [fast, smart]}",
+            "    models: {groups: [fast, smart, best]}",
             "default_group: fast\n    prices: {month: 49900, year: 499000}\n"
             "    models: {groups: [fast]}",
         )
@@ -274,9 +275,9 @@ def test_checksum_changes_on_price_and_limit_edits() -> None:
 
 def test_models_keep_picker_order_with_labels_and_providers() -> None:
     entries = parse(TEXT).model_entries()
-    assert [e.sort_order for e in entries] == list(range(11))
+    assert [e.sort_order for e in entries] == list(range(10))
     groups = [e.group.value for e in entries]
-    assert groups == ["fast"] * 2 + ["smart"] * 5 + ["best"] * 2 + ["ultra"] * 2
+    assert groups == ["fast"] * 2 + ["smart"] * 5 + ["best"] * 2 + ["ultra"]
     first = entries[0]
     assert (first.id, first.label, first.provider) == ("openai/gpt-oss-20b", "GPT-OSS 20B", "groq")
     assert entries[5].id == "gemini-3.1-flash-lite" and entries[5].provider == "google"

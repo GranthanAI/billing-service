@@ -271,12 +271,14 @@ class ModelCatalog:
         self._ttl = ttl_seconds
         self._monotonic = monotonic
         self._groups: dict[str, ModelGroup] = {}
+        self._offered: list[tuple[str, ModelGroup]] = []
         self._loaded_at = float("-inf")
 
     async def _fresh(self) -> dict[str, ModelGroup]:
         if self._monotonic() - self._loaded_at >= self._ttl:
             async with self._uow() as uow:
                 self._groups = await uow.pricing.model_groups_at(self._clock.now())
+                self._offered = [(m.id, m.group) for m in await uow.plans.list_models()]
             self._loaded_at = self._monotonic()
         return self._groups
 
@@ -285,6 +287,12 @@ class ModelCatalog:
 
     async def exists(self, model: str) -> bool:
         return model in await self._fresh()
+
+    async def offered(self) -> list[tuple[str, ModelGroup]]:
+        """The models the catalog offers (the picker list, in picker order). A priced model that no
+        plan offers (gpt-6-astra, gemini-3.1-pro) is not in it."""
+        await self._fresh()
+        return list(self._offered)
 
     async def models(self) -> dict[str, ModelGroup]:
         return dict(await self._fresh())

@@ -47,7 +47,7 @@ async def test_models_list_etag_and_304(stack: Stack, hot: FreshDb) -> None:
         assert r.status_code == 200
         assert r.headers["cache-control"] == "public, max-age=300"
         models = r.json()["models"]
-        assert len(models) == 11
+        assert len(models) == 10
         assert models[0] == {
             "id": "openai/gpt-oss-20b",
             "label": "GPT-OSS 20B",
@@ -55,7 +55,7 @@ async def test_models_list_etag_and_304(stack: Stack, hot: FreshDb) -> None:
             "group": "fast",
             "sort_order": 0,
         }
-        assert [m["sort_order"] for m in models] == list(range(12))
+        assert [m["sort_order"] for m in models] == list(range(10))
         assert {m["group"] for m in models} == {"fast", "smart", "best", "ultra"}
         etag = r.headers["etag"]
         again = await http.get("/billing/v1/models", headers={"If-None-Match": etag})
@@ -79,10 +79,10 @@ async def test_me_models_for_a_free_user(stack: Stack, hot: FreshDb) -> None:
     fast, smart = group(body, "fast"), group(body, "smart")
     assert fast["allowed"] and all(m["allowed"] for m in fast["models"])
     assert "upgrade_to" not in fast
-    assert not smart["allowed"] and smart["upgrade_to"] == "pro"
+    assert smart["allowed"] and smart["upgrade_to"] == "pro"  # three Smart models are included, the rest is on Pro
     allowed_smart = {m["id"] for m in smart["models"] if m["allowed"]}
-    assert allowed_smart == {"openai/gpt-oss-120b"}  # Free's one extra model
-    assert group(body, "best")["upgrade_to"] == "max"
+    assert allowed_smart == {"openai/gpt-oss-120b", "claude-haiku-5-5", "gpt-6-luna"}
+    assert group(body, "best")["upgrade_to"] == "pro"
     assert group(body, "best")["daily_limit"] == 0
     assert group(body, "ultra")["upgrade_to"] is None  # no individual plan has it, no PAYG yet
 
@@ -101,13 +101,13 @@ async def test_me_models_for_max_counts_best_down(stack: Stack, hot: FreshDb) ->
         assert body["plan"] == {"code": "max", "source": "override"}
         assert body["default_group"] == "smart"
         best = group(body, "best")
-        assert best["allowed"] and (best["daily_limit"], best["remaining_today"]) == (12, 12)
+        assert best["allowed"] and (best["daily_limit"], best["remaining_today"]) == (15, 15)
         assert all(m["allowed"] for m in best["models"])
         assert group(body, "smart")["remaining_today"] == 80
 
         await stack.reserve.check_and_reserve(msg(uid, group=ModelGroup.BEST))
         body = (await http.get("/billing/v1/me/models", headers=headers)).json()
-        assert group(body, "best")["remaining_today"] == 11
+        assert group(body, "best")["remaining_today"] == 14
         assert body["messages"]["used_today"] == 1
         assert body["messages"]["remaining_today"] == 79
         assert group(body, "smart")["remaining_today"] == 79
@@ -121,7 +121,7 @@ async def test_best_remaining_never_exceeds_the_daily_remainder(stack: Stack, ho
         await stack.reserve.check_and_reserve(msg(uid, group=ModelGroup.SMART))
     async with client_for(stack, hot) as http:
         r = await http.get("/billing/v1/me/models", headers={"X-User-Id": str(uid)})
-    assert group(r.json(), "best")["remaining_today"] == 1  # 12 Best left, but only 1 message
+    assert group(r.json(), "best")["remaining_today"] == 1  # 15 Advanced left, but only 1 message
 
 
 async def test_me_models_needs_a_user(stack: Stack, hot: FreshDb) -> None:

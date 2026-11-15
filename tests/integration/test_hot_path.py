@@ -81,21 +81,24 @@ async def test_idempotent_retry_and_retry_after_upgrade(
     assert retry.allowed and retry.max_context_tokens == 64000
 
 
-async def test_max_users_13th_best_is_served_as_smart(
+async def test_max_users_16th_advanced_is_served_as_smart(
     hot: FreshDb, vk: valkey_asyncio.Valkey
 ) -> None:
     stack = make_stack(hot, vk)
     uid = await make_user(hot, "max")
-    for _ in range(12):
+    for _ in range(15):
         r = await stack.reserve.check_and_reserve(msg(uid, group=ModelGroup.BEST))
         assert r.allowed and r.granted_group is ModelGroup.BEST and not r.downgraded
-    r13 = await stack.reserve.check_and_reserve(msg(uid, group=ModelGroup.BEST))
-    assert r13.allowed and r13.granted_group is ModelGroup.SMART and r13.downgraded
-    assert r13.message_key == "limit.best_switched"
-    assert r13.max_context_tokens == 128000 and r13.funded_by == "plan"
+    r16 = await stack.reserve.check_and_reserve(msg(uid, group=ModelGroup.BEST))
+    assert r16.allowed and r16.granted_group is ModelGroup.SMART and r16.downgraded
+    assert r16.message_key == "limit.best_switched"
+    explicit = await stack.reserve.check_and_reserve(msg(uid, group=None, model="claude-sonnet-5-5"))
+    assert explicit.allowed and explicit.downgraded and explicit.granted_group is ModelGroup.SMART
+    assert explicit.granted_model not in ("claude-sonnet-5-5", "gpt-6.1-sol")  # a Smart model, or empty
+    assert r16.max_context_tokens == 128000 and r16.funded_by == "plan"
     counts = await stack.counters.day_counts(uid, ist_day(stack.clock.now()))
-    assert (counts["best"], counts["smart"], counts["total"]) == (12, 1, 13)
-    assert r13.remaining_today == 80 - 13
+    assert (counts["best"], counts["smart"], counts["total"]) == (15, 2, 17)
+    assert r16.remaining_today == 80 - 16
 
 
 async def test_free_plan_models(hot: FreshDb, vk: valkey_asyncio.Valkey) -> None:
@@ -109,8 +112,8 @@ async def test_free_plan_models(hot: FreshDb, vk: valkey_asyncio.Valkey) -> None
     assert best.message_key == "plan.model_not_included"
     unknown = await stack.reserve.check_and_reserve(msg(uid, group=None, model="no-such-model"))
     assert unknown.deny_reason is DenyReason.MODEL_NOT_IN_PLAN
-    smart_model = await stack.reserve.check_and_reserve(msg(uid, group=None, model="gpt-6-luna"))
-    assert smart_model.deny_reason is DenyReason.MODEL_NOT_IN_PLAN  # smart group, not extra
+    smart_model = await stack.reserve.check_and_reserve(msg(uid, group=None, model="gemini-2.5-flash"))
+    assert smart_model.deny_reason is DenyReason.MODEL_NOT_IN_PLAN  # a Smart model Free does not include
     assert await total(stack, uid) == 1  # denies never touch the counters
     auto = await stack.reserve.check_and_reserve(msg(uid, group=None))  # no group, no model: Auto
     assert auto.allowed and auto.granted_group is ModelGroup.FAST  # Free's default group
@@ -328,7 +331,7 @@ async def test_auto_uses_the_plan_default_group_and_never_spends_best(
     hot: FreshDb, vk: valkey_asyncio.Valkey
 ) -> None:
     stack = make_stack(hot, vk)
-    uid = await make_user(hot, "max")  # Max: 80 a day, 12 Best; its Auto group is Smart
+    uid = await make_user(hot, "max")  # Max: 80 a day, 15 Advanced; its Auto group is Smart
     for _ in range(30):
         r = await stack.reserve.check_and_reserve(msg(uid, group=None))
         assert r.allowed and r.granted_group is ModelGroup.SMART and not r.downgraded

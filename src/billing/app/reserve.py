@@ -239,8 +239,25 @@ class ReserveService:
             hold_expires_at_unix=int((now + timedelta(seconds=self._hold_ttl)).timestamp()),
             remaining_today=-1 if limit < 0 else max(0, limit - res.total),
             funded_by="plan",
-            granted_model=req.requested_model if req.kind is ReserveKind.MESSAGE else "",
+            granted_model=await self._granted_model(req, ent, res.downgraded),
         )
+
+    async def _granted_model(
+        self, req: CheckAndReserveRequest, ent: Entitlement, downgraded: bool
+    ) -> str:
+        """The model the plan answers with. A downgraded request (the Advanced allowance is used up)
+        must never keep the Advanced model it named: it gets the first Smart model the plan includes,
+        or "" (llm-service picks inside the granted group) when there is none."""
+        if req.kind is not ReserveKind.MESSAGE:
+            return ""
+        if not downgraded:
+            return req.requested_model
+        for model, group in await self._catalog.offered():
+            if group is ModelGroup.SMART and (
+                ModelGroup.SMART in ent.allowed_groups or model in ent.extra_models
+            ):
+                return model
+        return ""
 
     async def _group_of_request(self, req: CheckAndReserveRequest) -> ModelGroup | None:
         if req.requested_model:
@@ -323,6 +340,8 @@ class ReserveService:
 
     async def allowed_models(self, ent: Entitlement) -> list[str]:
         """Every priced model in the plan's groups, plus its extra models."""
-        by_model = await self._catalog.models()
-        names = {m for m, g in by_model.items() if g in ent.allowed_groups} | set(ent.extra_models)
+        offered = await self._catalog.offered()
+        if not offered:  # no picker list yet: every priced model in the plan's groups
+            offered = list((await self._catalog.models()).items())
+        names = {m for m, g in offered if g in ent.allowed_groups} | set(ent.extra_models)
         return sorted(names)

@@ -298,7 +298,7 @@ Emitted through the outbox in the same transaction as the change, for every user
 | `billing_unavailable` | 503 | `billing.degraded` | Only Fast models are available for a few minutes. Please try again shortly. |
 | `plan_limit` (non-counter limits, 4.8) | 403 | `limit.<name>` (for example `limit.branches_per_tree`) | "<What> limit for your plan reached. Upgrade to add more." |
 
-Allowed-but-downgraded responses carry `notice_key: "limit.best_switched"` ("You've used today's Best-model messages, so this answer uses a Smart model.").
+Allowed-but-downgraded responses carry `notice_key: "limit.best_switched"` ("Today's Advanced answers are used, so this one comes from a Smart model.").
 
 ### 4.7 Entitlement distribution
 

@@ -23,19 +23,19 @@ async def test_free_user_flag_on_sees_payg_for_ultra_and_max_for_best(env: Env) 
     assert body["plan"] == {"code": "free", "source": "free"}
     ultra, best = group(body, "ultra"), group(body, "best")
     assert (ultra["allowed"], ultra["upgrade_to"]) == (False, "payg")
-    assert (best["allowed"], best["upgrade_to"]) == (False, "max")  # the lowest plan with Best
+    assert (best["allowed"], best["upgrade_to"]) == (False, "pro")  # the lowest plan with Advanced
     assert "funded_by" not in ultra and "funded_by" not in best
-    assert all(m["allowed"] is False for m in ultra["models"]) and len(ultra["models"]) == 2
+    assert all(m["allowed"] is False for m in ultra["models"]) and len(ultra["models"]) == 1
     fast, smart = group(body, "fast"), group(body, "smart")
     assert fast["allowed"] is True and "upgrade_to" not in fast
-    assert (smart["allowed"], smart["upgrade_to"]) == (False, "pro")  # Free has Fast only
+    assert (smart["allowed"], smart["upgrade_to"]) == (True, "pro")  # Free: Fast, plus three Smart models
 
 
 async def test_free_user_flag_off_is_unchanged(env: Env) -> None:
     body = await picker(env, payg=False).for_user(env.user)
     ultra, best = group(body, "ultra"), group(body, "best")
     assert (ultra["allowed"], ultra["upgrade_to"]) == (False, None)
-    assert (best["allowed"], best["upgrade_to"]) == (False, "max")
+    assert (best["allowed"], best["upgrade_to"]) == (False, "pro")
 
 
 async def test_pro_user_with_credits_sees_ultra_funded_by_credits(env: Env) -> None:
@@ -56,7 +56,7 @@ async def test_pro_user_with_credits_sees_ultra_funded_by_credits(env: Env) -> N
     assert ultra["allowed"] is True and ultra["funded_by"] == "credits"
     assert ultra["daily_limit"] == -1 and ultra["remaining_today"] == -1
     assert "upgrade_to" not in ultra
-    assert [m["allowed"] for m in ultra["models"]] == [True, True]
+    assert [m["allowed"] for m in ultra["models"]] == [True]
     smart = group(body, "smart")
     assert smart["allowed"] is True and "funded_by" not in smart  # the plan's own groups
 

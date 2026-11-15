@@ -1,4 +1,4 @@
-catalog_version: 2026-11-15
+catalog_version: 2026-11-16-lineup-v2
 currency: INR
 gst_inclusive: true
 # Each group lists its models in picker order: id, display label, provider.
@@ -20,7 +20,7 @@ model_groups:
     # price row stays in config/seed/model_prices.yaml, so re-adding needs no new price.
   ultra:
     - {id: claude-opus-5-5,       label: Claude Opus 5.5,       provider: anthropic}
-    - {id: gpt-6-astra,           label: GPT-6 Astra,           provider: openai}
+    # gpt-6-astra is not offered: it is removed from this group, but its price row stays in config/seed/model_prices.yaml.
 
 base_limits: &free_limits
   messages_per_day: 25
@@ -40,17 +40,18 @@ plans:
   - code: free
     rank: 0
     default_group: fast
-    models: {groups: [fast], extra: [openai/gpt-oss-120b]}
+    models: {groups: [fast], extra: [openai/gpt-oss-120b, claude-haiku-5-5, gpt-6-luna]}
     limits: *free_limits
 
   - code: pro
     rank: 1
     default_group: smart
     prices: {month: 49900, year: 499000}
-    models: {groups: [fast, smart]}
+    models: {groups: [fast, smart, best]}
     limits: &pro_limits
       <<: *free_limits
       messages_per_day: 60
+      best_per_day: 5
       branches_per_tree: 200
       messages_per_conversation: 200
       memory_facts: 500
@@ -70,7 +71,7 @@ plans:
     limits: &max_limits
       <<: *pro_limits
       messages_per_day: 80
-      best_per_day: 12
+      best_per_day: 15
       branches_per_tree: -1
       messages_per_conversation: 500
       memory_facts: 2000
@@ -86,8 +87,8 @@ plans:
     default_group: smart
     org_only: true
     variants:
-      college: {min_seats: 50, prices: {year: 298800}, limits: {<<: *pro_limits, messages_per_day: 30}}
-      company: {min_seats: 5,  prices: {year: 838800}, limits: *pro_limits}
+      college: {min_seats: 50, prices: {year: 298800}, limits: {<<: *pro_limits, messages_per_day: 30, best_per_day: 0}}
+      company: {min_seats: 5,  prices: {year: 838800}, limits: {<<: *pro_limits, best_per_day: 0}}
     models: {groups: [fast, smart]}
 
   - code: org_max                      # v2
@@ -96,7 +97,7 @@ plans:
     org_only: true
     variants:
       college: {min_seats: 10, prices: {year: 1198800}, limits: {<<: *max_limits, messages_per_day: 50, best_per_day: 8}}
-      company: {min_seats: 5,  prices: {year: 2158800}, limits: *max_limits}
+      company: {min_seats: 5,  prices: {year: 2158800}, limits: {<<: *max_limits, best_per_day: 12}}
     models: {groups: [fast, smart, best]}
 
   - code: payg                         # v3

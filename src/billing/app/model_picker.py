@@ -116,7 +116,11 @@ class ModelPicker:
         for group in ModelGroup:
             plan_allows = group in ent.allowed_groups
             by_credits = not plan_allows and has_credits and group in snap.payg_groups
-            allowed = plan_allows or by_credits
+            # a group the plan lacks can still hold extra models the plan includes (Free: three Smart models)
+            has_extra = not plan_allows and any(
+                m.id in ent.extra_models for m in snap.models if m.group is group
+            )
+            allowed = plan_allows or by_credits or has_extra
             entry: dict[str, Any] = {"group": group.value, "allowed": allowed}
             if by_credits:
                 entry.update(daily_limit=UNLIMITED, remaining_today=UNLIMITED, funded_by="credits")
@@ -131,12 +135,14 @@ class ModelPicker:
                 )
             else:  # the other groups share the daily total
                 entry.update(daily_limit=limits.messages_per_day, remaining_today=left_total)
+            if has_extra:  # the models the plan lacks in this group are on a bigger plan
+                entry["upgrade_to"] = self._upgrade_to(group, snap)
             entry["models"] = [
                 {
                     "id": m.id,
                     "label": m.label,
                     "provider": m.provider,
-                    "allowed": allowed or m.id in ent.extra_models,
+                    "allowed": plan_allows or by_credits or m.id in ent.extra_models,
                 }
                 for m in snap.models
                 if m.group is group
