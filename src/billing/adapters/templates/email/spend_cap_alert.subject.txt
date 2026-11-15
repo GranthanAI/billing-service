@@ -1,0 +1,1 @@
+{% if percent >= 100 %}You've reached your monthly spend cap{% else %}You've used {{ percent }}% of your monthly spend cap{% endif %}

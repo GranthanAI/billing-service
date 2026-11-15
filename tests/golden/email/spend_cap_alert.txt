@@ -1,0 +1,14 @@
+GranthanAI
+
+
+You have spent ₹399.20 of your ₹499.00 monthly spend cap on GranthanAI credits (80%).
+
+When the cap is reached, messages that use credits pause until it resets on 1 Dec 2026 (IST).
+
+Change your cap: https://app.granthan.ai/settings/billing
+
+--
+Billing account: ada@example.com
+Questions? Write to support@granthan.ai.
+You're receiving this because you have a GranthanAI billing account.
+

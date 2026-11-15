@@ -1,0 +1,7 @@
+{% extends "email/_layout.html" %}
+{% block content %}
+<h2 style="font-size:18px;margin:0 0 12px 0;">{% if percent >= 100 %}You've reached your monthly spend cap{% else %}You've used {{ percent }}% of your monthly spend cap{% endif %}</h2>
+<p>You have spent <strong>{{ used_paise|inr }}</strong> of your <strong>{{ cap_paise|inr }}</strong> monthly spend cap on GranthanAI credits.</p>
+{% if percent >= 100 %}<p>Messages that use credits are paused until the cap resets on {{ resets_at|ist_date }} (IST), or until you raise the cap.</p>{% else %}<p>When the cap is reached, messages that use credits pause until it resets on {{ resets_at|ist_date }} (IST).</p>{% endif %}
+<p><a href="{{ billing_url }}">Change your cap</a></p>
+{% endblock %}

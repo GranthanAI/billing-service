@@ -28,6 +28,7 @@ TEMPLATES = (
     "subscription_cancelled",
     "refund_issued",
     "credits_expiring",
+    "spend_cap_alert",
 )
 
 

@@ -211,6 +211,7 @@ async def run_worker(
             youtube_ingest_cost_inr=settings.youtube_ingest_cost_inr,
             payg=payg_prices(settings) or NO_PAYG,
             gst_registered=settings.gst_registered,
+            config=bctx.config,
         )
         all_consumers.append(
             make_usage_consumer(

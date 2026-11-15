@@ -1,0 +1,8 @@
+{% include "email/_top.txt" %}
+
+You have spent {{ used_paise|inr }} of your {{ cap_paise|inr }} monthly spend cap on GranthanAI credits ({{ percent }}%).
+
+{% if percent >= 100 %}Messages that use credits are paused until the cap resets on {{ resets_at|ist_date }} (IST), or until you raise the cap.{% else %}When the cap is reached, messages that use credits pause until it resets on {{ resets_at|ist_date }} (IST).{% endif %}
+
+Change your cap: {{ billing_url }}
+{% include "email/_footer.txt" %}

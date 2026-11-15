@@ -40,6 +40,9 @@ DATA: dict[str, dict[str, Any]] = {
         "amount_paise": 24950, "credit_note_id": "x", "credit_note_number": "CN/2627/000001",
     },
     "credits_expiring": {"remaining_paise": 199000, "expires_at": "2027-10-31T18:30:00+00:00"},
+    "spend_cap_alert": {
+        "percent": 80, "used_paise": 39920, "cap_paise": 49900, "resets_at": "2026-11-30T18:30:00+00:00",
+    },
 }  # fmt: skip
 
 

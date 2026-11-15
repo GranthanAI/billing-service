@@ -18,6 +18,8 @@ from uuid import UUID
 import structlog
 from opentelemetry import trace
 
+from billing.app.billing_emails import enqueue_email, iso
+from billing.app.config import BillingConfig
 from billing.app.entitlements import EntitlementService
 from billing.app.events import UsageThresholdReachedEvent
 from billing.app.ports import Clock, Counters, Hold, UnitOfWork
@@ -145,7 +147,9 @@ class UsageService:
         youtube_ingest_cost_inr: Decimal = Decimal("0.30"),
         payg: PaygPrices = NO_PAYG,
         gst_registered: bool = True,
+        config: BillingConfig | None = None,
     ) -> None:
+        self._config = config  # for the spend-cap alert email; None = no emails
         self._registered = gst_registered
         self._uow = uow_factory
         self._ent = entitlements
@@ -446,7 +450,17 @@ class UsageService:
                 ("youtube_per_month", counts.get("youtube", 0), limits.youtube_per_month,
                  local.strftime("%Y%m"), nxt.replace(second=0, microsecond=0))
             )  # fmt: skip
+        if rec.charged > 0:  # credits were spent: how close is the monthly spend cap?
+            wallet = await self._counters.wallet_get(rec.account_id)
+            cap = wallet.get("cap", UNLIMITED)
+            if cap > 0:
+                local = ev.occurred_at.astimezone(IST)
+                nxt = (local.replace(day=1) + timedelta(days=32)).replace(
+                    day=1, hour=0, minute=0, second=0, microsecond=0
+                )
+                checks.append(("spend_cap", wallet.get("mtd", 0), cap, local.strftime("%Y%m"), nxt))
         fired: list[UsageThresholdReachedEvent] = []
+        spend_alerts: list[tuple[str, UsageThresholdReachedEvent]] = []
         for limit, used, allowed, period, resets in checks:
             if allowed == UNLIMITED or allowed <= 0:
                 continue
@@ -456,12 +470,30 @@ class UsageService:
                 ttl = int((resets - self._clock.now()).total_seconds()) + 3600
                 key = f"thr:{{{ev.user_id}}}:{limit}:{period}:{percent}"
                 if await self._counters.set_once(key, ttl):
-                    fired.append(
-                        UsageThresholdReachedEvent(
-                            ev.user_id, rec.account_id, limit, percent, used, allowed, resets
-                        )
+                    event = UsageThresholdReachedEvent(
+                        ev.user_id, rec.account_id, limit, percent, used, allowed, resets
                     )
+                    fired.append(event)
+                    if limit == "spend_cap":
+                        spend_alerts.append((period, event))
         if fired:
             async with self._uow() as uow:
                 for event in fired:
                     await uow.publisher.enqueue(event)
+                if self._config is not None and spend_alerts:
+                    account = await uow.accounts.get(rec.account_id)
+                    for period, event in spend_alerts:
+                        await enqueue_email(
+                            uow,
+                            self._config,
+                            "spend_cap_alert",
+                            f"{rec.account_id}:{period}:{event.percent}",
+                            account,
+                            {
+                                "percent": event.percent,
+                                "used_paise": event.used,
+                                "cap_paise": event.allowed,
+                                "resets_at": iso(event.resets_at),
+                            },
+                            self._clock.now(),
+                        )
