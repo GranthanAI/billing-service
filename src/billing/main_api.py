@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from billing.adapters.catalog.catalog_io import spec_to_raw
+from billing.adapters.catalog.catalog_io import payg_public, spec_to_raw
 from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog, parse_catalog
 from billing.adapters.clock import SystemClock
 from billing.adapters.db.engine import make_engine
@@ -181,6 +181,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.catalog_version = active.spec.catalog_version
         app.state.catalog_source = active.source
         set_active_spec(active.spec)
+        app.state.payg_public = payg_public(active.spec)
         log.info(
             "catalog_source", source=active.source, catalog_version=active.spec.catalog_version
         )

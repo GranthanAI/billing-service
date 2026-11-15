@@ -19,7 +19,7 @@ INDIVIDUAL = ("free", "pro", "max")
 _ids = Uuid7Generator()
 
 
-def _plan_json(rec: PlanVersionRecord) -> dict[str, Any]:
+def _plan_json(rec: PlanVersionRecord, payg: dict[str, Any] | None = None) -> dict[str, Any]:
     p = rec.plan
     prices = {}
     if p.price_month is not None:
@@ -34,6 +34,7 @@ def _plan_json(rec: PlanVersionRecord) -> dict[str, Any]:
         "groups": sorted(g.value for g in p.allowed_groups),
         "extra_models": sorted(p.extra_models),
         "limits": asdict(p.limits),
+        **({"payg": payg} if payg and p.plan_code == "payg" else {}),
     }
 
 
@@ -72,6 +73,6 @@ async def list_plans(request: Request) -> Response:
         "catalog_version": getattr(request.app.state, "catalog_version", ""),
         "currency": "INR",
         "gst_inclusive": True,
-        "plans": [_plan_json(r) for r in shown],
+        "plans": [_plan_json(r, getattr(request.app.state, "payg_public", None)) for r in shown],
     }
     return JSONResponse(body, headers=headers)

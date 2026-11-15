@@ -80,6 +80,20 @@ def spec_to_raw(spec: CatalogSpec) -> dict[str, Any]:
     }
 
 
+def payg_public(spec: CatalogSpec) -> dict[str, object]:
+    """What the pricing page shows for Pay as you Go (paise): unit prices, top-up packs, validity, storage price."""
+    p = spec.payg
+    return {
+        "unit_prices": dict(p.unit_prices),
+        "topup_packs": [{"code": c, "price_paise": price} for c, price in p.topup_packs],
+        "credit_validity_months": p.credit_validity_months,
+        "storage_over_10gb_per_gb_month": p.storage_over_10gb_per_gb_month,
+        "long_message_tokens": p.long_message_tokens,
+        "no_credit_fast_per_day": p.no_credit_fast_per_day,
+        "max_messages_per_minute": p.max_messages_per_minute,
+    }
+
+
 def raw_to_yaml(raw: dict[str, Any]) -> str:
     header = "# Exported from the active billing catalog. Commit it as config/plans.yaml to make it the seed.\n"
     return header + yaml.safe_dump(raw, sort_keys=False, allow_unicode=True, width=120)
