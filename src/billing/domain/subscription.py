@@ -8,7 +8,7 @@ from uuid import UUID
 from billing.domain.calendar import require_aware
 from billing.domain.catalog import Interval
 from billing.domain.money import Paise
-from billing.domain.proration import unused_credit
+from billing.domain.proration import upgrade_refund
 
 
 class SubStatus(StrEnum):
@@ -279,19 +279,14 @@ def transition(
                 # a downgrade mandate that was waiting would otherwise charge later
                 if state.next_gateway_subscription_id is not None:
                     effects.append(CancelMandate(state.next_gateway_subscription_id, False))
-                if (
-                    state.last_period_paid is not None
-                    and state.current_period_start is not None
-                    and state.current_period_end is not None
-                ):
-                    refund = unused_credit(
-                        state.last_period_paid,
-                        state.current_period_start,
-                        state.current_period_end,
-                        now,
-                    )
-                    if refund > 0:
-                        effects.append(IssueRefund(refund, "upgrade"))
+                refund = upgrade_refund(
+                    state.last_period_paid,
+                    state.current_period_start,
+                    state.current_period_end,
+                    now,
+                )
+                if refund > 0:
+                    effects.append(IssueRefund(refund, "upgrade"))
                 effects.append(_CHANGED)
                 new = replace(
                     state,

@@ -5,6 +5,7 @@ needs the gateway reads in one transaction, calls out, then writes in a second o
 """
 
 import re
+from typing import Any
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
@@ -37,7 +38,13 @@ from billing.app.webhooks import EventApplier, GatewayEvent
 from billing.domain.catalog import Interval, OwnerType
 from billing.domain.india import is_state_code
 from billing.domain.proration import ChangeKind as Direction
-from billing.domain.proration import NoChange, classify_change
+from billing.domain.proration import (
+    ChangeQuote,
+    NoChange,
+    classify_change,
+    quote_change,
+    quote_resume,
+)
 from billing.domain.subscription import (
     SubscriptionState,
     SubStatus,
@@ -66,6 +73,7 @@ class CheckoutOptions:
     email: str | None
     kind: str | None = None  # upgrade | downgrade | resume for plan changes
     change_id: UUID | None = None
+    quote: ChangeQuote | None = None  # amounts and dates of a plan change or resume
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,8 +99,13 @@ def _plan_id(plan: PlanVersionRecord, interval: Interval, gateway_kind: str | No
         if stored != gateway_kind:
             # Never call a gateway with an id that belongs to another one: it answers "id does not exist" (502).
             log.error(
-                "plan_gateway_mismatch", plan=plan.plan.plan_code, version=plan.plan.version, interval=interval.value,
-                stored_gateway=stored, running_gateway=gateway_kind, fix="python -m billing.cli catalog sync",
+                "plan_gateway_mismatch",
+                plan=plan.plan.plan_code,
+                version=plan.plan.version,
+                interval=interval.value,
+                stored_gateway=stored,
+                running_gateway=gateway_kind,
+                fix="python -m billing.cli catalog sync",
             )
             raise PlanGatewayMismatch(
                 f"{plan.plan.plan_code} is set up on the {stored} payment gateway but billing is running with "
@@ -118,6 +131,7 @@ class SubscriptionService:
         *,
         kind: str | None = None,
         change_id: UUID | None = None,
+        quote: ChangeQuote | None = None,
     ) -> CheckoutOptions:
         return CheckoutOptions(
             subscription_id=sub.id,
@@ -129,6 +143,7 @@ class SubscriptionService:
             email=email,
             kind=kind,
             change_id=change_id,
+            quote=quote,
         )
 
     async def _self_serve_plan(self, uow: UnitOfWork, plan_code: str) -> PlanVersionRecord:
@@ -258,9 +273,10 @@ class SubscriptionService:
 
     # --- plan change ---------------------------------------------------------------------
 
-    async def change_plan(
+    async def _plan_change_inputs(
         self, user_id: UUID, plan_code: str, interval: Interval
-    ) -> CheckoutOptions:
+    ) -> tuple[Any, ...]:
+        """Everything a plan change needs, with every check the real change makes (no writes)."""
         now = self._b.clock.now()
         async with self._b.uow_factory() as uow:
             target = await self._self_serve_plan(uow, plan_code)
@@ -290,6 +306,31 @@ class SubscriptionService:
             period_end is None or period_end - now < MIN_START_LEAD
         ):
             raise SubscriptionStateError("Your period is about to end; try again after renewal.")
+        quote = quote_change(
+            direction=direction,
+            same_plan=current.plan.rank == target.plan.rank,
+            last_period_paid=sub.state.last_period_paid,
+            period_start=sub.state.current_period_start,
+            period_end=period_end,
+            now=now,
+            new_price=target.plan.price_for(interval),
+            new_interval=interval,
+        )
+        return target, account, sub, direction, refund_payment, plan_id, period_end, quote
+
+    async def preview_change(
+        self, user_id: UUID, plan_code: str, interval: Interval
+    ) -> ChangeQuote:
+        """What `change_plan` would charge and refund right now. No gateway call, nothing stored."""
+        *_, quote = await self._plan_change_inputs(user_id, plan_code, interval)
+        return quote  # type: ignore[no-any-return]
+
+    async def change_plan(
+        self, user_id: UUID, plan_code: str, interval: Interval
+    ) -> CheckoutOptions:
+        (
+            target, account, sub, direction, refund_payment, plan_id, period_end, quote,
+        ) = await self._plan_change_inputs(user_id, plan_code, interval)  # fmt: skip
         start_at = period_end if direction is Direction.DOWNGRADE else None
         kind = ChangeKind.UPGRADE if direction is Direction.UPGRADE else ChangeKind.DOWNGRADE
         return await self._open_change(
@@ -303,9 +344,10 @@ class SubscriptionService:
             start_at,
             refund_payment.id if refund_payment else None,
             account.billing_email,
+            quote,
         )
 
-    async def resume(self, user_id: UUID) -> CheckoutOptions:
+    async def _resume_inputs(self, user_id: UUID) -> tuple[Any, ...]:
         now = self._b.clock.now()
         async with self._b.uow_factory() as uow:
             account, sub = await self._live_subscription(uow, user_id)
@@ -319,6 +361,19 @@ class SubscriptionService:
             end = sub.state.current_period_end
         if end is None or end - now < MIN_START_LEAD:
             raise SubscriptionStateError("Your period is about to end; start a new checkout.")
+        quote = quote_resume(
+            period_end=end,
+            price=plan.plan.price_for(sub.state.interval),
+            interval=sub.state.interval,
+        )
+        return account, sub, plan, plan_id, end, quote
+
+    async def preview_resume(self, user_id: UUID) -> ChangeQuote:
+        *_, quote = await self._resume_inputs(user_id)
+        return quote  # type: ignore[no-any-return]
+
+    async def resume(self, user_id: UUID) -> CheckoutOptions:
+        account, sub, plan, plan_id, end, quote = await self._resume_inputs(user_id)
         return await self._open_change(
             user_id,
             account,
@@ -330,6 +385,7 @@ class SubscriptionService:
             end,
             None,
             account.billing_email,
+            quote,
         )
 
     async def _open_change(
@@ -344,6 +400,7 @@ class SubscriptionService:
         start_at: datetime | None,
         refund_payment_id: UUID | None,
         email: str | None,
+        quote: ChangeQuote | None = None,
     ) -> CheckoutOptions:
         ref = uuid4()
         gw = await self._b.gateway.create_subscription(
@@ -384,7 +441,7 @@ class SubscriptionService:
             await self._cancel_orphan(gw)
             raise problem
         return self._options(
-            sub, gw.id, target, interval, email, kind=kind.value, change_id=change.id
+            sub, gw.id, target, interval, email, kind=kind.value, change_id=change.id, quote=quote
         )
 
     async def _cancel_orphan(self, gw: GatewaySubscription) -> None:

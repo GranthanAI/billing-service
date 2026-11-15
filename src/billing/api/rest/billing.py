@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from billing.api.rest.idempotency import parse_user_id
 from billing.api.rest.provider import provider_fields
@@ -56,6 +56,14 @@ class ChangeBody(BaseModel):
     interval: Literal["month", "year"]
 
 
+class PreviewBody(BaseModel):
+    """`plan` is accepted as a short name for `plan_code`."""
+
+    model_config = ConfigDict(populate_by_name=True)
+    plan_code: str = Field(validation_alias=AliasChoices("plan_code", "plan"))
+    interval: Literal["month", "year"]
+
+
 def checkout_json(o: CheckoutOptions, extra: dict[str, str] | None = None) -> dict[str, Any]:
     body: dict[str, Any] = {
         **(extra or {}),
@@ -72,6 +80,8 @@ def checkout_json(o: CheckoutOptions, extra: dict[str, str] | None = None) -> di
     }
     if o.change_id is not None:
         body["change"] = {"id": str(o.change_id), "kind": o.kind}
+    if o.quote is not None:  # plan change / resume: what it costs and when it starts
+        body.update(o.quote.as_json())
     return body
 
 
@@ -98,6 +108,18 @@ async def verify(body: VerifyBody, user: User, svc: Svc) -> JSONResponse:
     return JSONResponse(
         {"subscription_id": str(result.subscription_id), "status": result.status.value}
     )
+
+
+@router.post("/subscription/change/preview")
+async def change_preview(body: PreviewBody, user: User, svc: Svc) -> JSONResponse:
+    """The amounts and dates `/subscription/change` would give right now, with no side effects."""
+    quote = await svc.preview_change(user, body.plan_code, Interval(body.interval))
+    return JSONResponse(quote.as_json())
+
+
+@router.post("/subscription/resume/preview")
+async def resume_preview(user: User, svc: Svc) -> JSONResponse:
+    return JSONResponse((await svc.preview_resume(user)).as_json())
 
 
 @router.post("/subscription/change")

@@ -441,7 +441,7 @@ def hot_db_name(urls: Urls) -> Iterator[str]:
             host=urls.host,
             port=urls.port,
             user="postgres",
-            password="postgres",
+            password=superuser_password(),
             database="postgres",
         )
         try:
@@ -519,7 +519,7 @@ def phase6_template(urls: Urls) -> Iterator[Template]:
             host=urls.host,
             port=urls.port,
             user="postgres",
-            password="postgres",
+            password=superuser_password(),
             database="postgres",
         )
         try:
