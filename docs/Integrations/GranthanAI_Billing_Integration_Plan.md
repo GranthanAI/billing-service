@@ -943,6 +943,8 @@ Verify each scenario with `GET /billing/v1/sim/state`, `/billing/v1/me`, the inv
 
 ## 11. Risks and decisions
 
+Organisation plans (`org_pro`, `org_max`) stay as they are, with no Advanced and no new Free models, until org-service exists (P13).
+
 | # | Item | Default in this plan | Decide by |
 | --- | --- | --- | --- |
 | 1 | Unpriced models (`qwen/qwen3.8-27b`, NVIDIA) | legacy-only; never used once billing routing is on | before P5 merges |
