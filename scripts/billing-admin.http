@@ -1,0 +1,167 @@
+### billing admin calls for VS Code "REST Client" (humao.rest-client). Through the gateway with a STAFF JWT.
+#
+# 1. Get a staff token: log in as a user whose role is billing_admin (writes) or support (reads only):
+#      POST {{gw}}/auth/login   -> copy "access_token" into @staff below (or put it in .vscode/settings.json under
+#      "rest-client.environmentVariables": {"dev": {"staff": "<jwt>", ...}}).
+# 2. Every WRITE needs an Idempotency-Key (a new UUID each time): {{$guid}} below does that.
+# 3. Admin routes are /billing/admin/<path> at the gateway (-> /admin/billing/v1/<path> in billing).
+#    Simulator routes are /billing/sim/<path>, only while the gateway has SIM_ROUTES on and billing runs PAYMENT_SIMULATION=true.
+
+@gw = http://localhost:8080/api/v1
+@staff = <paste a staff JWT here>
+@accountId = 00000000-0000-0000-0000-000000000000
+@userId = 00000000-0000-0000-0000-000000000000
+@paymentId = 00000000-0000-0000-0000-000000000000
+@draftId = 00000000-0000-0000-0000-000000000000
+@subId = sub_SIM_replace_me
+
+### ---------------------------------------------------------------- accounts
+
+### Search an account by email, name or id
+GET {{gw}}/billing/admin/accounts?q=asha@example.com
+Authorization: Bearer {{staff}}
+
+### One account: plan, subscription, wallet, ledger, usage, overrides
+GET {{gw}}/billing/admin/accounts/{{accountId}}
+Authorization: Bearer {{staff}}
+
+### Block (a genuinely blocked account: fraud, chargeback)
+POST {{gw}}/billing/admin/accounts/{{accountId}}/block
+Authorization: Bearer {{staff}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"reason": "chargeback on GA/2026/0001"}
+
+### Unblock
+POST {{gw}}/billing/admin/accounts/{{accountId}}/unblock
+Authorization: Bearer {{staff}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"reason": "resolved"}
+
+### ---------------------------------------------------------------- overrides (give a user a plan for a while)
+
+### Grant Pro for 30 days
+POST {{gw}}/billing/admin/overrides
+Authorization: Bearer {{staff}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"owner_type": "user", "owner_id": "{{userId}}", "plan_code": "pro", "expires_at": "2026-12-31T00:00:00+05:30", "reason": "support goodwill"}
+
+### End an override early (use the override id from the account view)
+POST {{gw}}/billing/admin/overrides/00000000-0000-0000-0000-000000000000/end
+Authorization: Bearer {{staff}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"reason": "ended early"}
+
+### ---------------------------------------------------------------- money
+
+### Refund part of a payment (paise)
+POST {{gw}}/billing/admin/refunds
+Authorization: Bearer {{staff}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"payment_id": "{{paymentId}}", "amount_paise": 10000, "reason": "duplicate charge"}
+
+### Record a Razorpay settlement (fees in paise)
+POST {{gw}}/billing/admin/settlements
+Authorization: Bearer {{staff}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"payment_id": "{{paymentId}}", "fee_paise": 200, "fee_gst_paise": 36, "reason": "settlement report"}
+
+### Costs by plan (also: by=user for the 20 heaviest users, by=model, by=group)
+GET {{gw}}/billing/admin/costs?from=2026-11-01&to=2026-11-30&by=plan
+Authorization: Bearer {{staff}}
+
+### The 20 heaviest users
+GET {{gw}}/billing/admin/costs?from=2026-11-01&to=2026-11-30&by=user
+Authorization: Bearer {{staff}}
+
+### Reconciliation for a day (every check must show difference 0)
+GET {{gw}}/billing/admin/reconciliation?date=2026-11-15
+Authorization: Bearer {{staff}}
+
+### Model prices and FX rates
+GET {{gw}}/billing/admin/model-prices
+Authorization: Bearer {{staff}}
+
+###
+GET {{gw}}/billing/admin/fx-rates
+Authorization: Bearer {{staff}}
+
+### ---------------------------------------------------------------- plan catalog (draft -> preview -> publish)
+
+### The active catalog (source: yaml or published draft) and plan version history
+GET {{gw}}/billing/admin/catalog
+Authorization: Bearer {{staff}}
+
+### Export it as plans.yaml
+GET {{gw}}/billing/admin/catalog/export.yaml
+Authorization: Bearer {{staff}}
+
+### Create a draft: paste the catalog as JSON (the plans.yaml schema). catalog_version MUST change. The answer is the PREVIEW:
+### the diff (rises and falls), how many subscribers each change touches, and warnings.
+POST {{gw}}/billing/admin/catalog/drafts
+Authorization: Bearer {{staff}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"note": "Plan lineup v3", "catalog": {"catalog_version": "CHANGE-ME", "currency": "INR", "gst_inclusive": true, "model_groups": {}, "plans": []}}
+
+### List drafts / read one
+GET {{gw}}/billing/admin/catalog/drafts
+Authorization: Bearer {{staff}}
+
+###
+GET {{gw}}/billing/admin/catalog/drafts/{{draftId}}
+Authorization: Bearer {{staff}}
+
+### Publish the draft
+POST {{gw}}/billing/admin/catalog/drafts/{{draftId}}/publish
+Authorization: Bearer {{staff}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"reason": "Plan lineup v3"}
+
+### Apply LOWERED limits to existing subscribers (audit_id comes from the publish answer's apply_limits)
+POST {{gw}}/billing/admin/catalog/apply-limits/15
+Authorization: Bearer {{staff}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"reason": "apply the lower limits"}
+
+### ---------------------------------------------------------------- simulator controls (dev only)
+
+### Everything the simulator holds
+GET {{gw}}/billing/sim/state
+Authorization: Bearer {{staff}}
+
+### Charge the next renewal now / renew immediately
+POST {{gw}}/billing/sim/subscriptions/{{subId}}/next-charge
+Authorization: Bearer {{staff}}
+
+###
+POST {{gw}}/billing/sim/subscriptions/{{subId}}/renew-now
+Authorization: Bearer {{staff}}
+
+### The customer cancels from the "bank" side
+POST {{gw}}/billing/sim/subscriptions/{{subId}}/customer-cancel
+Authorization: Bearer {{staff}}
+
+### Settle everything now / fail a refund
+POST {{gw}}/billing/sim/settle-now
+Authorization: Bearer {{staff}}
+
+###
+POST {{gw}}/billing/sim/refunds/rfnd_SIM_replace_me/fail
+Authorization: Bearer {{staff}}

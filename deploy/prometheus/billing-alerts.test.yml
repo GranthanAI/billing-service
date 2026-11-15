@@ -179,3 +179,33 @@ tests:
         exp_alerts:
           - exp_labels: {severity: page}
             exp_annotations: {summary: No Razorpay webhook for 24 hours while subscriptions are live}
+
+  - name: models unavailable alerts only after 30 minutes
+    interval: 5m
+    input_series:
+      - series: 'billing_models_unavailable'
+        values: '5+0x10'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: BillingModelsUnavailable
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: BillingModelsUnavailable
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations: {summary: "llm-service has reported models it cannot answer with for 30 minutes (keys, adapter or breaker)"}
+
+  - name: a per-minute denial spike alerts and a normal trickle does not
+    interval: 1m
+    input_series:
+      - series: 'billing_reserve_requests_total{reason="rate_limit",plan="free",decision="deny",kind="message"}'
+        values: '0 10 20 30 40 50 120 200'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: BillingPerMinuteDenialSpike
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: BillingPerMinuteDenialSpike
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations: {summary: More than 50 messages were refused by the per-minute rule in 5 minutes (a bot or a retry loop)}

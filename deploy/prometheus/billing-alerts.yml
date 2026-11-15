@@ -101,3 +101,74 @@ groups:
           summary: A background job ran out of attempts
 # "Heavy user" (one user's cost above 3x their plan's average) is not a Prometheus rule: it needs a
 # per-user series. Use GET /admin/billing/v1/costs?by=user (the 20 heaviest users).
+
+  - name: billing-callers-and-models
+    # Series from the other services (conversation-service, file-service, llm-service, memory-service). `environment` is the
+    # external label set in scrape-integration.yml.
+    rules:
+      - alert: BillingReserveErrorRate
+        # the callers' view: a reserve that could not be answered (degraded mode or refused because billing was unreachable)
+        expr: |
+          sum(increase(billing_reserve_total{mode="enforce",decision=~"degraded|degraded_refused|unavailable"}[5m]))
+            / clamp_min(sum(increase(billing_reserve_total{mode="enforce"}[5m])), 1) > 0.02
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: More than 2% of reserves could not be answered by billing for 5 minutes
+      - alert: BillingBreakerOpen
+        # conversation-service and file-service export billing_breaker_open (1 while open)
+        expr: max by (job) (billing_breaker_open) == 1
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: A caller's billing circuit breaker has been open for 2 minutes
+      - alert: BillingDegradedMessages
+        expr: increase(billing_degraded_messages_total{environment="production"}[5m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: Messages were allowed in degraded mode in production (billing was unreachable)
+      - alert: BillingUsageDeadLetterNotEmpty
+        # a depth proxy: dead letters of the usage topics in the last hour (BillingUsageNotBilled pages on the first one)
+        expr: |
+          sum(increase(billing_dlq_messages_total{topic=~"chat.response.generated|chat.response.cancelled|artifact.manim.rendered|file.youtube.ingested"}[1h])) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: The usage dead-letter topic received messages in the last hour
+      - alert: BillingEmailFailures
+        expr: sum(increase(billing_email_failed_total[15m])) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: An email failed to send in the last 15 minutes
+      - alert: BillingUsageEstimatedHigh
+        # llm-service estimated the tokens because the provider reported none (P5c)
+        expr: |
+          sum(increase(llm_usage_estimated_total[1h]))
+            / clamp_min(sum(increase(billing_usage_events_total{result="applied"}[1h])), 1) > 0.05
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: More than 5% of billed model calls used estimated token counts
+      - alert: BillingModelsUnavailable
+        expr: billing_models_unavailable > 0
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: llm-service has reported models it cannot answer with for 30 minutes (keys, adapter or breaker)
+      - alert: MemorySystemLlmCalls
+        # health probes that call a provider: they cost money and belong to no user
+        expr: rate(memory_system_llm_calls_total[30m]) > 0
+        for: 1h
+        labels: {severity: ticket}
+        annotations:
+          summary: memory-service keeps making system LLM calls (health probes) that no user is billed for
+      - alert: BillingPerMinuteDenialSpike
+        expr: sum(increase(billing_reserve_requests_total{reason="rate_limit"}[5m])) > 50
+        labels: {severity: ticket}
+        annotations:
+          summary: More than 50 messages were refused by the per-minute rule in 5 minutes (a bot or a retry loop)
+      - alert: BillingSpendCapReached
+        expr: sum(increase(billing_reserve_requests_total{reason=~"spend_cap|member_spend_cap"}[15m])) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: A credit spend cap refused a message (a user or an organisation reached its monthly cap)
+# Reconciliation differences already page through BillingMoneyMismatch (billing_reconciliation_difference_paise != 0).

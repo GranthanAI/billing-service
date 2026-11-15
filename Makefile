@@ -1,6 +1,6 @@
 export BILLING_MIGRATION_DATABASE_URL ?= postgresql+asyncpg://billing_migrator:billing_migrator@localhost:5433/billing_db
 
-.PHONY: catalog-diff start stop test-fast test-int test-file test-full-bg test-up test-down test-integration test-all audit alerts-check proto-check loadtest topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
+.PHONY: e2e catalog-diff start stop test-fast test-int test-file test-full-bg test-up test-down test-integration test-all audit alerts-check proto-check loadtest topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
 
 sync:
 	uv sync
@@ -109,6 +109,9 @@ audit:
 # Alert rules: syntax, then the unit tests in deploy/prometheus/billing-alerts.test.yml.
 # Uses a local promtool when there is one, otherwise the Prometheus image through Docker.
 PROMTOOL = $(if $(shell which promtool 2>/dev/null),promtool,MSYS_NO_PATHCONV=1 docker run --rm --entrypoint promtool -v "$(CURDIR)/deploy/prometheus:/rules" -w /rules prom/prometheus)
+e2e:
+	bash scripts/e2e/run.sh $(S)
+
 alerts-check:
 	$(PROMTOOL) check rules billing-alerts.yml
 	$(PROMTOOL) test rules billing-alerts.test.yml

@@ -1,0 +1,44 @@
+# Prometheus scrape configs for the billing integration. Merge `scrape_configs` into your prometheus.yml (or pass this file with
+# --config.file in dev). Targets below are the DEV ports on this machine; in containers use the service DNS names and the
+# in-cluster ports noted on each line. Load the rules with: rule_files: [billing-alerts.yml]
+#
+# The `environment` external label lets BillingDegradedMessages page only in production.
+global:
+  scrape_interval: 15s
+  external_labels:
+    environment: dev          # production in the real deployment
+rule_files:
+  - billing-alerts.yml
+
+scrape_configs:
+  - job_name: billing-api            # job name used by the BillingDown alert
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8090"]    # dev REST port; :8080 inside containers. Never routed by the gateway.
+  - job_name: billing-worker
+    static_configs:
+      - targets: ["host.docker.internal:9100"]    # worker health + metrics (same port in containers)
+  - job_name: conversation-service   # billing_reserve_total, billing_breaker_open, billing_degraded_messages_total
+    static_configs:
+      - targets: ["host.docker.internal:8002"]    # GET /metrics
+  - job_name: llm-service            # llm_usage_estimated_total, llm_catalog_model_missing
+    static_configs:
+      - targets: ["host.docker.internal:8003"]    # GET /metrics (root mount; /api/internal/metrics also exists)
+  - job_name: file-service           # billing_breaker_open, plan_limit_denied_total
+    static_configs:
+      - targets: ["host.docker.internal:8006"]    # GET /metrics
+  - job_name: memory-service         # memory_system_llm_calls_total
+    metrics_path: /metrics/          # mounted ASGI app: the trailing slash avoids a 307
+    static_configs:
+      - targets: ["host.docker.internal:8004"]
+  - job_name: embedding-service
+    metrics_path: /metrics/
+    static_configs:
+      - targets: ["host.docker.internal:8005"]
+  - job_name: retrieval-service
+    static_configs:
+      - targets: ["host.docker.internal:8060"]    # api; the worker is :8061
+  # Services with NO scrapeable metrics endpoint today (nothing to list):
+  #   auth-service (:8001)  GET /metrics answers 404
+  #   api-gateway  (:8080)  GET /metrics answers 401 (guarded); needs a scrape credential or an internal port before it can be added
+  #   graph-service (:8000) no metrics route found in its code
