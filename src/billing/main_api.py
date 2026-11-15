@@ -166,12 +166,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             sim=sim_config(settings),
         )
         storage = make_storage(settings)
-        # Publishing writes plan_versions, which the application role may only read: the catalog API uses the migration
-        # role (the same one `catalog sync` uses), through a small pool of its own.
-        catalog_engine = make_engine(settings.billing_migration_database_url, pool_size=2)
-        app.state.catalog_engine = catalog_engine
         app.state.catalog_admin = CatalogAdminService(
-            lambda: SqlUnitOfWork(catalog_engine, ids, clock),
+            uow_factory,  # the application role: migration 0022 grants exactly what a publish writes
             clock,
             ids,
             gateway,
@@ -274,8 +270,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if close is not None:
             await close()
         await app.state.valkey.aclose()
-    if getattr(app.state, "catalog_engine", None) is not None:
-        await app.state.catalog_engine.dispose()
     if owned_engine is not None:
         await owned_engine.dispose()
 

@@ -61,7 +61,7 @@ async def make(
         return None
 
     svc = CatalogAdminService(
-        db.migrator_uow, clock, ids, gw, parse=parse_catalog, to_raw=spec_to_raw,
+        db.app_uow, clock, ids, gw, parse=parse_catalog, to_raw=spec_to_raw,
         seed=lambda: parse_catalog(base_raw()), parse_error=CatalogError, invalidate=invalidate,
     )  # fmt: skip
     return svc, gw
@@ -313,3 +313,28 @@ async def test_over_http_support_reads_but_cannot_write_or_publish(fresh_db: Fre
         assert bad.status_code == 422 and bad.json()["errors"]
         assert (await c.get("/admin/billing/v1/catalog/export.yaml")).status_code == 401
     assert Forbidden  # imported for the 403 mapping above
+
+
+async def test_the_application_role_can_publish_but_cannot_rewrite_a_plan_version(
+    fresh_db: FreshDb,
+) -> None:
+    """B4g: publish runs as billing_app. It may add versions and retire old ones, never change a price or a limit."""
+    svc, _ = await make(fresh_db)
+    d = await svc.create_draft(ADMIN, draft_raw(), "")
+    await svc.publish(
+        ADMIN, UUID(d["draft_id"]), "as the application role"
+    )  # the whole path works with the app role
+    for statement in (
+        "UPDATE billing.plan_versions SET price_month_paise = 1",
+        "UPDATE billing.plan_versions SET limits = '{}'::jsonb",
+        "UPDATE billing.plan_versions SET checksum = 'x'",
+        "DELETE FROM billing.plan_versions",
+        "UPDATE billing.catalog_drafts SET catalog = '{}'::jsonb",
+    ):
+        with pytest.raises(sa.exc.DBAPIError, match="permission denied"):
+            async with fresh_db.app_uow() as uow:
+                await uow.connection.execute(sa.text(statement))
+    async with fresh_db.app_uow() as uow:  # what publish needs is still allowed
+        await uow.connection.execute(
+            sa.text("UPDATE billing.plan_versions SET retired_at = retired_at")
+        )

@@ -105,7 +105,7 @@ def test_a_secret_is_compared_against_all_of_them() -> None:
 
 def test_the_setting_is_required_and_splits_on_commas() -> None:
     base = dict(
-        billing_database_url="x", billing_migration_database_url="x", billing_valkey_url="x",
+        billing_database_url="x", billing_valkey_url="x",
         kafka_bootstrap_servers="x", razorpay_key_id="k", razorpay_key_secret="s",
         razorpay_webhook_secret="w", service_token_keys="t", supplier_state_code="10",
     )  # fmt: skip

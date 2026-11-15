@@ -102,13 +102,16 @@ async def _catalog_diff_yaml(path: Path) -> int:
 
 
 async def _catalog_sync(path: Path, dry_run: bool, force_yaml: bool = False) -> int:
+    load_catalog(path)  # an invalid plans.yaml fails here, before anything touches the database
     settings = CliSettings()  # type: ignore[call-arg]
     engine = make_engine(settings.billing_migration_database_url, pool_size=2)
-    spec, source = await _active_catalog(engine, path, force_yaml)
-    print(f"catalog source: {source}")
-    gateway = _gateway(settings, engine)  # the simulator keeps its plans in Postgres
+    gateway = _gateway(
+        settings, engine
+    )  # refuses an unsafe gateway; the simulator keeps its plans in Postgres
     ids = Uuid7Generator()
     try:
+        spec, source = await _active_catalog(engine, path, force_yaml)
+        print(f"catalog source: {source}")
         report = await sync_catalog(
             spec, lambda: SqlUnitOfWork(engine, ids), gateway, SystemClock(), ids, dry_run=dry_run
         )
