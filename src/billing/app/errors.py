@@ -16,6 +16,19 @@ class ValidationFailed(BillingError):
     title = "The request is not valid"
 
 
+class CatalogInvalid(ValidationFailed):
+    """A catalog draft broke a rule; `errors` lists every problem (each names the plan and the field)."""
+
+    def __init__(self, errors: list[str]) -> None:
+        super().__init__("; ".join(errors))
+        self.errors = errors
+
+
+class CatalogConflict(BillingError):
+    code = "CATALOG_CONFLICT"
+    title = "The catalog changed since this draft was made"
+
+
 class PlanNotAllowed(BillingError):
     code = "PLAN_NOT_ALLOWED"
     title = "This plan is not available for your account"

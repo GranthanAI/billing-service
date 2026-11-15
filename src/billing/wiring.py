@@ -10,7 +10,7 @@ from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog
 from billing.adapters.storage import InMemoryStorage, S3Storage
 from billing.app.account_views import AccountViews
 from billing.app.admin import AdminService
-from billing.app.catalog_spec import PaygSpec
+from billing.app.catalog_spec import CatalogSpec, PaygSpec
 from billing.app.config import BillingConfig, BillingContext
 from billing.app.ports import Clock, IdGenerator, ObjectStorage, PaymentGateway, UnitOfWork
 from billing.app.subscriptions import SubscriptionService
@@ -23,7 +23,18 @@ SIM_INVOICE_SERIES, SIM_BILL_OF_SUPPLY_SERIES, SIM_CREDIT_NOTE_SERIES = "SI", "S
 SIM_FAST_POLL_AFTER_SECONDS = 30
 
 
+_ACTIVE_SPEC: CatalogSpec | None = None
+
+
+def set_active_spec(spec: CatalogSpec | None) -> None:
+    """The published catalog (when there is one) wins over plans.yaml for payg prices, packs and limits."""
+    global _ACTIVE_SPEC  # noqa: PLW0603
+    _ACTIVE_SPEC = spec
+
+
 def _payg_spec(s: Settings) -> PaygSpec | None:
+    if _ACTIVE_SPEC is not None:
+        return _ACTIVE_SPEC.payg
     try:
         return load_catalog(s.plans_file).payg
     except (CatalogError, OSError):

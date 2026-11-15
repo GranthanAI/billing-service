@@ -867,6 +867,40 @@ class JobRepo(Protocol):
         ...
 
 
+class CatalogRepo(Protocol):
+    """Catalog drafts and the published catalog."""
+
+    async def get_active(self) -> dict[str, Any] | None: ...
+
+    async def set_active(
+        self, catalog: dict[str, Any], version: str, draft_id: UUID, actor: UUID, at: datetime
+    ) -> None: ...
+
+    async def insert_draft(
+        self,
+        draft_id: UUID,
+        based_on: str,
+        catalog: dict[str, Any],
+        note: str,
+        diff: dict[str, Any],
+        impact: dict[str, Any],
+        warnings: list[str],
+        actor: UUID,
+    ) -> None: ...
+
+    async def get_draft(self, draft_id: UUID, *, lock: bool = False) -> dict[str, Any] | None: ...
+
+    async def list_drafts(self, limit: int = 50) -> list[dict[str, Any]]: ...
+
+    async def mark_published(self, draft_id: UUID, actor: UUID, reason: str, at: datetime) -> None: ...
+
+    async def plan_version_history(self) -> list[dict[str, Any]]: ...
+
+    async def last_audit_id(self) -> int: ...
+
+    async def limits_only_audits_after(self, audit_id: int) -> list[dict[str, Any]]: ...
+
+
 class AdminRepo(Protocol):
     """Read models for the admin console and the user's own views: JSON-ready rows."""
 
@@ -995,6 +1029,9 @@ class UnitOfWork(Protocol):
 
     @property
     def admin(self) -> AdminRepo: ...
+
+    @property
+    def catalog(self) -> CatalogRepo: ...
 
     def after_commit(self, callback: Callable[[], Awaitable[None]]) -> None:
         """Run `callback` once the transaction has committed; dropped on rollback. A callback

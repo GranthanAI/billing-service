@@ -1,6 +1,6 @@
 export BILLING_MIGRATION_DATABASE_URL ?= postgresql+asyncpg://billing_migrator:billing_migrator@localhost:5433/billing_db
 
-.PHONY: start stop test-fast test-int test-file test-full-bg test-up test-down test-integration test-all audit alerts-check proto-check loadtest topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
+.PHONY: catalog-diff start stop test-fast test-int test-file test-full-bg test-up test-down test-integration test-all audit alerts-check proto-check loadtest topics proto sync up down db-create test lint fmt migrate catalog-sync run-api
 
 sync:
 	uv sync
@@ -79,6 +79,9 @@ test-integration:
 
 migrate:
 	uv run alembic upgrade head
+
+catalog-diff:
+	@set -a; . ./.env.dev; set +a; uv run python -m billing.cli catalog diff-yaml
 
 catalog-sync:
 	uv run python -m billing.cli pricing seed

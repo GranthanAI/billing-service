@@ -512,6 +512,37 @@ jobs = sa.Table(
     sa.Index("jobs_ready", "run_at", postgresql_where=sa.text("status = 'queued'")),
 )
 
+catalog_drafts = sa.Table(
+    "catalog_drafts",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column("based_on_version", sa.Text, nullable=False),
+    sa.Column("catalog", pg.JSONB, nullable=False),
+    sa.Column("note", sa.Text, nullable=False, server_default=sa.text("''")),
+    sa.Column("diff", pg.JSONB, nullable=False),
+    sa.Column("impact", pg.JSONB, nullable=False),
+    sa.Column("warnings", pg.JSONB, nullable=False),
+    sa.Column("created_by", sa.Uuid, nullable=False),
+    _ts("created_at", nullable=False, server_default=_NOW),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'open'")),
+    sa.Column("published_by", sa.Uuid),
+    _ts("published_at"),
+    sa.Column("publish_reason", sa.Text),
+    sa.CheckConstraint("status IN ('open','published')", name="ck_catalog_drafts_status"),
+)
+
+active_catalog = sa.Table(
+    "active_catalog",
+    metadata,
+    sa.Column("id", sa.SmallInteger, primary_key=True, server_default=sa.text("1")),
+    sa.Column("catalog", pg.JSONB, nullable=False),
+    sa.Column("catalog_version", sa.Text, nullable=False),
+    sa.Column("draft_id", sa.Uuid, nullable=False),
+    sa.Column("published_by", sa.Uuid, nullable=False),
+    _ts("published_at", nullable=False),
+    sa.CheckConstraint("id = 1", name="ck_active_catalog_single"),
+)
+
 admin_audit = sa.Table(
     "admin_audit",
     metadata,

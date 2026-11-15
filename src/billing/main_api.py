@@ -12,7 +12,8 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog
+from billing.adapters.catalog.catalog_io import spec_to_raw
+from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog, parse_catalog
 from billing.adapters.clock import SystemClock
 from billing.adapters.db.engine import make_engine
 from billing.adapters.db.gateway_mode import ensure_gateway_mode
@@ -40,6 +41,7 @@ from billing.api.rest.wallet import router as wallet_router
 from billing.api.rest.webhooks import router as webhook_router
 from billing.app.account_views import AccountViews
 from billing.app.admin import AdminService
+from billing.app.catalog_admin import CatalogAdminService
 from billing.app.context import correlation_id_var
 from billing.app.entitlements import EntitlementService, ModelCatalog
 from billing.app.model_picker import ModelPicker
@@ -70,6 +72,7 @@ from billing.wiring import (
     make_storage,
     messages_per_minute,
     payg_prices,
+    set_active_spec,
 )
 
 configure_logging()
@@ -163,6 +166,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             sim=sim_config(settings),
         )
         storage = make_storage(settings)
+        # Publishing writes plan_versions, which the application role may only read: the catalog API uses the migration
+        # role (the same one `catalog sync` uses), through a small pool of its own.
+        catalog_engine = make_engine(settings.billing_migration_database_url, pool_size=2)
+        app.state.catalog_engine = catalog_engine
+        app.state.catalog_admin = CatalogAdminService(
+            lambda: SqlUnitOfWork(catalog_engine, ids, clock),
+            clock,
+            ids,
+            gateway,
+            parse=parse_catalog,
+            to_raw=spec_to_raw,
+            seed=lambda: load_catalog(settings.plans_file),
+            parse_error=CatalogError,
+            invalidate=entitlements.invalidate,
+        )
+        active = await app.state.catalog_admin.active()
+        app.state.catalog_version = active.spec.catalog_version
+        app.state.catalog_source = active.source
+        set_active_spec(active.spec)
+        log.info(
+            "catalog_source", source=active.source, catalog_version=active.spec.catalog_version
+        )
         install_billing(
             app,
             make_context(
@@ -217,7 +242,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         with contextlib.suppress(Exception):
             await counters.ensure_scripts_loaded()
         tokens = [t.strip() for t in settings.service_token_keys.split(",")]
-        log.info("service_tokens_loaded", count=len(tokens), lengths=[len(t) for t in tokens])  # never the values
+        log.info(
+            "service_tokens_loaded", count=len(tokens), lengths=[len(t) for t in tokens]
+        )  # never the values
         grpc_server, _ = await start_grpc_server(
             reserve, tokens, settings.grpc_port, production=settings.environment == "production"
         )
@@ -247,6 +274,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if close is not None:
             await close()
         await app.state.valkey.aclose()
+    if getattr(app.state, "catalog_engine", None) is not None:
+        await app.state.catalog_engine.dispose()
     if owned_engine is not None:
         await owned_engine.dispose()
 

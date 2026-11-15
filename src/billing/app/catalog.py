@@ -203,7 +203,7 @@ async def sync_catalog(
                     str(new_id),
                     f"catalog sync: limits-only change to {block.plan_code}",
                     {"plan_version_id": str(old.plan.id), "limits": asdict(old.plan.limits)},
-                    {"plan_version_id": str(new_id), "limits": asdict(block.limits)},
+                    {"plan_version_id": str(new_id), "plan_code": block.plan_code, "limits": asdict(block.limits)},
                 )
 
     async with uow_factory() as uow:

@@ -25,14 +25,17 @@ STATUS = {
     "NOT_FOUND": 404,
     "GATEWAY_UNAVAILABLE": 503,
     "GATEWAY_REJECTED": 502,
+    "CATALOG_CONFLICT": 409,
     "INTERNAL": 500,
 }
 PROBLEM = "application/problem+json"
 
 
-def problem(code: str, title: str, detail: str, status: int | None = None) -> JSONResponse:
+def problem(
+    code: str, title: str, detail: str, status: int | None = None, errors: list[str] | None = None
+) -> JSONResponse:
     http = status or STATUS.get(code, 500)
-    body = {
+    body: dict[str, object] = {
         "type": f"https://granthan.ai/errors/{code.lower().replace('_', '-')}",
         "title": title,
         "status": http,
@@ -40,11 +43,13 @@ def problem(code: str, title: str, detail: str, status: int | None = None) -> JS
         "detail": detail,
         "correlation_id": correlation_id_var.get(),
     }
+    if errors:
+        body["errors"] = errors
     return JSONResponse(body, status_code=http, media_type=PROBLEM)
 
 
 def problem_for(exc: BillingError, status: int | None = None) -> JSONResponse:
-    return problem(exc.code, exc.title, exc.detail, status)
+    return problem(exc.code, exc.title, exc.detail, status, getattr(exc, "errors", None))
 
 
 def install(app: FastAPI) -> None:

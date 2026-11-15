@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncTransactio
 from billing.adapters.clock import SystemClock
 from billing.adapters.db.repos.accounts import SqlAccountRepo
 from billing.adapters.db.repos.admin import SqlAdminRepo
+from billing.adapters.db.repos.catalog import SqlCatalogRepo
 from billing.adapters.db.repos.changes import SqlChangeRepo
 from billing.adapters.db.repos.invoices import SqlInvoiceRepo
 from billing.adapters.db.repos.ledger import SqlLedgerRepo
@@ -85,6 +86,7 @@ class SqlUnitOfWork:
         self.audit = SqlAudit(conn)
         self.housekeeping = SqlHousekeeping(conn)
         self.admin = SqlAdminRepo(conn)
+        self.catalog = SqlCatalogRepo(conn)
         return self
 
     async def __aexit__(

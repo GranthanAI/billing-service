@@ -6,11 +6,13 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
+from billing.adapters.catalog.catalog_io import raw_to_yaml
 from billing.api.rest.idempotency import parse_user_id
 from billing.app.admin import AdminService, Staff
+from billing.app.catalog_admin import CatalogAdminService
 from billing.app.errors import Forbidden, Unauthenticated
 from billing.domain.catalog import ModelGroup, OrgVariant, OwnerType
 from billing.domain.money import Paise
@@ -43,6 +45,16 @@ def _svc(request: Request) -> AdminService:
 
 
 Svc = Annotated[AdminService, Depends(_svc)]
+
+
+def _catalog_svc(request: Request) -> CatalogAdminService:
+    svc: CatalogAdminService | None = getattr(request.app.state, "catalog_admin", None)
+    if svc is None:
+        raise Unauthenticated("the catalog API is not configured on this instance")
+    return svc
+
+
+CatalogSvc = Annotated[CatalogAdminService, Depends(_catalog_svc)]
 
 
 def _json(data: Any, status: int = 200) -> JSONResponse:
@@ -83,6 +95,11 @@ class ModelPriceBody(Reason):
     cached_input_usd_per_m: Decimal | None = None
     output_usd_per_m: Decimal
     effective_from: datetime
+
+
+class DraftBody(BaseModel):
+    catalog: dict[str, Any]  # the plans.yaml schema, as JSON
+    note: str = Field(default="", max_length=1000)
 
 
 class FxRateBody(Reason):
@@ -180,6 +197,45 @@ async def put_fx_rate(body: FxRateBody, staff: Writer, svc: Svc) -> JSONResponse
 async def apply_limits(audit_id: int, body: Reason, staff: Writer, svc: Svc) -> JSONResponse:
     moved = await svc.apply_limits(staff, audit_id, body.reason)
     return _json({"subscriptions_moved": moved})
+
+
+# --- the plan catalog (drafts, publish, export) -------------------------------------------------
+
+
+@router.get("/catalog")
+async def get_catalog(staff: Reader, svc: CatalogSvc) -> JSONResponse:
+    return _json(await svc.get_catalog())
+
+
+@router.get("/catalog/export.yaml")
+async def export_catalog(staff: Reader, svc: CatalogSvc) -> PlainTextResponse:
+    return PlainTextResponse(
+        raw_to_yaml(await svc.export_raw()),
+        media_type="application/yaml",
+        headers={"Content-Disposition": 'attachment; filename="plans.yaml"'},
+    )
+
+
+@router.post("/catalog/drafts")
+async def create_draft(body: DraftBody, staff: Writer, svc: CatalogSvc) -> JSONResponse:
+    return _json(await svc.create_draft(staff, body.catalog, body.note), 201)
+
+
+@router.get("/catalog/drafts")
+async def list_drafts(staff: Reader, svc: CatalogSvc) -> JSONResponse:
+    return _json({"drafts": await svc.list_drafts()})
+
+
+@router.get("/catalog/drafts/{draft_id}")
+async def get_draft(draft_id: UUID, staff: Reader, svc: CatalogSvc) -> JSONResponse:
+    return _json(await svc.get_draft(draft_id))
+
+
+@router.post("/catalog/drafts/{draft_id}/publish")
+async def publish_draft(
+    draft_id: UUID, body: Reason, staff: Writer, svc: CatalogSvc
+) -> JSONResponse:
+    return _json(await svc.publish(staff, draft_id, body.reason))
 
 
 @router.post("/settlements")

@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from billing.adapters.catalog.seed_loader import load_fx_rates, load_model_prices
-from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog
+from billing.adapters.catalog.yaml_loader import CatalogError, load_catalog, parse_catalog
 from billing.adapters.clock import SystemClock
 from billing.adapters.db.engine import make_engine
 from billing.adapters.db.uow import SqlUnitOfWork
@@ -23,6 +23,8 @@ from billing.adapters.ids import Uuid7Generator
 from billing.adapters.valkey.client import make_valkey
 from billing.adapters.valkey.counters import ValkeyCounters
 from billing.app.catalog import CatalogSyncError, sync_catalog
+from billing.app.catalog_diff import describe_diff, diff_specs
+from billing.app.catalog_spec import CatalogSpec
 from billing.app.ports import PlanGateway
 from billing.domain.calendar import ist_day
 from billing.domain.rating import NoFxRate
@@ -61,10 +63,49 @@ def _gateway(settings: CliSettings, engine: AsyncEngine | None = None) -> PlanGa
     )
 
 
-async def _catalog_sync(path: Path, dry_run: bool) -> int:
-    spec = load_catalog(path)  # validate before touching the database
+async def _active_catalog(
+    engine: AsyncEngine, path: Path, force_yaml: bool
+) -> tuple[CatalogSpec, str]:
+    """The catalog to sync: the published one when there is one (it wins over plans.yaml), else the YAML file."""
+    yaml_spec = load_catalog(path)  # always validated, even when it is not the one used
+    if force_yaml:
+        return yaml_spec, f"yaml ({path}), forced with --yaml"
+    async with SqlUnitOfWork(engine, Uuid7Generator()) as uow:
+        row = await uow.catalog.get_active()
+    if row is None:
+        return yaml_spec, f"yaml ({path})"
+    spec = parse_catalog(row["catalog"])
+    return (
+        spec,
+        f"published draft (catalog_version {spec.catalog_version}, published {row['published_at']:%Y-%m-%d %H:%M})",
+    )
+
+
+async def _catalog_diff_yaml(path: Path) -> int:
     settings = CliSettings()  # type: ignore[call-arg]
     engine = make_engine(settings.billing_migration_database_url, pool_size=2)
+    try:
+        spec, source = await _active_catalog(engine, path, force_yaml=False)
+    finally:
+        await engine.dispose()
+    yaml_spec = load_catalog(path)
+    print(f"active catalog: {source}")
+    print(f"plans.yaml:     {path} (catalog_version {yaml_spec.catalog_version})")
+    diff = diff_specs(spec, yaml_spec)  # what changes if plans.yaml replaced the active catalog
+    if not diff["changed"]:
+        print("no differences")
+        return 0
+    print("differences (active -> plans.yaml):")
+    for line in describe_diff(diff):
+        print("  " + line)
+    return 0
+
+
+async def _catalog_sync(path: Path, dry_run: bool, force_yaml: bool = False) -> int:
+    settings = CliSettings()  # type: ignore[call-arg]
+    engine = make_engine(settings.billing_migration_database_url, pool_size=2)
+    spec, source = await _active_catalog(engine, path, force_yaml)
+    print(f"catalog source: {source}")
     gateway = _gateway(settings, engine)  # the simulator keeps its plans in Postgres
     ids = Uuid7Generator()
     try:
@@ -200,6 +241,13 @@ def main(argv: list[str] | None = None) -> int:
     sync = catalog.add_parser("sync", help="sync config/plans.yaml into plan_versions")
     sync.add_argument("--file", default="config/plans.yaml", type=Path)
     sync.add_argument("--dry-run", action="store_true")
+    sync.add_argument(
+        "--yaml", action="store_true", help="use plans.yaml even when a catalog was published"
+    )
+    diff_cmd = catalog.add_parser(
+        "diff-yaml", help="show where plans.yaml and the active catalog differ"
+    )
+    diff_cmd.add_argument("--file", default="config/plans.yaml", type=Path)
 
     pricing = top.add_parser("pricing").add_subparsers(dest="cmd", required=True)
     seed = pricing.add_parser("seed", help="load model prices and FX rates (idempotent)")
@@ -234,7 +282,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.group == "valkey":
             return asyncio.run(_valkey_rebuild(args.day))
         if args.group == "catalog":
-            return asyncio.run(_catalog_sync(args.file, args.dry_run))
+            if args.cmd == "diff-yaml":
+                return asyncio.run(_catalog_diff_yaml(args.file))
+            return asyncio.run(_catalog_sync(args.file, args.dry_run, args.yaml))
         return asyncio.run(_pricing_seed(args.prices, args.fx))
     except (CatalogError, CatalogSyncError, NoFxRate, ValueError, NotImplementedError) as exc:
         print(f"error: {exc}", file=sys.stderr)

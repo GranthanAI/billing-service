@@ -197,7 +197,7 @@ def parse_catalog(raw: object) -> CatalogSpec:
                 no_credit_fast_per_day=p.no_credit_fast_per_day,
                 storage_over_10gb_per_gb_month=p.storage_over_10gb_per_gb_month,
                 max_messages_per_minute=p.max_messages_per_minute,
-                topup_packs=tuple((str(t["code"]), int(t["price"])) for t in p.topup_packs),
+                topup_packs=_packs(p.topup_packs, where),
                 org_min_topup=p.org_min_topup,
                 credit_validity_months=p.credit_validity_months,
                 limits=_limits(p.limits, where),
@@ -226,6 +226,22 @@ def parse_catalog(raw: object) -> CatalogSpec:
         plans=tuple(plans),
         payg=payg,
     )
+
+
+def _packs(raw: list[dict[str, Any]], where: str) -> tuple[tuple[str, int], ...]:
+    out: list[tuple[str, int]] = []
+    codes: set[str] = set()
+    for t in raw:
+        code, price = t.get("code"), t.get("price")
+        if not isinstance(code, str) or not code:
+            raise CatalogError(f"{where}: every topup pack needs a code")
+        if code in codes:
+            raise CatalogError(f"{where}: topup pack '{code}' is listed twice")
+        if isinstance(price, bool) or not isinstance(price, int) or price <= 0:
+            raise CatalogError(f"{where}: topup pack '{code}': price must be a whole number of paise > 0")
+        codes.add(code)
+        out.append((code, price))
+    return tuple(out)
 
 
 def _default_group(name: str, allowed: tuple[ModelGroup, ...], where: str) -> ModelGroup:
