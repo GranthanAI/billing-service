@@ -106,9 +106,14 @@ block is absent or `granted_group` is null):
 "billing": {
   "hold_id": "0193...", "requested_model": null, "granted_group": "best",
   "granted_model": null, "max_context_tokens": 128000, "funded_by": "plan",
-  "downgraded": false, "enforcement": "enforce"
+  "downgraded": false, "enforcement": "enforce",
+  "allowed_models": ["claude-sonnet-5-5", "gpt-6.1-sol"]
 }
 ```
+
+`allowed_models` is additive and optional: the catalog ids the user's plan allows **inside `granted_group`**, built
+from the cached `GetEntitlements.allowed_models` (all groups) filtered to the granted group. Omit it when billing is off,
+in shadow and degraded mode, when the entitlements are unknown, and when credits pay for the message.
 
 `hold_id` is null in degraded mode or after a shadow-mode deny; `requested_model` null means Auto;
 `funded_by` is `plan` or `credits`; `enforcement` is `enforce`, `shadow` or `degraded`.

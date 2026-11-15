@@ -14,9 +14,12 @@ requested ones), never escalate to a better group, and read at most `max_context
 block, or `granted_group` null, use the legacy routing unchanged.
 
 - `granted_model` set: try that model first, then the rest of **its group**.
+- `allowed_models` present (a list of catalog ids the plan allows inside `granted_group`): the chain is `granted_model` (if
+  it is in the list), then the group's order **filtered to the list**; never any other model, even one of the same group.
+  Empty after filtering: publish an error event with the calls so far (billing releases the hold). Absent: the whole group.
 - `granted_model` null (Auto): the group's order (Fast: gpt-oss-20b, gemini-2.5-flash-lite; Smart:
   gpt-oss-120b, claude-haiku-5-5, gpt-6-luna, gemini-3.1-flash-lite, gemini-2.5-flash; Best:
-  claude-sonnet-5-5, gpt-6.1-sol; Ultra: claude-opus-5-5, gpt-6-astra).
+  claude-sonnet-5-5, gpt-6.1-sol; Ultra: claude-opus-5-5; gpt-6-astra is not offered and ships disabled).
 - `gemini-3.1-pro` is not in the catalog (preview only at Google); it comes back in Best when Google lists a GA id.
 - Same-group fallback only. If the whole group fails, publish an error event with the calls so far.
 - Models are named by the catalog IDs of `GET /billing/v1/models`, never by provider strings, in

@@ -180,13 +180,23 @@ Every topic is created by the platform topics script (P0). No service relies on 
   "max_context_tokens": 128000,
   "funded_by": "plan",
   "downgraded": false,
-  "enforcement": "enforce"
+  "enforcement": "enforce",
+  "allowed_models": ["claude-sonnet-5-5", "gpt-6.1-sol"]
 }
 ```
 
 - `hold_id`: null in degraded mode, or after a shadow-mode deny.
 - `requested_model`: null means Auto.
 - `granted_model`: null means llm-service picks a model inside the group.
+- `allowed_models` (additive, optional): the catalog ids the user's plan allows **inside `granted_group`**, taken by
+  conversation-service from the cached `GetEntitlements.allowed_models` (every group together) and filtered to the granted
+  group. llm-service builds the chain as `granted_model` (if it is in the list), then the group's order filtered to the
+  list, and never anything else; an empty result is an error event with the calls so far (billing releases the hold).
+  Omitted when billing is off, in shadow and degraded mode, when the entitlements are unknown, and when credits pay for the
+  message (`funded_by: credits`: the plan does not govern what credits buy). Absent = the whole group, as before.
+- A request for an Advanced model after the daily Advanced allowance is allowed and downgraded: `granted_group` is `smart`,
+  `downgraded` true, `message_key` `limit.best_switched`, and `granted_model` is a Smart model the plan includes (or empty),
+  never the Advanced model that was asked for.
 - `funded_by`: `plan` or `credits`.
 - `enforcement`: `enforce`, `shadow` or `degraded`.
 - **Block absent, or `granted_group` null:** llm-service uses its legacy routing.
