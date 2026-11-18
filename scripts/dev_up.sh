@@ -17,6 +17,10 @@ PY="$ROOT/.venv/Scripts/python.exe"
 WIN_PY="$(cygpath -w "$PY" 2>/dev/null || echo "$PY")"
 WIN_ROOT="$(cygpath -w "$ROOT" 2>/dev/null || echo "$ROOT")"
 mkdir -p .dev/logs
+# BILLING_LOG_DIR (set by the root Makefile) sends the logs next to the other services: <dir>/billing-api.log, billing-worker.log
+LOG_DIR="${BILLING_LOG_DIR:-$ROOT/.dev/logs}"
+LOG_PREFIX=""; [ -n "${BILLING_LOG_DIR:-}" ] && LOG_PREFIX="billing-"
+mkdir -p "$LOG_DIR"
 
 REST_PORT=8090
 GRPC_PORT_DEV=50061
@@ -120,8 +124,8 @@ launch() { # name, then the python arguments; writes the Windows PID of the laun
   # The child must not inherit this shell's stdout (a `$(...)` would then wait for it to exit), so nothing is read from
   # PowerShell's stdout: the PID goes to a file.
   local name="$1"; shift
-  local log; log="$(cygpath -w "$ROOT/.dev/logs/$name.log")"
-  local err; err="$(cygpath -w "$ROOT/.dev/logs/$name.err.log")"
+  local log; log="$(cygpath -w "$LOG_DIR/${LOG_PREFIX}$name.log")"
+  local err; err="$(cygpath -w "$LOG_DIR/${LOG_PREFIX}$name.err.log")"
   local pidfile; pidfile="$(cygpath -w "$ROOT/.dev/$name.pid")"
   powershell.exe -NoProfile -Command "\$p = Start-Process -FilePath '$WIN_PY' -ArgumentList '$*' -WorkingDirectory '$WIN_ROOT' -RedirectStandardOutput '$log' -RedirectStandardError '$err' -WindowStyle Hidden -PassThru; Set-Content -NoNewline -Path '$pidfile' -Value \$p.Id" >/dev/null 2>&1 </dev/null
 }
@@ -139,8 +143,8 @@ wait_http() { # url, seconds
   return 1
 }
 if ! wait_http "http://127.0.0.1:$REST_PORT/readyz" 90 || ! wait_http "http://127.0.0.1:$WORKER_PORT/healthz" 90; then
-  echo "billing did not become ready: see .dev/logs/api.err.log and worker.err.log" >&2
-  tail -5 .dev/logs/api.err.log .dev/logs/worker.err.log 2>/dev/null >&2 || true
+  echo "billing did not become ready: see $LOG_DIR/${LOG_PREFIX}api.err.log and ${LOG_PREFIX}worker.err.log" >&2
+  tail -5 "$LOG_DIR/${LOG_PREFIX}api.err.log" "$LOG_DIR/${LOG_PREFIX}worker.err.log" 2>/dev/null >&2 || true
   exit 1
 fi
 
@@ -152,7 +156,7 @@ echo "  healthz: $(curl -fsS http://127.0.0.1:$REST_PORT/healthz)"
 echo
 echo "api-gateway   BILLING_GATEWAY_SECRET=$GATEWAY_SHARED_SECRET   BILLING_SERVICE_URL=http://127.0.0.1:$REST_PORT"
 echo "== service token check (GetEntitlements with each token, against the running billing)"
-PYTHONPATH=src "$PY" scripts/check_service_tokens.py || { echo "a service token is NOT accepted: see the lines above and .dev/logs/api.err.log" >&2; exit 1; }
+PYTHONPATH=src "$PY" scripts/check_service_tokens.py || { echo "a service token is NOT accepted: see the lines above and $LOG_DIR/${LOG_PREFIX}api.err.log" >&2; exit 1; }
 echo
 echo "Ready-to-paste lines (one value per line, no trailing comment):"
 echo "--- api-gateway .env"
@@ -169,4 +173,4 @@ echo "BILLING_SERVICE_TOKEN=$MEM_BILLING_TOKEN"
 echo "--- every service"
 echo "BILLING_GRPC_TARGET=127.0.0.1:$GRPC_PORT_DEV"
 echo "KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092"
-echo "logs: .dev/logs/   stop: scripts/dev_down.sh"
+echo "logs: $LOG_DIR/   stop: scripts/dev_down.sh"
