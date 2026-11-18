@@ -32,7 +32,7 @@ def checksums(text: str) -> dict[tuple[str, OrgVariant | None], str]:
 
 def test_real_catalog_matches_the_workbook() -> None:
     spec = load_catalog(ROOT / "config" / "plans.yaml")
-    assert spec.catalog_version == "2026-11-16-lineup-v2"
+    assert spec.catalog_version == "2026-11-19-gemini-ids"
     by = {b.key: b for b in blocks(spec)}
     free, pro, mx = by[("free", None)], by[("pro", None)], by[("max", None)]
     assert (free.price_month, pro.price_month, pro.price_year) == (None, 49900, 499000)
@@ -60,11 +60,13 @@ def test_seed_prices_cover_exactly_the_catalog_models() -> None:
     seed = load_model_prices(ROOT / "config" / "seed" / "model_prices.yaml")
     # Every catalog model has a price. Price rows may exist for models that are deliberately not listed yet:
     # gemini-3.1-pro (preview only at Google; re-add it to plans.yaml when a GA id exists, no new price needed).
-    unlisted_but_priced = {"gemini-3.1-pro", "gpt-6-astra"}
+    unlisted_but_priced = {"gemini-3.1-pro", "gpt-6-astra", "gemini-2.5-flash-lite"}  # priced, not offered
     assert {p.model for p in seed} - unlisted_but_priced == spec.all_models()
     assert unlisted_but_priced <= {p.model for p in seed}
     group_of = spec.group_of()
-    assert all(group_of[p.model] == p.group for p in seed if p.model not in unlisted_but_priced)
+    latest = {p.model: p for p in sorted(seed, key=lambda r: r.effective_from)}   # a model may have older rows (a group move)
+    assert all(group_of[m] == p.group for m, p in latest.items() if m not in unlisted_but_priced)
+    assert latest["gemini-3.1-flash-lite"].group.value == "fast" and latest["gemini-3.5-flash-lite"].group.value == "smart"
     haiku = next(p for p in seed if p.model == "claude-haiku-5-5")
     assert (haiku.input_usd_per_m, haiku.output_usd_per_m) == (Decimal("0.10"), Decimal("0.50"))
     assert all(p.effective_from.utcoffset() is not None for p in seed)
@@ -280,7 +282,7 @@ def test_models_keep_picker_order_with_labels_and_providers() -> None:
     assert groups == ["fast"] * 2 + ["smart"] * 5 + ["best"] * 2 + ["ultra"]
     first = entries[0]
     assert (first.id, first.label, first.provider) == ("openai/gpt-oss-20b", "GPT-OSS 20B", "groq")
-    assert entries[5].id == "gemini-3.1-flash-lite" and entries[5].provider == "google"
+    assert entries[5].id == "gemini-3.5-flash-lite" and entries[5].provider == "google"
 
 
 def test_default_groups_follow_the_catalog() -> None:
@@ -344,3 +346,18 @@ def test_context_cap_sent_to_llm_is_zero_when_unlimited() -> None:
     assert _context_cap(-1) == 0
     assert _context_cap(0) == 0
     assert _context_cap(64000) == 64000
+
+
+def test_a_price_row_may_carry_its_own_effective_from(tmp_path):
+    f = tmp_path / "prices.yaml"
+    f.write_text(
+        "effective_from: 2026-10-25T00:00:00+05:30\nmodels:\n"
+        "  - {model: a, provider: google, group: fast, input: 0.1, output: 0.4}\n"
+        "  - {model: a, provider: google, group: smart, input: 0.2, output: 0.5, effective_from: 2026-11-19T00:00:00+05:30}\n",
+        encoding="utf-8",
+    )
+    rows = load_model_prices(f)
+    assert [(r.group.value, r.effective_from.day) for r in rows] == [("fast", 25), ("smart", 19)]
+    f.write_text("effective_from: 2026-10-25T00:00:00+05:30\nmodels:\n  - {model: a, provider: g, group: fast, input: 1, output: 1, effective_from: 2026-11-19}\n", encoding="utf-8")
+    with pytest.raises(CatalogError, match="effective_from"):
+        load_model_prices(f)

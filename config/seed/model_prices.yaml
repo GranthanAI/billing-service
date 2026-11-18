@@ -14,3 +14,7 @@ models:
   - {model: gpt-6.1-sol,           provider: openai,    group: best,  input: 2.00,  output: 10.00}
   - {model: claude-opus-5-5,       provider: anthropic, group: ultra, input: 4.00,  output: 20.00}
   - {model: gpt-6-astra,           provider: openai,    group: ultra, input: 10.00, output: 50.00}
+  # C2 (2026-11-19): gemini-2.5-flash-lite is retired for new keys. Fast's Gemini model is gemini-3.1-flash-lite (a new row in the
+  # fast group from today; the smart row above stays as history) and Smart gets gemini-3.5-flash-lite. Old rows are kept.
+  - {model: gemini-3.1-flash-lite, provider: google,    group: fast,  input: 0.25,  output: 1.50, effective_from: 2026-11-19T00:00:00+05:30}
+  - {model: gemini-3.5-flash-lite, provider: google,    group: smart, input: 0.30,  output: 2.50, effective_from: 2026-11-19T00:00:00+05:30}

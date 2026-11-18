@@ -38,6 +38,9 @@ def load_model_prices(path: str | Path) -> list[ModelPriceSeed]:
         except ValueError:
             raise CatalogError(f"{where}: unknown group {m.get('group')!r}") from None
         cached = m.get("cached_input")
+        row_effective = m.get("effective_from", effective)  # a row may carry its own start (a price or group change from a date)
+        if not isinstance(row_effective, datetime) or row_effective.tzinfo is None:
+            raise CatalogError(f"{where}: effective_from must be a timestamp with an offset")
         out.append(
             ModelPriceSeed(
                 model=m["model"],
@@ -46,7 +49,7 @@ def load_model_prices(path: str | Path) -> list[ModelPriceSeed]:
                 input_usd_per_m=_dec(m["input"], where),
                 cached_input_usd_per_m=_dec(cached, where) if cached is not None else None,
                 output_usd_per_m=_dec(m["output"], where),
-                effective_from=effective,
+                effective_from=row_effective,
             )
         )
     return out
