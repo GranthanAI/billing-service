@@ -155,3 +155,14 @@ async def test_job_stores_llm_answer_sets_the_gauge_and_keeps_old_data_when_llm_
     await job.refresh_availability({}, ctx)
     assert json.loads(kv.d[KEY])  # the old set stays until it expires on its own
     job.URL.update(base="", token="")
+
+
+async def test_an_unavailable_default_model_is_not_offered():
+    av = ModelAvailability(Kv())
+    p = await picker(av)
+    p._ent  # noqa: B018
+    ent = await p._ent.resolve(None)
+    ent.grant.plan_version.default_model = "claude-haiku-5-5"
+    assert (await p.for_user(uuid4()))["default_model"] == "claude-haiku-5-5"
+    await av.store(LLM)                                                   # llm-service reports Haiku as unavailable
+    assert (await p.for_user(uuid4()))["default_model"] is None

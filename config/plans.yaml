@@ -1,4 +1,4 @@
-catalog_version: 2026-11-19-gemini-ids
+catalog_version: 2026-11-19-default-models
 currency: INR
 gst_inclusive: true
 # Each group lists its models in picker order: id, display label, provider.
@@ -40,12 +40,14 @@ plans:
   - code: free
     rank: 0
     default_group: fast
+    default_model: openai/gpt-oss-120b   # the picker starts here: answers run on the 120b bucket, analysis and memory on 20b
     models: {groups: [fast], extra: [openai/gpt-oss-120b, claude-haiku-5-5, gpt-6-luna]}
     limits: *free_limits
 
   - code: pro
     rank: 1
     default_group: smart
+    default_model: openai/gpt-oss-120b   # the picker starts here: answers run on the 120b bucket, analysis and memory on 20b
     prices: {month: 49900, year: 499000}
     models: {groups: [fast, smart, best]}
     limits: &pro_limits
@@ -66,6 +68,7 @@ plans:
   - code: max
     rank: 2
     default_group: smart
+    default_model: openai/gpt-oss-120b   # the picker starts here: answers run on the 120b bucket, analysis and memory on 20b
     prices: {month: 149900, year: 1499000}
     models: {groups: [fast, smart, best]}
     limits: &max_limits

@@ -85,3 +85,16 @@ async def test_pro_and_max_include_advanced_with_a_daily_allowance(limit, used, 
     assert allowed(out) == FAST | SMART | BEST  # Ultra is credits-only
     best = next(g for g in out["groups"] if g["group"] == "best")
     assert (best["daily_limit"], best["remaining_today"]) == (limit, left)
+
+
+async def test_me_models_returns_the_plans_default_model_only_when_it_is_usable() -> None:
+    p = picker({G.FAST}, {"openai/gpt-oss-120b", "claude-haiku-5-5", "gpt-6-luna"}, 25, 0)
+    p._ent  # noqa: B018
+    ent = await p._ent.resolve(None)
+    ent.grant.plan_version.default_model = "openai/gpt-oss-120b"
+    out = await p.for_user(None)  # type: ignore[arg-type]
+    assert out["default_model"] == "openai/gpt-oss-120b"
+    ent.grant.plan_version.default_model = "claude-sonnet-5-5"          # not in the plan: no preference
+    assert (await p.for_user(None))["default_model"] is None  # type: ignore[arg-type]
+    ent.grant.plan_version.default_model = None
+    assert (await p.for_user(None))["default_model"] is None  # type: ignore[arg-type]

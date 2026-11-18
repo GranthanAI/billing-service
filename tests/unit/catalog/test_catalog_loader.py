@@ -32,7 +32,7 @@ def checksums(text: str) -> dict[tuple[str, OrgVariant | None], str]:
 
 def test_real_catalog_matches_the_workbook() -> None:
     spec = load_catalog(ROOT / "config" / "plans.yaml")
-    assert spec.catalog_version == "2026-11-19-gemini-ids"
+    assert spec.catalog_version == "2026-11-19-default-models"
     by = {b.key: b for b in blocks(spec)}
     free, pro, mx = by[("free", None)], by[("pro", None)], by[("max", None)]
     assert (free.price_month, pro.price_month, pro.price_year) == (None, 49900, 499000)
@@ -202,8 +202,8 @@ def test_price_book_membership() -> None:
             "plan 'free': default_group: unknown model group 'turbo'",
         ),
         (
-            "rank: 2\n    default_group: smart\n    prices: {month: 149900",
-            "rank: 2\n    default_group: best\n    prices: {month: 149900",
+            "rank: 2\n    default_group: smart\n    default_model: openai/gpt-oss-120b   # the picker starts here: answers run on the 120b bucket, analysis and memory on 20b\n    prices: {month: 149900",
+            "rank: 2\n    default_group: best\n    default_model: openai/gpt-oss-120b   # the picker starts here: answers run on the 120b bucket, analysis and memory on 20b\n    prices: {month: 149900",
             "default_group must not be 'best'",
         ),
         # 6. payg
@@ -265,7 +265,7 @@ def test_checksum_changes_on_price_and_limit_edits() -> None:
     assert seats[("org_pro", OrgVariant.COLLEGE)] != base[("org_pro", OrgVariant.COLLEGE)]
     groups = checksums(
         edit(
-            "default_group: smart\n    prices: {month: 49900, year: 499000}\n"
+            "default_group: smart\n    default_model: openai/gpt-oss-120b   # the picker starts here: answers run on the 120b bucket, analysis and memory on 20b\n    prices: {month: 49900, year: 499000}\n"
             "    models: {groups: [fast, smart, best]}",
             "default_group: fast\n    prices: {month: 49900, year: 499000}\n"
             "    models: {groups: [fast]}",
@@ -361,3 +361,17 @@ def test_a_price_row_may_carry_its_own_effective_from(tmp_path):
     f.write_text("effective_from: 2026-10-25T00:00:00+05:30\nmodels:\n  - {model: a, provider: g, group: fast, input: 1, output: 1, effective_from: 2026-11-19}\n", encoding="utf-8")
     with pytest.raises(CatalogError, match="effective_from"):
         load_model_prices(f)
+
+
+def test_default_model_is_read_checked_and_changes_the_checksum_only_when_set():
+    base = checksums(TEXT)
+    spec = parse(TEXT)
+    by = {p.code: p for p in spec.plans}
+    assert [by[c].default_model for c in ("free", "pro", "max")] == ["openai/gpt-oss-120b"] * 3
+    assert by["org_pro"].default_model is None and spec.payg is not None
+    # a plan without one keeps its old checksum shape (nothing else changed)
+    no_default = TEXT.replace("    default_model: openai/gpt-oss-120b   # the picker starts here: answers run on the 120b bucket, analysis and memory on 20b\n", "")
+    assert checksums(no_default)[("org_pro", OrgVariant.COLLEGE)] == base[("org_pro", OrgVariant.COLLEGE)]
+    assert checksums(no_default)[("free", None)] != base[("free", None)]
+    with pytest.raises(CatalogError, match="not a model the plan includes"):
+        parse(TEXT.replace("default_model: openai/gpt-oss-120b", "default_model: claude-sonnet-5-5", 1))

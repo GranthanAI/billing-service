@@ -161,12 +161,22 @@ class ModelPicker:
             ]
             groups.append(entry)
 
+        usable = {
+            m["id"]
+            for g in groups
+            for m in g["models"]
+            if m["allowed"] and m.get("available", True)
+        }
+        wanted = getattr(ent.grant.plan_version, "default_model", None)
+        default_model = wanted if wanted in usable else None  # not included or not answering right now: no preference
+
         return {
             "plan": {
                 "code": ent.grant.plan_version.plan_code,
                 "source": ent.grant.source.value,
             },
             "default_group": ent.grant.plan_version.default_group.value,
+            "default_model": default_model,
             "messages": {
                 "daily_limit": limits.messages_per_day,
                 "used_today": used_total,

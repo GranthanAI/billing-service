@@ -103,6 +103,7 @@ class PlanVersion:
     extra_models: frozenset[str] = frozenset()
     default_group: ModelGroup = ModelGroup.FAST  # what an Auto request reserves
     min_seats: int | None = None  # organisation plans only
+    default_model: str | None = None  # the model the picker starts on (a catalog id the plan includes); None = no preference
 
     def price_for(self, interval: Interval) -> Paise:
         price = self.price_month if interval is Interval.MONTH else self.price_year

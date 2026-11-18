@@ -23,6 +23,8 @@ def _plan(p: PlanSpec) -> dict[str, Any]:
         "rank": p.rank,
         "default_group": p.default_group.value,
     }
+    if p.default_model:
+        out["default_model"] = p.default_model
     if p.org_only:
         out["org_only"] = True
     models: dict[str, Any] = {"groups": [g.value for g in p.groups]}

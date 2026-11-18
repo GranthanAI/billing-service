@@ -44,6 +44,7 @@ def encode(ent: Entitlement) -> str:
                 "allowed_groups": sorted(x.value for x in pv.allowed_groups),
                 "extra_models": sorted(pv.extra_models),
                 "default_group": pv.default_group.value,
+                "default_model": pv.default_model,
             },
             "wallet": str(ent.overflow_wallet_account_id)
             if ent.overflow_wallet_account_id
@@ -78,6 +79,7 @@ def decode(raw: str) -> Entitlement:
         allowed_groups=frozenset(ModelGroup(x) for x in p["allowed_groups"]),
         extra_models=frozenset(p["extra_models"]),
         default_group=_default_group(p),
+        default_model=p.get("default_model"),
     )
     grant = Grant(
         source=GrantSource(d["source"]),

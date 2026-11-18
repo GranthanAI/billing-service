@@ -15,12 +15,14 @@ from billing.domain.catalog import Limits, ModelGroup, OrgVariant, PlanVersion
 from billing.domain.money import Paise
 
 GROUP_PREFIX = "group:"
+DEFAULT_PREFIX = "default:"  # allowed_models entry holding the plan's default model
 
 
 def encode_models(plan: PlanVersion) -> list[str]:
     """allowed_models holds `group:<name>` entries plus extra model ids as they are."""
     groups = sorted(f"{GROUP_PREFIX}{g.value}" for g in plan.allowed_groups)
-    return [*groups, *sorted(plan.extra_models)]
+    default = [f"{DEFAULT_PREFIX}{plan.default_model}"] if plan.default_model else []
+    return [*groups, *sorted(plan.extra_models), *default]
 
 
 def _record(r: Any) -> PlanVersionRecord:
@@ -37,9 +39,10 @@ def _record(r: Any) -> PlanVersionRecord:
         allowed_groups=frozenset(
             ModelGroup(m.removeprefix(GROUP_PREFIX)) for m in models if m.startswith(GROUP_PREFIX)
         ),
-        extra_models=frozenset(m for m in models if not m.startswith(GROUP_PREFIX)),
+        extra_models=frozenset(m for m in models if not m.startswith((GROUP_PREFIX, DEFAULT_PREFIX))),
         default_group=ModelGroup(r.default_group),
         min_seats=r.min_seats,
+        default_model=next((m.removeprefix(DEFAULT_PREFIX) for m in models if m.startswith(DEFAULT_PREFIX)), None),
     )
     return PlanVersionRecord(
         plan=plan,

@@ -41,6 +41,7 @@ class PlanSpec:
     default_group: ModelGroup = ModelGroup.FAST
     org_only: bool = False
     variants: tuple[VariantSpec, ...] = ()
+    default_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +97,7 @@ class PlanBlock:
     default_group: ModelGroup = ModelGroup.FAST
     min_seats: int | None = None
     payg: PaygSpec | None = None
+    default_model: str | None = None
 
     @property
     def key(self) -> tuple[str, OrgVariant | None]:
@@ -119,6 +121,8 @@ class PlanBlock:
             "default_group": self.default_group.value,
             "min_seats": self.min_seats,
         }
+        if self.default_model:
+            body["default_model"] = self.default_model  # only when set: plans without one keep their checksum
         if self.payg is not None:
             payg = asdict(self.payg)
             payg["groups"] = sorted(g.value for g in self.payg.groups)
@@ -147,6 +151,7 @@ class PlanBlock:
             extra_models=frozenset(self.extra_models),
             default_group=self.default_group,
             min_seats=self.min_seats,
+            default_model=self.default_model,
         )
 
 
@@ -168,6 +173,7 @@ def blocks(spec: CatalogSpec) -> list[PlanBlock]:
                         p.extra_models,
                         default_group=p.default_group,
                         min_seats=v.min_seats,
+                        default_model=p.default_model,
                     )
                 )
         else:
@@ -183,6 +189,7 @@ def blocks(spec: CatalogSpec) -> list[PlanBlock]:
                     p.groups,
                     p.extra_models,
                     default_group=p.default_group,
+                    default_model=p.default_model,
                 )
             )
     out.append(

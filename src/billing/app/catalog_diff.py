@@ -62,6 +62,8 @@ def _block_diff(old: PlanBlock | None, new: PlanBlock) -> dict[str, Any]:
                 "to": new.default_group.value,
             }
         )
+    if old.default_model != new.default_model:
+        other.append({"name": "default_model", "from": old.default_model, "to": new.default_model})
     if old.min_seats != new.min_seats:
         other.append({"name": "min_seats", "from": old.min_seats, "to": new.min_seats})
     changed = bool(

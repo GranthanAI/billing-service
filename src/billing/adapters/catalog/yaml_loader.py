@@ -3,6 +3,7 @@
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import fields
+from dataclasses import replace as dc_replace
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,7 @@ class _Plan(_Strict):
     limits: dict[str, Any] | None = None
     org_only: StrictBool = False
     variants: dict[str, _Variant] | None = None
+    default_model: str | None = None
 
 
 class _Payg(_Strict):
@@ -208,10 +210,15 @@ def parse_catalog(raw: object) -> CatalogSpec:
         groups = _groups(p.models.groups, where, group_names)
         _models_known(p.models.extra, seen, where)
         default = _default_group(p.default_group, groups, where)
-        if p.variants is not None:
-            plans.append(_org_plan(p, groups, default, where))
-        else:
-            plans.append(_individual_plan(p, groups, default, where))
+        spec_plan = (
+            _org_plan(p, groups, default, where) if p.variants is not None else _individual_plan(p, groups, default, where)
+        )
+        if p.default_model is not None:
+            included = p.default_model in p.models.extra or seen.get(p.default_model) in {g.value for g in groups}
+            if not included:
+                raise CatalogError(f"{where}: default_model '{p.default_model}' is not a model the plan includes")
+            spec_plan = dc_replace(spec_plan, default_model=p.default_model)
+        plans.append(spec_plan)
 
     if payg is None:
         raise CatalogError("plans: the 'payg' plan is missing")
