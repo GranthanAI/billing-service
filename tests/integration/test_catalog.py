@@ -9,6 +9,7 @@ import sqlalchemy as sa
 import yaml
 
 from billing.adapters.catalog.seed_loader import load_fx_rates, load_model_prices
+from tests.integration.price_seed import seed_prices
 from billing.adapters.catalog.yaml_loader import parse_catalog
 from billing.adapters.ids import Uuid7Generator
 from billing.app.catalog import CatalogSyncError, SyncAction, sync_catalog
@@ -35,7 +36,7 @@ def spec_of(text: str = TEXT, drop: tuple[str, ...] = ()):  # type: ignore[no-un
 
 async def seed(db: FreshDb) -> None:
     async with db.migrator_uow() as uow:
-        for p in load_model_prices(ROOT / "config/seed/model_prices.yaml"):
+        for p in seed_prices(ROOT):
             await uow.pricing.add_model_price(
                 model=p.model,
                 provider=p.provider,
@@ -256,7 +257,7 @@ async def test_prices_and_fx_are_effective_dated(fresh_db: FreshDb) -> None:
         assert old.for_model("claude-haiku-5-5") == new.for_model("claude-haiku-5-5")
         assert plans.SPEC.all_models() <= old.models()  # every offered model is priced
         assert old.models() - plans.SPEC.all_models() == {
-            "gemini-3.1-pro"
+            "gemini-3.1-pro", "gpt-6-astra", "gemini-2.5-flash-lite", "gemini-2.5-flash"
         }  # priced, offered in no plan: allowed
 
         assert await uow.pricing.fx_at(NOW) == Decimal("95.0000")
@@ -293,7 +294,7 @@ async def test_sync_fails_when_a_model_has_no_price(fresh_db: FreshDb) -> None:
             effective_from=datetime(2026, 10, 25, tzinfo=UTC),
         )
     gw = FakeGateway()
-    with pytest.raises(CatalogSyncError, match="gemini-2.5-flash") as exc:
+    with pytest.raises(CatalogSyncError, match="gemini-3.1-flash-lite") as exc:
         await run(fresh_db, gw)
     assert "claude-haiku-5-5" not in str(exc.value)
     assert await versions(fresh_db, "pro") == []
@@ -318,10 +319,10 @@ async def test_get_plans_endpoint(fresh_db: FreshDb) -> None:
         pro, mx = body["plans"][1], body["plans"][2]
         assert pro["prices"] == {"month": 49900, "year": 499000}
         assert mx["prices"] == {"month": 149900, "year": 1499000}
-        assert pro["groups"] == ["fast", "smart"] and pro["version"] == 1 and pro["rank"] == 1
-        assert mx["limits"]["best_per_day"] == 12 and len(mx["limits"]) == 12
+        assert pro["groups"] == ["best", "fast", "smart"] and pro["version"] == 1 and pro["rank"] == 1
+        assert mx["limits"]["best_per_day"] == 15 and len(mx["limits"]) == 12
         assert body["plans"][0]["prices"] == {} and body["plans"][0]["extra_models"] == [
-            "openai/gpt-oss-120b"
+            "claude-haiku-5-5", "gpt-6-luna", "openai/gpt-oss-120b"
         ]
 
         etag = r.headers["etag"]
@@ -352,7 +353,7 @@ async def models_table(db: FreshDb) -> list[tuple[object, ...]]:
 async def test_sync_stores_default_groups_and_the_models(fresh_db: FreshDb) -> None:
     await seed(fresh_db)
     report = await run(fresh_db, FakeGateway())
-    assert report.models_changed == 11
+    assert report.models_changed == 10
     async with fresh_db.migrator_uow() as uow:
         rows = await uow.connection.execute(
             sa.text("SELECT plan_code, default_group::text FROM billing.plan_versions")
@@ -368,10 +369,10 @@ async def test_sync_stores_default_groups_and_the_models(fresh_db: FreshDb) -> N
     }
 
     table = await models_table(fresh_db)
-    assert len(table) == 11
+    assert len(table) == 10
     assert table[0] == ("openai/gpt-oss-20b", "GPT-OSS 20B", "groq", "fast", 0)
     assert table[7] == ("claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic", "best", 7)
-    assert [r[4] for r in table] == list(range(11))
+    assert [r[4] for r in table] == list(range(10))
     async with fresh_db.app_uow() as uow:  # the app role reads the plan's default group
         pro = await uow.plans.current("pro", None)
         assert pro is not None and pro.plan.default_group is ModelGroup.SMART
@@ -404,11 +405,11 @@ async def test_a_label_change_updates_models_without_a_new_plan_version(
 async def test_sync_removes_a_model_that_left_the_file(fresh_db: FreshDb) -> None:
     await seed(fresh_db)
     await run(fresh_db, FakeGateway())
-    lines = [ln for ln in TEXT.splitlines() if "id: gpt-6-astra" not in ln]
-    # gpt-6-astra stays priced; only the picker list shrinks
+    lines = [ln for ln in TEXT.splitlines() if "id: gpt-6.1-sol" not in ln]
+    # gpt-6.1-sol stays priced; only the picker list shrinks
     report = await run(fresh_db, FakeGateway(), "\n".join(lines))
-    assert report.models_changed == 1
-    assert "gpt-6-astra" not in {r[0] for r in await models_table(fresh_db)}
+    assert report.models_changed == 2  # sol is removed and opus moves up one place
+    assert "gpt-6.1-sol" not in {r[0] for r in await models_table(fresh_db)}
 
 
 async def test_default_group_change_is_a_new_version(fresh_db: FreshDb) -> None:
@@ -432,8 +433,8 @@ async def test_a_priced_model_that_no_plan_offers_is_a_warning_and_an_unpriced_o
         o.action is SyncAction.RETIRED for o in report.outcomes
     )  # a warning, not a failure
     unpriced = TEXT.replace(
-        "    - {id: gpt-6-astra,",
-        "    - {id: model-with-no-price, label: X, provider: x}\n    - {id: gpt-6-astra,",
+        "    - {id: claude-opus-5-5,",
+        "    - {id: model-with-no-price, label: X, provider: x}\n    - {id: claude-opus-5-5,",
         1,
     )
     assert unpriced != TEXT

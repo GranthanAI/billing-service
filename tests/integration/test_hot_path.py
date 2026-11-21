@@ -112,7 +112,7 @@ async def test_free_plan_models(hot: FreshDb, vk: valkey_asyncio.Valkey) -> None
     assert best.message_key == "plan.model_not_included"
     unknown = await stack.reserve.check_and_reserve(msg(uid, group=None, model="no-such-model"))
     assert unknown.deny_reason is DenyReason.MODEL_NOT_IN_PLAN
-    smart_model = await stack.reserve.check_and_reserve(msg(uid, group=None, model="gemini-2.5-flash"))
+    smart_model = await stack.reserve.check_and_reserve(msg(uid, group=None, model="gemini-3.8-flash"))
     assert smart_model.deny_reason is DenyReason.MODEL_NOT_IN_PLAN  # a Smart model Free does not include
     assert await total(stack, uid) == 1  # denies never touch the counters
     auto = await stack.reserve.check_and_reserve(msg(uid, group=None))  # no group, no model: Auto
@@ -352,5 +352,5 @@ async def test_auto_on_pro_is_smart_and_an_explicit_model_is_echoed(
     assert (await stack.reserve.check_and_reserve(msg(uid, group=None))).granted_group is (
         ModelGroup.SMART
     )
-    chosen = await stack.reserve.check_and_reserve(msg(uid, group=None, model="gemini-2.5-flash"))
-    assert chosen.granted_model == "gemini-2.5-flash" and chosen.granted_group is ModelGroup.SMART
+    chosen = await stack.reserve.check_and_reserve(msg(uid, group=None, model="gemini-3.8-flash"))
+    assert chosen.granted_model == "gemini-3.8-flash" and chosen.granted_group is ModelGroup.SMART

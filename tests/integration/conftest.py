@@ -429,6 +429,7 @@ async def vk(valkey_url: str) -> AsyncIterator[valkey_asyncio.Valkey]:
 @pytest.fixture(scope="session")
 def hot_db_name(urls: Urls) -> Iterator[str]:
     from billing.adapters.catalog.seed_loader import load_fx_rates, load_model_prices
+    from tests.integration.price_seed import seed_prices
     from billing.adapters.catalog.yaml_loader import load_catalog
     from billing.adapters.clock import SystemClock
     from billing.adapters.gateway_fake import InMemoryGateway
@@ -457,7 +458,7 @@ def hot_db_name(urls: Urls) -> Iterator[str]:
         ids = Uuid7Generator()
         try:
             async with SqlUnitOfWork(engine, ids) as uow:
-                for p in load_model_prices(ROOT / "config/seed/model_prices.yaml"):
+                for p in seed_prices(ROOT):
                     await uow.pricing.add_model_price(
                         model=p.model,
                         provider=p.provider,
@@ -506,6 +507,7 @@ class Template:
 def phase6_template(urls: Urls) -> Iterator[Template]:
     """A migrated database with prices and the real catalog synced, cloned for each test."""
     from billing.adapters.catalog.seed_loader import load_fx_rates, load_model_prices
+    from tests.integration.price_seed import seed_prices
     from billing.adapters.catalog.yaml_loader import load_catalog
     from billing.adapters.clock import SystemClock
     from billing.adapters.gateway_fake import InMemoryGateway
@@ -535,7 +537,7 @@ def phase6_template(urls: Urls) -> Iterator[Template]:
         ids = Uuid7Generator()
         try:
             async with SqlUnitOfWork(engine, ids) as uow:
-                for p in load_model_prices(ROOT / "config/seed/model_prices.yaml"):
+                for p in seed_prices(ROOT):
                     await uow.pricing.add_model_price(
                         model=p.model,
                         provider=p.provider,

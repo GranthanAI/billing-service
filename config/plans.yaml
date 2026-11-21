@@ -1,4 +1,4 @@
-catalog_version: 2026-11-19-default-models
+catalog_version: 2026-11-21-gemini-flash
 currency: INR
 gst_inclusive: true
 # Each group lists its models in picker order: id, display label, provider.
@@ -11,7 +11,7 @@ model_groups:
     - {id: claude-haiku-5-5,      label: Claude Haiku 5.5,      provider: anthropic}
     - {id: gpt-6-luna,            label: GPT-6 Luna,            provider: openai}
     - {id: gemini-3.5-flash-lite, label: Gemini 3.5 Flash-Lite, provider: google}
-    - {id: gemini-2.5-flash,      label: Gemini 2.5 Flash,      provider: google}
+    - {id: gemini-3.8-flash,      label: Gemini 3.8 Flash,      provider: google}
   best:
     - {id: claude-sonnet-5-5,     label: Claude Sonnet 5.5,     provider: anthropic}
     - {id: gpt-6.1-sol,           label: GPT-6.1 Sol,           provider: openai}

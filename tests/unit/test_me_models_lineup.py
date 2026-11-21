@@ -15,12 +15,12 @@ NOW = datetime(2026, 11, 15, 10, 0, tzinfo=UTC)
 CATALOG = [
     ("openai/gpt-oss-20b", G.FAST), ("gemini-3.1-flash-lite", G.FAST),
     ("openai/gpt-oss-120b", G.SMART), ("claude-haiku-5-5", G.SMART), ("gpt-6-luna", G.SMART),
-    ("gemini-3.5-flash-lite", G.SMART), ("gemini-2.5-flash", G.SMART),
+    ("gemini-3.5-flash-lite", G.SMART), ("gemini-3.8-flash", G.SMART),
     ("claude-sonnet-5-5", G.BEST), ("gpt-6.1-sol", G.BEST),
     ("claude-opus-5-5", G.ULTRA),
 ]  # fmt: skip
 FAST = {"openai/gpt-oss-20b", "gemini-3.1-flash-lite"}
-SMART = {"openai/gpt-oss-120b", "claude-haiku-5-5", "gpt-6-luna", "gemini-3.5-flash-lite", "gemini-2.5-flash"}
+SMART = {"openai/gpt-oss-120b", "claude-haiku-5-5", "gpt-6-luna", "gemini-3.5-flash-lite", "gemini-3.8-flash"}
 BEST = {"claude-sonnet-5-5", "gpt-6.1-sol"}
 
 
