@@ -340,6 +340,14 @@ class Counters(Protocol):
 
     async def day_counts(self, user_id: UUID, day: date) -> dict[str, int]: ...
 
+    async def mark_user_deleted(self, user_id: UUID, now: datetime) -> None:
+        """Remember that this user was deleted (their counters were wiped but their usage_events are kept)."""
+        ...
+
+    async def deleted_users(self, since: datetime) -> set[UUID]:
+        """Users deleted at or after `since` (the reconciliation leaves them out of the counter comparison)."""
+        ...
+
     async def erase_user(self, user_id: UUID) -> int:
         """Delete every Valkey key of the user (counters, holds, idempotency, thresholds); returns
         how many keys were removed."""
@@ -611,7 +619,7 @@ class UsageRepo(Protocol):
 
     async def counts_for_day(self, user_id: UUID, ist_day: date) -> dict[ModelGroup, int]: ...
 
-    async def counts_by_user_for_day(self, ist_day: date) -> dict[UUID, dict[str, int]]:
+    async def counts_by_user_for_day(self, ist_day: date, *, reserved: bool | None = None) -> dict[UUID, dict[str, int]]:
         """Committed usage of one IST day per user, by counter field (a model group, or manim)."""
         ...
 

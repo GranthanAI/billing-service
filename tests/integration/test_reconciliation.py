@@ -2,7 +2,8 @@
 
 import json
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
@@ -25,7 +26,7 @@ async def run(env: Env, day: date = DAY) -> dict[str, tuple[str, int, dict[str, 
 
 
 async def usage_row(
-    env: Env, source: str, at: datetime, costs: dict[str, int] | None, units: int = 1
+    env: Env, source: str, at: datetime, costs: object, units: int = 1, hold: bool = True, raw: str | None = None
 ) -> None:
     account = await env.scalar("SELECT id FROM billing.billing_accounts")
     plan = await env.scalar("SELECT plan_version_id FROM billing.subscriptions")
@@ -34,12 +35,13 @@ async def usage_row(
             sa.text(
                 "INSERT INTO billing.usage_events (kind, source_id, occurred_at, user_id, "
                 "billing_account_id, plan_version_id, model, model_group, billable_units, "
-                "cost_micro_inr, price_paise, fx_usd_inr, provider_costs) VALUES "
+                "cost_micro_inr, price_paise, fx_usd_inr, provider_costs, hold_id) VALUES "
                 "('message', :s, :t, :u, :a, :p, 'claude-haiku-5-5', 'smart', :n, :c, 0, 95, "
-                "CAST(:pc AS jsonb))"
+                "CAST(:pc AS jsonb), :h)"
             ),
             {"s": source, "t": at, "u": env.user, "a": account, "p": plan,
-             "c": sum(costs.values()) if costs else 0, "pc": json.dumps(costs), "n": units},
+             "c": sum(v for v in costs.values() if isinstance(v, int)) if isinstance(costs, dict) else 0,
+             "pc": (None if raw == "SQLNULL" else raw) if raw is not None else json.dumps(costs), "n": units, "h": str(uuid4()) if hold else None},
         )  # fmt: skip
 
 
@@ -274,3 +276,65 @@ async def test_importing_a_day_again_replaces_it(env: Env) -> None:
         await uow.admin.upsert_provider_cost("groq", DAY, 9, "b.csv")  # replaces
     rows = await env.sql("SELECT provider, cost_micro_inr, source FROM billing.provider_costs")
     assert [tuple(r) for r in rows] == [("groq", 9, "b.csv")]
+
+
+# --- R3: every shape of provider_costs, deleted users, unreserved usage ----------------------------------------------
+
+
+async def test_provider_costs_between_handles_every_shape_stored(env: Env) -> None:
+    """An object, SQL NULL, JSON null, an array of calls, a string and a number: none of them may fail the query."""
+    await env.activate()
+    at = datetime(2026, 11, 1, 6, 0, tzinfo=UTC)
+    await usage_row(env, "obj", at, {"anthropic": 1000, "groq": 250})
+    await usage_row(env, "jnull", at, None)                       # JSON null: jsonb_typeof = 'null'
+    await usage_row(env, "sqlnull", at, None, raw="SQLNULL")         # CAST(NULL AS jsonb): SQL NULL
+    await usage_row(env, "arr", at, None, raw='[{"provider": "groq", "cost": 5}]')
+    await usage_row(env, "str", at, None, raw='"groq"')
+    await usage_row(env, "num", at, None, raw="42")
+    await usage_row(env, "badval", at, {"google": "n/a"})         # an object whose value is not a number
+    async with env.bctx.uow_factory() as uow:
+        rows = await uow.admin.provider_costs_between(
+            datetime(2026, 10, 31, 18, 30, tzinfo=UTC), datetime(2026, 11, 1, 18, 30, tzinfo=UTC)
+        )
+    by = {r["key"]: (int(r["cost_micro_inr"]), int(r["events"])) for r in rows}
+    assert by["anthropic"][0] == 1000 and by["groq"][0] == 250 + 0 * 5
+    assert sum(e for _, e in by.values()) >= 7                      # every row is counted somewhere (no row is lost to an error)
+
+
+async def test_the_provider_cost_check_runs_without_error_on_mixed_shapes(env: Env) -> None:
+    await env.activate()
+    at = datetime(2026, 11, 1, 6, 0, tzinfo=UTC)
+    await usage_row(env, "a", at, {"anthropic": 1000})
+    await usage_row(env, "b", at, None)
+    out = await run(env)
+    assert out["provider_cost"][0] != "error"
+
+
+async def test_deleted_users_are_not_flagged_and_are_counted_as_information(env: Env) -> None:
+    await env.activate()
+    at = datetime(2026, 11, 1, 6, 0, tzinfo=UTC)
+    for n in range(4):
+        await usage_row(env, f"d{n}", at, {"groq": 10})
+    await env.counters.rebuild_day(env.user, DAY, {"smart": 1})      # a late usage event left a partial counter after deletion
+    assert (await run(env))["valkey_counters"][0] == "difference"
+    await env.counters.mark_user_deleted(env.user, env.clock.now())  # user.deleted wiped the rest on purpose
+    status, difference, details = (await run(env))["valkey_counters"]
+    assert status == "ok" and difference == 0 and details["off"] == {}
+    assert details["deleted_users_excluded"] == 1 and details["users_checked"] == 0
+
+
+async def test_usage_that_never_went_through_a_reserve_is_reported_separately_not_as_a_difference(env: Env) -> None:
+    await env.activate()
+    at = datetime(2026, 11, 1, 6, 0, tzinfo=UTC)
+    for n in range(2):
+        await usage_row(env, f"r{n}", at, {"groq": 10})                 # reserved
+    for n in range(3):
+        await usage_row(env, f"u{n}", at, {"groq": 10}, hold=False)     # recorded with enforcement off / shadow / degraded
+    await env.counters.rebuild_day(env.user, DAY, {"smart": 2})          # the counters only ever saw the reserved ones
+    status, difference, details = (await run(env))["valkey_counters"]
+    assert status == "ok" and difference == 0
+    assert details["unreserved_usage"] == {"users": 1, "messages": 3}
+    # a real drift of the RESERVED usage is still a difference
+    await env.counters.rebuild_day(env.user, DAY, {"smart": 1})
+    status, difference, details = (await run(env))["valkey_counters"]
+    assert status == "difference" and details["off"][str(env.user)] == {"smart": -1}

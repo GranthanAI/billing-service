@@ -67,7 +67,12 @@ class SqlUsageRepo:
         )
         return {ModelGroup(g): n for g, n in (await self._c.execute(q)).all()}
 
-    async def counts_by_user_for_day(self, ist_day: date) -> dict[UUID, dict[str, int]]:
+    async def counts_by_user_for_day(
+        self, ist_day: date, *, reserved: bool | None = None
+    ) -> dict[UUID, dict[str, int]]:
+        """Billable usage per user and group for an IST day. `reserved` True = only usage that went through a reserve (it has a
+        hold id: it touched the day counters), False = only usage that did not (recorded while enforcement was off or shadow, or
+        in degraded mode), None = both."""
         start, end = _day_bounds(ist_day)
         q = (
             sa.select(t.c.user_id, t.c.kind, t.c.model_group, sa.func.count())
@@ -76,6 +81,7 @@ class SqlUsageRepo:
                 t.c.billable_units > 0,
                 t.c.occurred_at >= start,
                 t.c.occurred_at < end,
+                *([t.c.hold_id.is_not(None)] if reserved is True else [t.c.hold_id.is_(None)] if reserved is False else []),
             )
             .group_by(t.c.user_id, t.c.kind, t.c.model_group)
         )

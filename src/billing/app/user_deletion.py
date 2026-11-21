@@ -37,6 +37,7 @@ class UserDeletionService:
         # always, even on a replay: wiping Valkey twice is harmless and heals a crash that
         # happened between the commit and this line
         removed = await self._counters.erase_user(user_id)
+        await self._counters.mark_user_deleted(user_id, self._b.clock.now())  # so reconciliation does not flag the wiped counters
         await self._b.invalidate_entitlement(user_id)
         log.info("user_deleted", user_id=str(user_id), valkey_keys=removed, replay=not claimed)
         return "applied" if claimed else "duplicate"

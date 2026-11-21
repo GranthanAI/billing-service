@@ -184,11 +184,15 @@ class ReconciliationService:
         if (today - day).days > COUNTER_TTL_DAYS:
             return CheckResult("valkey_counters", "ok", 0, {"skipped": "counters have expired"})
         async with self._uow() as uow:
-            expected = await uow.usage.counts_by_user_for_day(day)
+            expected = await uow.usage.counts_by_user_for_day(day, reserved=True)   # usage that went through a reserve
+            unreserved = await uow.usage.counts_by_user_for_day(day, reserved=False)  # it never touched the counters
         actual = await self._counters.day_counts_all(day)
+        # Deleted users: their counters were wiped on purpose (usage_events are kept as financial records), and a late usage
+        # event can leave a partial counter behind. Neither is a difference.
+        deleted = await self._counters.deleted_users(self._clock.now() - timedelta(days=COUNTER_TTL_DAYS + 1))
         off: dict[str, dict[str, int]] = {}
         difference = 0
-        for user in sorted(set(expected) | set(actual), key=str):
+        for user in sorted((set(expected) | set(actual)) - deleted, key=str):
             want = {k: v for k, v in expected.get(user, {}).items() if v}
             got = {k: v for k, v in actual.get(user, {}).items() if k != "total" and v}
             if want != got:
@@ -197,7 +201,10 @@ class ReconciliationService:
                 difference += delta
                 off[str(user)] = {f: got.get(f, 0) - want.get(f, 0) for f in sorted(fields)}
         details = {
-            "users_checked": len(set(expected) | set(actual)),
+            "users_checked": len((set(expected) | set(actual)) - deleted),
             "off": dict(list(off.items())[:50]),
+            # information, not a difference:
+            "deleted_users_excluded": len((set(expected) | set(actual)) & deleted),
+            "unreserved_usage": {"users": len(unreserved), "messages": sum(sum(v.values()) for v in unreserved.values())},
         }
         return CheckResult("valkey_counters", "difference" if off else "ok", difference, details)

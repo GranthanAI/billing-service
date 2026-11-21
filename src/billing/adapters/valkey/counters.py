@@ -206,6 +206,15 @@ class ValkeyCounters:
         data: dict[str, str] = await aw(self._c.hgetall(keys.day_counters_for(user_id, day)))
         return {k: int(v) for k, v in data.items()}
 
+    DELETED_USERS = "usr:deleted"  # sorted set: user id -> deletion time (not a per-user key, so erase_user keeps it)
+
+    async def mark_user_deleted(self, user_id: UUID, now: datetime) -> None:
+        await self._c.zadd(self.DELETED_USERS, {str(user_id): now.timestamp()})
+        await self._c.zremrangebyscore(self.DELETED_USERS, 0, now.timestamp() - 30 * 86_400)  # a month is far more than the 48 h of counters
+
+    async def deleted_users(self, since: datetime) -> set[UUID]:
+        return {UUID(m) for m in await self._c.zrangebyscore(self.DELETED_USERS, since.timestamp(), "+inf")}
+
     async def erase_user(self, user_id: UUID) -> int:
         removed = 0
         async for key in self._c.scan_iter(match=f"*{{{user_id}}}*", count=500):

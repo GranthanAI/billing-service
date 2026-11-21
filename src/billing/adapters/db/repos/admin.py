@@ -151,13 +151,16 @@ class SqlAdminRepo:
             WITH r AS (SELECT * FROM billing.usage_events
                         WHERE occurred_at >= :s AND occurred_at < :e)
             SELECT key, sum(v)::bigint AS cost_micro_inr, count(*) AS events FROM (
-              SELECT kv.key AS key, kv.value::bigint AS v
-                FROM r, LATERAL jsonb_each_text(r.provider_costs) kv
-               WHERE r.provider_costs IS NOT NULL
+              SELECT kv.key AS key,
+                     CASE WHEN kv.value ~ '^-?[0-9]+(\.[0-9]+)?$' THEN round(kv.value::numeric)::bigint ELSE 0 END AS v
+                FROM r, LATERAL jsonb_each_text(
+                       CASE WHEN jsonb_typeof(r.provider_costs) = 'object' THEN r.provider_costs ELSE '{}'::jsonb END) kv
+               WHERE jsonb_typeof(r.provider_costs) = 'object'
               UNION ALL
+              -- no per-provider breakdown (SQL NULL, JSON null, or any non-object): the provider of the model that answered
               SELECT coalesce(m.provider, 'unknown'), r.cost_micro_inr
                 FROM r LEFT JOIN billing.models m ON m.id = r.model
-               WHERE r.provider_costs IS NULL
+               WHERE r.provider_costs IS NULL OR jsonb_typeof(r.provider_costs) <> 'object'
             ) x GROUP BY key ORDER BY 2 DESC
             """,
             s=start,
