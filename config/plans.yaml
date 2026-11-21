@@ -1,4 +1,4 @@
-catalog_version: 2026-11-21-gemini-flash
+catalog_version: 2026-11-21-groq-helpers
 currency: INR
 gst_inclusive: true
 # Each group lists its models in picker order: id, display label, provider.

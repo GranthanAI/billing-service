@@ -32,7 +32,7 @@ def checksums(text: str) -> dict[tuple[str, OrgVariant | None], str]:
 
 def test_real_catalog_matches_the_workbook() -> None:
     spec = load_catalog(ROOT / "config" / "plans.yaml")
-    assert spec.catalog_version == "2026-11-21-gemini-flash"
+    assert spec.catalog_version == "2026-11-21-groq-helpers"
     by = {b.key: b for b in blocks(spec)}
     free, pro, mx = by[("free", None)], by[("pro", None)], by[("max", None)]
     assert (free.price_month, pro.price_month, pro.price_year) == (None, 49900, 499000)
@@ -60,7 +60,7 @@ def test_seed_prices_cover_exactly_the_catalog_models() -> None:
     seed = load_model_prices(ROOT / "config" / "seed" / "model_prices.yaml")
     # Every catalog model has a price. Price rows may exist for models that are deliberately not listed yet:
     # gemini-3.1-pro (preview only at Google; re-add it to plans.yaml when a GA id exists, no new price needed).
-    unlisted_but_priced = {"gemini-3.1-pro", "gpt-6-astra", "gemini-2.5-flash-lite", "gemini-2.5-flash"}  # priced, not offered
+    unlisted_but_priced = {"gemini-3.1-pro", "gpt-6-astra", "gemini-2.5-flash-lite", "gemini-2.5-flash", "qwen/qwen3.8-27b"}  # priced, not offered
     assert {p.model for p in seed} - unlisted_but_priced == spec.all_models()
     assert unlisted_but_priced <= {p.model for p in seed}
     group_of = spec.group_of()
@@ -385,3 +385,12 @@ def test_gemini_3_8_flash_replaces_the_deprecated_2_5_flash_in_smart_with_a_pric
     rows = sorted((r for r in seed if r.model == "gemini-3.8-flash"), key=lambda r: r.effective_from)
     assert [(str(r.input_usd_per_m), str(r.output_usd_per_m), r.effective_from.year) for r in rows] == [("0.75", "3.75", 2026), ("1.5", "7.5", 2027)]
     assert any(r.model == "gemini-2.5-flash" for r in seed)           # the old rows are kept
+
+
+def test_the_groq_helper_model_has_a_cost_only_price_row_and_is_offered_in_no_plan():
+    spec = load_catalog(ROOT / "config" / "plans.yaml")
+    seed = load_model_prices(ROOT / "config" / "seed" / "model_prices.yaml")
+    row = next(r for r in seed if r.model == "qwen/qwen3.8-27b")
+    assert (str(row.input_usd_per_m), str(row.output_usd_per_m), row.provider) == ("0.8", "4.0", "groq")
+    assert "qwen/qwen3.8-27b" not in spec.all_models()                    # usage.metered can price it; no plan offers it
+    assert {"openai/gpt-oss-20b", "openai/gpt-oss-120b"} <= {r.model for r in seed}   # the other models used already have rows

@@ -22,4 +22,8 @@ models:
   # this key lists, gemini-3.8-flash. Source: https://aistudio.google.com/docs/pricing (paid tier, standard, per 1M tokens):
   # input $0.75, cached input $0.075, output incl. thinking $3.75 through 2026-12-31; $1.50 / $0.15 / $7.50 from 2027-01-01.
   - {model: gemini-3.8-flash,      provider: google,    group: smart, input: 0.75,  cached_input: 0.075, output: 3.75, effective_from: 2026-11-21T00:00:00+05:30}
+  # S2 (2026-11-21): Groq helper models, cost-only (offered in no plan) so usage.metered for request analysis does not dead-letter.
+  # Source: https://console.groq.com/docs/models (per 1M tokens): qwen/qwen3.8-27b $0.80 in / $4.00 out (preview model).
+  # openai/gpt-oss-20b and openai/gpt-oss-120b already have rows above.
+  - {model: qwen/qwen3.8-27b,      provider: groq,      group: fast,  input: 0.80,  output: 4.00, effective_from: 2026-11-21T00:00:00+05:30}
   - {model: gemini-3.8-flash,      provider: google,    group: smart, input: 1.50,  cached_input: 0.15,  output: 7.50, effective_from: 2027-01-01T00:00:00+05:30}

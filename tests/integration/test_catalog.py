@@ -257,7 +257,7 @@ async def test_prices_and_fx_are_effective_dated(fresh_db: FreshDb) -> None:
         assert old.for_model("claude-haiku-5-5") == new.for_model("claude-haiku-5-5")
         assert plans.SPEC.all_models() <= old.models()  # every offered model is priced
         assert old.models() - plans.SPEC.all_models() == {
-            "gemini-3.1-pro", "gpt-6-astra", "gemini-2.5-flash-lite", "gemini-2.5-flash"
+            "gemini-3.1-pro", "gpt-6-astra", "gemini-2.5-flash-lite", "gemini-2.5-flash", "qwen/qwen3.8-27b"
         }  # priced, offered in no plan: allowed
 
         assert await uow.pricing.fx_at(NOW) == Decimal("95.0000")
