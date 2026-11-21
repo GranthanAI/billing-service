@@ -12,7 +12,7 @@ if h[4] == 'payg' and price > 0 then redis.call('HINCRBY', KEYS[3], 'held', -pri
 if h[5] and h[5] ~= '' and h[5] == KEYS[5] and price > 0 then
   redis.call('INCRBY', KEYS[5], -price)
 end
-redis.call('HINCRBY', KEYS[2], 'total', -1)
+if h[2] ~= 'manim' then redis.call('HINCRBY', KEYS[2], 'total', -1) end
 redis.call('HINCRBY', KEYS[2], h[2], -1)
 redis.call('DEL', KEYS[1])
 redis.call('ZREM', KEYS[4], ARGV[1])

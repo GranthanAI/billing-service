@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     grace_days: int = 3
     # When set, the grace period is this many seconds and GRACE_DAYS is ignored (simulation runs).
     grace_period_seconds: int | None = Field(None, ge=1)
+    min_start_lead_seconds: int = Field(600, ge=0)  # Razorpay wants start_at in the future; the dev simulator's 10-minute month needs less
     checkout_abandon_hours: int = Field(24, ge=1)
     razorpay_total_count_month: int = Field(120, ge=1)
     razorpay_total_count_year: int = Field(10, ge=1)

@@ -11,7 +11,8 @@ if [ -n "$(jget "$OPTIONS" 'd.get("simulator_url")')" ]; then sim_pay "$OPTIONS"
 me
 assert_eq "$(jget "$HTTP_BODY" 'd["plan"]["code"]')" max "still Max until the period ends"
 assert_json "$HTTP_BODY" 'd["pending_change"] and d["pending_change"]["plan_code"]=="pro"' "a change to Pro is scheduled"
-SUB="$(sub_id)"
+sim GET "/state?user_id=$USER_ID"
+SUB="$(jget "$HTTP_BODY" '[s["id"] for s in d.get("subscriptions", []) if s.get("status") != "cancelled"][-1]')"   # the new Pro mandate (the Max one is cancelled at the period end)
 sim POST "/subscriptions/$SUB/renew-now"
 wait_me 60 'd["plan"]["code"]' = pro
 me

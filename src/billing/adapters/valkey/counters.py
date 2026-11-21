@@ -291,7 +291,7 @@ class ValkeyCounters:
         await self._write(keys.month_counters_for(user_id, year, month), counts, self._month_ttl)
 
     async def _write(self, key: str, counts: dict[str, int], ttl: int) -> None:
-        mapping = {**counts, "total": sum(counts.values())}
+        mapping = {**counts, "total": sum(v for k, v in counts.items() if k != "manim")}  # a Manim render is not a chat message
         async with self._c.pipeline(transaction=True) as pipe:
             pipe.delete(key)
             pipe.hset(key, mapping=mapping)

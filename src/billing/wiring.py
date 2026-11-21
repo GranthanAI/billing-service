@@ -91,6 +91,7 @@ def config_from_settings(s: Settings) -> BillingConfig:
         bill_of_supply_series=SIM_BILL_OF_SUPPLY_SERIES if sim else s.bill_of_supply_series,
         grace_days=s.grace_days,
         grace_period_seconds=s.grace_period_seconds,
+        min_start_lead_seconds=s.min_start_lead_seconds,
         poll_after_seconds=SIM_FAST_POLL_AFTER_SECONDS if sim and s.sim_fast_jobs else 7200,
         simulation=sim,
         email_enabled=s.email_enabled,

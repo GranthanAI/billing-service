@@ -53,7 +53,8 @@ else
   end
 end
 
-redis.call('HINCRBY', KEYS[1], 'total', 1)
+-- a Manim render has no plan limit and is not a chat message: it must not use up the day's messages
+if field ~= 'manim' then redis.call('HINCRBY', KEYS[1], 'total', 1) end
 redis.call('HINCRBY', KEYS[1], field, 1)
 redis.call('EXPIRE', KEYS[1], counter_ttl)
 redis.call('HSET', KEYS[3], 'counters', KEYS[1], 'field', field, 'price', price, 'mode', mode,

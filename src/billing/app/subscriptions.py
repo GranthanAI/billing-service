@@ -57,7 +57,6 @@ SELF_SERVE = frozenset({"pro", "max"})
 NOT_SELF_SERVE = frozenset({"free", "payg", "org_pro", "org_max"})
 GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-MIN_START_LEAD = timedelta(minutes=10)  # Razorpay wants start_at in the future
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +117,9 @@ class SubscriptionService:
     def __init__(self, bctx: BillingContext, applier: EventApplier) -> None:
         self._b = bctx
         self._applier = applier
+
+    def _start_lead(self) -> timedelta:
+        return timedelta(seconds=self._b.config.min_start_lead_seconds)
 
     # --- helpers -------------------------------------------------------------------------
 
@@ -303,7 +305,7 @@ class SubscriptionService:
             plan_id = _plan_id(target, interval, self._b.gateway.kind)
             period_end = sub.state.current_period_end
         if direction is Direction.DOWNGRADE and (
-            period_end is None or period_end - now < MIN_START_LEAD
+            period_end is None or period_end - now < self._start_lead()
         ):
             raise SubscriptionStateError("Your period is about to end; try again after renewal.")
         quote = quote_change(
@@ -359,7 +361,7 @@ class SubscriptionService:
             assert plan is not None
             plan_id = _plan_id(plan, sub.state.interval, self._b.gateway.kind)
             end = sub.state.current_period_end
-        if end is None or end - now < MIN_START_LEAD:
+        if end is None or end - now < self._start_lead():
             raise SubscriptionStateError("Your period is about to end; start a new checkout.")
         quote = quote_resume(
             period_end=end,

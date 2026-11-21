@@ -20,6 +20,7 @@ class BillingConfig:
     bill_of_supply_series: str = "BS"
     grace_days: int = 3
     grace_period_seconds: int | None = None  # GRACE_PERIOD_SECONDS: overrides grace_days
+    min_start_lead_seconds: int = 600  # MIN_START_LEAD_SECONDS: a resume / downgrade needs this long before the period ends
     poll_after_seconds: int = 7200  # subscription.poll looks at periods ended this long ago
     simulation: bool = False  # PAYMENT_SIMULATION
     email_enabled: bool = True  # EMAIL_ENABLED: false enqueues no emails at all

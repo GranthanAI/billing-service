@@ -135,6 +135,7 @@ async def test_youtube_limit_is_monthly_in_ist(hot: FreshDb, vk: valkey_asyncio.
         msg(uid, kind=ReserveKind.MANIM_VIDEO, group=None)
     )
     assert manim.allowed and manim.remaining_today == -1 and manim.granted_group is None
+    assert (await stack.counters.day_counts(uid, ist_day(clock.now()))).get("total", 0) == 0   # it used no chat message
 
 
 async def test_ist_midnight_resets_the_daily_limit(hot: FreshDb, vk: valkey_asyncio.Valkey) -> None:
@@ -278,7 +279,7 @@ async def test_rebuild_reproduces_the_counters(
     before_day = await stack.counters.day_counts(uid, day)
     month_key = keys.month_counters(uid, stack.clock.now())
     before_month = await vk.hgetall(month_key)
-    assert before_day == {"fast": 3, "smart": 2, "manim": 1, "total": 6}
+    assert before_day == {"fast": 3, "smart": 2, "manim": 1, "total": 5}  # a Manim render is not a chat message
     assert before_month == {"youtube": "2", "total": "2"}
 
     await vk.flushdb()
