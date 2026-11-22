@@ -1,6 +1,6 @@
 """OrgDirectory: what billing needs to know from org-service (membership, org details, members).
 
-The contract (org-service is not built yet; see contracts/org-service.md):
+The contract (organisation-service serves it; see contracts/org-service.md):
   GET /internal/memberships/{user_id}  -> {org_id, org_type, role, status}, or 404
   GET /internal/orgs/{org_id}          -> {name, type, gstin, billing_email, state_code,
                                            member_spend_cap_paise}, or 404

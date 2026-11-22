@@ -1,6 +1,6 @@
 """Stage F: organisation subscriptions by invoice, org grants, seats, renewal and the admin API."""
 
-from datetime import timedelta
+from datetime import UTC, date, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -250,26 +250,36 @@ async def test_true_up_is_deferred_and_recognised_over_the_months_left(env: Env)
     assert await unbalanced(env) == 0
 
 
-async def test_csv_usage_report(env: Env) -> None:
-    org, member = make_org(env), uuid4()
-    env.orgs.join(member, org.org_id, OrgVariant.COMPANY)
+async def add_usage(env: Env, account_owner: UUID, user: UUID, day: str, group: str, n: int) -> None:
+    """One usage_daily row billed to the account that belongs to `account_owner` (a user or an organisation)."""
+    async with env.app_engine.begin() as conn:
+        await conn.execute(
+            sa.text(
+                "INSERT INTO billing.usage_daily (day, billing_account_id, user_id, model_group, "
+                "messages, billable_units, cost_micro_inr, price_paise) "
+                "SELECT :d, id, :u, CAST(:g AS billing.model_group), :n, :n, 1000, 0 "
+                "FROM billing.billing_accounts WHERE owner_id = :o"
+            ),
+            {"d": day, "u": user, "g": group, "n": n, "o": account_owner},
+        )
+
+
+async def personal_account(env: Env, user: UUID) -> None:
     async with env.app_engine.begin() as conn:
         await conn.execute(
             sa.text(
                 "INSERT INTO billing.billing_accounts (id, owner_type, owner_id) "
                 "VALUES (gen_random_uuid(), 'user', :u) ON CONFLICT DO NOTHING"
             ),
-            {"u": member},
+            {"u": user},
         )
-        await conn.execute(
-            sa.text(
-                "INSERT INTO billing.usage_daily (day, billing_account_id, user_id, model_group, "
-                "messages, billable_units, cost_micro_inr, price_paise) "
-                "SELECT '2026-11-03', id, :u, 'smart', 12, 12, 1000, 0 "
-                "FROM billing.billing_accounts WHERE owner_id = :u"
-            ),
-            {"u": member},
-        )
+
+
+async def test_csv_usage_report(env: Env) -> None:
+    org, member = make_org(env), uuid4()
+    env.orgs.join(member, org.org_id, OrgVariant.COMPANY)
+    await subscribe(env, org)  # creates the organisation's billing account
+    await add_usage(env, org.org_id, member, "2026-11-03", "smart", 12)
     url = f"/internal/orgs/{org.org_id}/usage?from=2026-11-01&to=2026-11-30&format=csv"
     async with env.api() as api:
         r = await api.get(url, headers={"Authorization": f"Bearer {ORG_TOKEN}"})
@@ -277,6 +287,104 @@ async def test_csv_usage_report(env: Env) -> None:
     lines = r.text.strip().split("\n")
     assert lines[0] == "user_id,day,model_group,messages,billable_units"
     assert lines[1] == f"{member},2026-11-03,smart,12,12"
+
+
+async def test_usage_report_includes_leavers_and_excludes_personal_usage(env: Env) -> None:
+    org, member, leaver = make_org(env), uuid4(), uuid4()
+    env.orgs.join(member, org.org_id, OrgVariant.COMPANY)  # the leaver is NOT a member any more
+    await subscribe(env, org)
+    await personal_account(env, member)
+    await add_usage(env, org.org_id, member, "2026-11-03", "smart", 12)
+    await add_usage(env, org.org_id, leaver, "2026-11-04", "fast", 7)  # billed to the org, left
+    await add_usage(env, member, member, "2026-11-05", "best", 99)  # the member's OWN plan paid
+    async with env.api() as api:
+        r = await api.get(
+            f"/internal/orgs/{org.org_id}/usage?from=2026-11-01&to=2026-11-30",
+            headers={"Authorization": f"Bearer {ORG_TOKEN}"},
+        )
+    rows = {(x["user_id"], x["day"], x["model_group"]): x["messages"] for x in r.json()["rows"]}
+    assert rows == {
+        (str(member), "2026-11-03", "smart"): 12,
+        (str(leaver), "2026-11-04", "fast"): 7,
+    }
+    ids = [x["user_id"] for x in r.json()["rows"]]
+    assert ids == sorted(ids)
+
+
+async def test_usage_report_is_one_query_and_empty_without_an_account(env: Env) -> None:
+    org = make_org(env)
+    first, last = date(2026, 11, 1), date(2026, 11, 30)
+    assert await env.org_billing.usage_report(org.org_id, first, last) == []
+    await subscribe(env, org)
+    for _ in range(20):
+        await add_usage(env, org.org_id, uuid4(), "2026-11-03", "fast", 1)
+    statements: list[str] = []
+
+    def count(conn: Any, cursor: Any, statement: str, *rest: Any) -> None:
+        if "usage_daily" in statement:
+            statements.append(statement)
+
+    engine = env.app_engine.sync_engine
+    sa.event.listen(engine, "before_cursor_execute", count)
+    try:
+        rows = await env.org_billing.usage_report(org.org_id, first, last)
+    finally:
+        sa.event.remove(engine, "before_cursor_execute", count)
+    assert len(rows) == 20 and len(statements) == 1  # not one query per member
+
+
+async def get_subscription(env: Env, org_id: UUID, token: str | None = ORG_TOKEN) -> Any:
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    async with env.api() as api:
+        return await api.get(f"/internal/orgs/{org_id}/subscription", headers=headers)
+
+
+@pytest.mark.parametrize("plan", ["org_pro", "org_max"])
+async def test_subscription_route_shape(env: Env, plan: str) -> None:
+    org = make_org(env)
+    issued = await subscribe(env, org, seats=6, plan=plan)
+    await pay(env, issued.invoice_id)
+    body = (await get_subscription(env, org.org_id)).json()
+    row = await sub_row(env, org)
+    assert set(body) == {
+        "subscription_id", "plan_code", "variant", "seats", "pending_seats", "status", "period_end",
+    }  # fmt: skip
+    assert (body["plan_code"], body["variant"], body["seats"], body["status"]) == (
+        plan, "company", 6, "active",
+    )  # fmt: skip
+    assert body["pending_seats"] is None
+    expected_end = row.current_period_end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert body["period_end"] == expected_end
+    assert body["subscription_id"]
+
+
+async def test_subscription_route_shows_a_pending_seat_decrease(env: Env) -> None:
+    org = make_org(env)
+    await pay(env, (await subscribe(env, org, seats=8)).invoice_id)
+    result, _ = await env.org_billing.change_seats(org.org_id, 6, actor=uuid4(), reason="down")
+    assert result == "at_renewal"
+    body = (await get_subscription(env, org.org_id)).json()
+    assert body["seats"] == 8 and body["pending_seats"] == 6
+
+
+async def test_subscription_route_404_no_subscription(env: Env) -> None:
+    unknown = make_org(env)  # no billing account at all
+    r = await get_subscription(env, unknown.org_id)
+    assert r.status_code == 404 and r.json()["code"] == "NO_SUBSCRIPTION"
+    assert str(unknown.org_id) in r.json()["detail"]
+    piloted = make_org(env)  # an org-only pilot override is NOT a subscription
+    await make_override(env, piloted, 30)
+    r = await get_subscription(env, piloted.org_id)
+    assert r.status_code == 404 and r.json()["code"] == "NO_SUBSCRIPTION"
+    unpaid = make_org(env)  # subscribed but the invoice is unpaid: incomplete is not live
+    await subscribe(env, unpaid)
+    assert (await get_subscription(env, unpaid.org_id)).json()["code"] == "NO_SUBSCRIPTION"
+
+
+async def test_subscription_route_needs_the_service_token(env: Env) -> None:
+    org = make_org(env)
+    assert (await get_subscription(env, org.org_id, token=None)).status_code == 401
+    assert (await get_subscription(env, org.org_id, token="wrong")).status_code == 401
 
 
 async def test_exit_scenario_pilot_to_paid_by_bank_transfer(env: Env) -> None:

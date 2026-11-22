@@ -48,3 +48,20 @@ def test_guards_trigger_on_raw_strings(env: str) -> None:
     for mode in ("console", "file"):
         with pytest.raises(ValueError):
             check_email_config(mode, env, "", "")
+
+
+@pytest.mark.parametrize("env", ["prod", "Production", " production "])
+def test_production_needs_the_org_service_url_and_token(env: str) -> None:
+    from billing.settings import check_org_service_config
+
+    check_org_service_config("http://org:8010", "t" * 32, env)
+    for url, token, missing in [("", "t", "ORG_SERVICE_URL"), ("http://o", "", "ORG_SERVICE_TOKEN"), ("  ", "  ", "ORG_SERVICE_URL")]:
+        with pytest.raises(ValueError, match=missing):
+            check_org_service_config(url, token, env)
+
+
+@pytest.mark.parametrize("env", ["development", "test", "staging"])
+def test_the_org_service_may_be_off_outside_production(env: str) -> None:
+    from billing.settings import check_org_service_config
+
+    check_org_service_config("", "", env)

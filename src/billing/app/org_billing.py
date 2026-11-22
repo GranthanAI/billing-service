@@ -12,7 +12,7 @@ All of it is idempotent: invoice numbers come from the locked counter, payments 
 """
 
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -21,6 +21,7 @@ import structlog
 from billing.app.config import BillingConfig, BillingContext
 from billing.app.errors import (
     ChangePending,
+    NoSubscription,
     NotFound,
     SubscriptionStateError,
     ValidationFailed,
@@ -439,16 +440,41 @@ class OrgBilling:
 
     # --- usage ---
 
-    async def usage_report(
-        self, members: list[UUID], start: date, end: date
-    ) -> list[dict[str, Any]]:
-        """Per member and model group: messages and billable units between two IST days."""
-        rows: list[dict[str, Any]] = []
+    async def usage_report(self, org_id: UUID, start: date, end: date) -> list[dict[str, Any]]:
+        """Per member, day and model group: messages and billable units between two IST days,
+        for what the ORGANISATION'S account was billed, in one query. Members who left
+        mid-period are in it (their usage was billed to the org); a member's personal-plan
+        usage is not. No billing account for the organisation: an empty list, not an error."""
         async with self._b.uow_factory() as uow:
-            for member in members:
-                for r in await uow.admin.daily_usage(member, start, end):
-                    rows.append({"user_id": str(member), **r})
-        return rows
+            account = await uow.accounts.get_by_owner(OwnerType.ORG, org_id)
+            if account is None:
+                return []
+            return await uow.admin.account_usage(account.id, start, end)
+
+    # --- the subscription, as organisation-service reads it ---
+
+    async def subscription_view(self, org_id: UUID) -> dict[str, Any]:
+        """The live subscription for GET /internal/orgs/{id}/subscription. NoSubscription if
+        there is no billing account or no live subscription (an org-only plan override is not
+        a subscription)."""
+        async with self._b.uow_factory() as uow:
+            account = await uow.accounts.get_by_owner(OwnerType.ORG, org_id)
+            sub = await uow.subscriptions.live_for_account(account.id) if account else None
+            if account is None or sub is None:
+                raise NoSubscription(f"organisation {org_id} has no subscription")
+            plan = await uow.plans.by_id(sub.state.plan_version_id)
+            if plan is None:
+                raise NoSubscription(f"organisation {org_id} has no subscription")
+            end = sub.state.current_period_end
+            return {
+                "subscription_id": str(sub.id),
+                "plan_code": plan.plan.plan_code,
+                "variant": plan.plan.variant.value if plan.plan.variant else None,
+                "seats": sub.seats,
+                "pending_seats": sub.pending_seats,
+                "status": sub.state.status.value,
+                "period_end": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if end else None,
+            }
 
     # --- renewal ---
 

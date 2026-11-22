@@ -74,6 +74,15 @@ class NotFound(BillingError):
     title = "Not found"
 
 
+class NoSubscription(NotFound):
+    """The organisation has no billing account, or no live subscription (an org-only plan
+    override does not count: org-service manages pilot seats itself). organisation-service
+    tells this 404 from "the route does not exist" by the code."""
+
+    code = "NO_SUBSCRIPTION"
+    title = "This organisation has no subscription"
+
+
 class Forbidden(BillingError):
     code = "FORBIDDEN"
     title = "This action needs a different staff role"

@@ -59,6 +59,7 @@ from billing.observability import (
 from billing.settings import (
     Settings,
     check_email_config,
+    check_org_service_config,
     check_simulation_allowed,
     gateway_secrets,
     get_settings,
@@ -114,6 +115,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         check_simulation_allowed(settings.payment_simulation, settings.environment)
         check_email_config(
             settings.email_mode, settings.environment, settings.smtp_host, settings.email_from
+        )
+        check_org_service_config(
+            settings.org_service_url, settings.org_service_token, settings.environment
         )
         owned_engine = make_engine(settings.billing_database_url, pool_size=settings.db_pool_size)
         app.state.engine = owned_engine

@@ -2,7 +2,8 @@
 
 /admin/billing/v1/orgs/...: staff (billing_admin) subscribe an organisation, change its seats,
 mark an invoice paid (bank transfer) or make its payment link.
-/internal/orgs/{org_id}/usage: org-service reads its members' usage with a service token.
+/internal/orgs/{org_id}/usage and /subscription: org-service reads the usage and the seats
+with a service token.
 """
 
 import csv
@@ -197,8 +198,7 @@ async def org_usage(  # type: ignore[no-untyped-def]
 ):
     if to < from_:
         raise ValidationFailed("'to' is before 'from'")
-    members = await request.app.state.org_directory.members(org_id)
-    rows = await svc.usage_report(members, from_, to)
+    rows = await svc.usage_report(org_id, from_, to)
     if format == "csv":
         return _csv(rows)
     return _json(
@@ -209,3 +209,12 @@ async def org_usage(  # type: ignore[no-untyped-def]
             "rows": rows,
         }
     )
+
+
+@internal_router.get("/orgs/{org_id}/subscription")
+async def org_subscription(
+    org_id: UUID, svc: Annotated[OrgBilling, Depends(_service)]
+) -> JSONResponse:
+    """What organisation-service needs to set its seats: {subscription_id, plan_code, variant,
+    seats, pending_seats, status, period_end}. 404 NO_SUBSCRIPTION when there is none."""
+    return _json(await svc.subscription_view(org_id))

@@ -160,3 +160,12 @@ def check_email_config(mode: str, environment: str, smtp_host: str, email_from: 
         raise ValueError(f"EMAIL_MODE={mode} is refused when ENVIRONMENT=production")
     if mode == "smtp" and not (smtp_host and email_from):
         raise ValueError("EMAIL_MODE=smtp needs SMTP_HOST and EMAIL_FROM")
+
+
+def check_org_service_config(url: str, token: str, environment: str) -> None:
+    """Production needs organisation-service: without ORG_SERVICE_URL nobody is a member of any organisation (the org plan is
+    never granted), and without ORG_SERVICE_TOKEN every call to it is refused. Both are required there."""
+    if normalise_environment(environment) == "production":
+        missing = [n for n, v in (("ORG_SERVICE_URL", url), ("ORG_SERVICE_TOKEN", token)) if not v.strip()]
+        if missing:
+            raise ValueError(f"{' and '.join(missing)} must be set when ENVIRONMENT=production")

@@ -59,6 +59,10 @@ wallet.credits_expiring            | billing-service -> (notifications)
 invoice.issued                     | billing-service -> (notifications)
 org.member.joined                  | organisation-service -> billing-service
 org.member.left                    | organisation-service -> billing-service
+org.policy.changed                 | organisation-service -> (conversation-service: mode locking)
+org.invite.created                 | organisation-service -> (notification-service)
+org.pilot.ending                   | organisation-service -> (notification-service)
+organisation.dlq                   | organisation-service -> (dead letters of user-events and user.deleted)
 billing.usage.dlq                  | billing-service -> (dead letters of usage.metered)
 billing.user.dlq                   | billing-service -> (dead letters of user.deleted)
 billing.org.dlq                    | billing-service -> (dead letters of org.member.*)

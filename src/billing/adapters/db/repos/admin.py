@@ -208,6 +208,23 @@ class SqlAdminRepo:
             t=end,
         )
 
+    async def account_usage(
+        self, billing_account_id: UUID, start: date, end: date
+    ) -> list[dict[str, Any]]:
+        """Everything billed to ONE account between two IST days, per user, day and model
+        group, in one query. For an organisation this is its members' usage while the org plan
+        paid for it: people who have since left are included, and a member's personal-plan
+        usage (billed to their own account) is not."""
+        return await self._all(
+            "SELECT user_id::text AS user_id, day, model_group::text AS model_group, "
+            "messages, billable_units "
+            "FROM billing.usage_daily WHERE billing_account_id = :a AND day >= :f AND day <= :t "
+            "ORDER BY user_id, day, model_group",
+            a=billing_account_id,
+            f=start,
+            t=end,
+        )
+
     # --- catalog changes ---------------------------------------------------------------------
 
     async def audit_row(self, audit_id: int) -> dict[str, Any] | None:
