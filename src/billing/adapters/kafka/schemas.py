@@ -127,7 +127,7 @@ class LlmCall(_Consumed):
 
 
 class ChatResponseGenerated(_Consumed):
-    """llm-service, schema 2.2. It has no event_id: `dedupe_key` stands in for one."""
+    """llm-service, schema 2.3. It has no event_id: `dedupe_key` stands in for one."""
 
     conversation_id: str
     user_id: str
@@ -138,6 +138,7 @@ class ChatResponseGenerated(_Consumed):
     hold_id: str | None = None
     model_group: str | None = None
     model: str | None = None
+    think: bool = False  # 2.3: the answer call used provider reasoning; not stored, rating is unchanged
     calls: list[LlmCall] = []
 
     @property

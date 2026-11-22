@@ -1,25 +1,25 @@
-catalog_version: 2026-11-21-groq-helpers
+catalog_version: 2026-11-22-think-longer
 currency: INR
 gst_inclusive: true
 # Each group lists its models in picker order: id, display label, provider.
 model_groups:
   fast:
-    - {id: openai/gpt-oss-20b,    label: GPT-OSS 20B,           provider: groq}
-    - {id: gemini-3.1-flash-lite, label: Gemini 3.1 Flash-Lite, provider: google}
+    - {id: openai/gpt-oss-20b,    label: GPT-OSS 20B,           provider: groq, think: true}
+    - {id: gemini-3.1-flash-lite, label: Gemini 3.1 Flash-Lite, provider: google, think: true}
   smart:
-    - {id: openai/gpt-oss-120b,   label: GPT-OSS 120B,          provider: groq}
-    - {id: claude-haiku-5-5,      label: Claude Haiku 5.5,      provider: anthropic}
-    - {id: gpt-6-luna,            label: GPT-6 Luna,            provider: openai}
-    - {id: gemini-3.5-flash-lite, label: Gemini 3.5 Flash-Lite, provider: google}
-    - {id: gemini-3.8-flash,      label: Gemini 3.8 Flash,      provider: google}
+    - {id: openai/gpt-oss-120b,   label: GPT-OSS 120B,          provider: groq, think: true}
+    - {id: claude-haiku-5-5,      label: Claude Haiku 5.5,      provider: anthropic, think: true}
+    - {id: gpt-6-luna,            label: GPT-6 Luna,            provider: openai, think: true}
+    - {id: gemini-3.5-flash-lite, label: Gemini 3.5 Flash-Lite, provider: google, think: true}
+    - {id: gemini-3.8-flash,      label: Gemini 3.8 Flash,      provider: google, think: true}
   best:
-    - {id: claude-sonnet-5-5,     label: Claude Sonnet 5.5,     provider: anthropic}
-    - {id: gpt-6.1-sol,           label: GPT-6.1 Sol,           provider: openai}
+    - {id: claude-sonnet-5-5,     label: Claude Sonnet 5.5,     provider: anthropic, think: true}
+    - {id: gpt-6.1-sol,           label: GPT-6.1 Sol,           provider: openai, think: true}
     # gemini-3.1-pro is deliberately NOT listed: Google exposes it only as the preview model "gemini-3.1-pro-preview", so
     # llm-service ships it disabled. Re-add it here (label "Gemini 3.1 Pro", provider google) when Google lists a GA id; its
     # price row stays in config/seed/model_prices.yaml, so re-adding needs no new price.
   ultra:
-    - {id: claude-opus-5-5,       label: Claude Opus 5.5,       provider: anthropic}
+    - {id: claude-opus-5-5,       label: Claude Opus 5.5,       provider: anthropic, think: true}
     # gpt-6-astra is not offered: it is removed from this group, but its price row stays in config/seed/model_prices.yaml.
 
 base_limits: &free_limits
@@ -35,6 +35,7 @@ base_limits: &free_limits
   storage_mb: 100
   custom_modes: 3
   mode_instruction_chars: 1000
+  think_longer_per_day: 0          # enforced by conversation-service; 0 = not in the plan, -1 = unlimited
 
 plans:
   - code: free
@@ -64,6 +65,7 @@ plans:
       storage_mb: 2048
       custom_modes: 10
       mode_instruction_chars: 4000
+      think_longer_per_day: 10
 
   - code: max
     rank: 2
@@ -84,14 +86,15 @@ plans:
       youtube_per_month: 60
       storage_mb: 10240
       custom_modes: 20
+      think_longer_per_day: 30
 
   - code: org_pro                      # v2, yearly, priced per seat
     rank: 1
     default_group: smart
     org_only: true
     variants:
-      college: {min_seats: 50, prices: {year: 298800}, limits: {<<: *pro_limits, messages_per_day: 30, best_per_day: 0}}
-      company: {min_seats: 5,  prices: {year: 838800}, limits: {<<: *pro_limits, best_per_day: 0}}
+      college: {min_seats: 50, prices: {year: 298800}, limits: {<<: *pro_limits, messages_per_day: 30, best_per_day: 0, think_longer_per_day: 0}}
+      company: {min_seats: 5,  prices: {year: 838800}, limits: {<<: *pro_limits, best_per_day: 0, think_longer_per_day: 0}}
     models: {groups: [fast, smart]}
 
   - code: org_max                      # v2
@@ -99,8 +102,8 @@ plans:
     default_group: smart
     org_only: true
     variants:
-      college: {min_seats: 10, prices: {year: 1198800}, limits: {<<: *max_limits, messages_per_day: 50, best_per_day: 8}}
-      company: {min_seats: 5,  prices: {year: 2158800}, limits: {<<: *max_limits, best_per_day: 12}}
+      college: {min_seats: 10, prices: {year: 1198800}, limits: {<<: *max_limits, messages_per_day: 50, best_per_day: 8, think_longer_per_day: 20}}
+      company: {min_seats: 5,  prices: {year: 2158800}, limits: {<<: *max_limits, best_per_day: 12, think_longer_per_day: 20}}
     models: {groups: [fast, smart, best]}
 
   - code: payg                         # v3
@@ -130,3 +133,4 @@ plans:
       storage_mb: -1                   # billing charges above 10 GB (storage.bill); file-service must not cap
       custom_modes: -1
       mode_instruction_chars: 8000
+      think_longer_per_day: 0          # a think message has no credit price yet, so it stays off for Pay as you Go

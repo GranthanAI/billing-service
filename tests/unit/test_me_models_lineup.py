@@ -98,3 +98,17 @@ async def test_me_models_returns_the_plans_default_model_only_when_it_is_usable(
     assert (await p.for_user(None))["default_model"] is None  # type: ignore[arg-type]
     ent.grant.plan_version.default_model = None
     assert (await p.for_user(None))["default_model"] is None  # type: ignore[arg-type]
+
+
+async def test_every_model_carries_the_think_flag_in_both_lists() -> None:
+    class ThinkUow(Uow):
+        async def _models(self):  # type: ignore[no-untyped-def]
+            return [ModelEntry(m, m, "x", g, i, think=(m != "gpt-6-luna")) for i, (m, g) in enumerate(CATALOG)]
+
+    p = picker({G.FAST, G.SMART}, set(), 60, 0)
+    p._uow = ThinkUow  # type: ignore[assignment]
+    mine = await p.for_user(None)  # type: ignore[arg-type]
+    flags = {m["id"]: m["think"] for g in mine["groups"] for m in g["models"]}
+    assert flags["gpt-6-luna"] is False and flags["openai/gpt-oss-120b"] is True and len(flags) == len(CATALOG)
+    everyone = await p.all_models()
+    assert {m["id"]: m["think"] for m in everyone} == flags

@@ -92,6 +92,7 @@ class ModelPicker:
                 "group": m.group.value,
                 "sort_order": m.sort_order,
                 "available": m.id not in down,
+                "think": m.think,
             }
             for m in snap.models
         ]
@@ -155,6 +156,7 @@ class ModelPicker:
                     "provider": m.provider,
                     "allowed": plan_allows or by_credits or m.id in ent.extra_models,
                     "available": m.id not in down,
+                    "think": m.think,
                 }
                 for m in snap.models
                 if m.group is group

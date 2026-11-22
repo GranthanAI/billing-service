@@ -67,6 +67,8 @@ class Limits:
     storage_mb: int
     custom_modes: int
     mode_instruction_chars: int
+    # Enforced by conversation-service, not billing. Defaulted so plan versions stored before it existed read as 0.
+    think_longer_per_day: int = 0
 
     def __post_init__(self) -> None:
         for f in fields(self):

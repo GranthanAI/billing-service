@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 from pathlib import Path
 
@@ -32,7 +33,7 @@ def checksums(text: str) -> dict[tuple[str, OrgVariant | None], str]:
 
 def test_real_catalog_matches_the_workbook() -> None:
     spec = load_catalog(ROOT / "config" / "plans.yaml")
-    assert spec.catalog_version == "2026-11-21-groq-helpers"
+    assert spec.catalog_version == "2026-11-22-think-longer"
     by = {b.key: b for b in blocks(spec)}
     free, pro, mx = by[("free", None)], by[("pro", None)], by[("max", None)]
     assert (free.price_month, pro.price_month, pro.price_year) == (None, 49900, 499000)
@@ -309,6 +310,7 @@ PAYG_LIMITS = {
     "messages_per_day": -1, "best_per_day": -1, "branches_per_tree": -1, "messages_per_conversation": -1,
     "memory_facts": -1, "context_tokens": -1, "documents_per_tree": -1, "file_size_mb": 100,
     "youtube_per_month": -1, "storage_mb": -1, "custom_modes": -1, "mode_instruction_chars": 8000,
+    "think_longer_per_day": 0,
 }
 
 
@@ -394,3 +396,81 @@ def test_the_groq_helper_model_has_a_cost_only_price_row_and_is_offered_in_no_pl
     assert (str(row.input_usd_per_m), str(row.output_usd_per_m), row.provider) == ("0.8", "4.0", "groq")
     assert "qwen/qwen3.8-27b" not in spec.all_models()                    # usage.metered can price it; no plan offers it
     assert {"openai/gpt-oss-20b", "openai/gpt-oss-120b"} <= {r.model for r in seed}   # the other models used already have rows
+
+
+# --- think longer: the daily limit and the model flag ----------------------------------------
+
+
+def test_think_longer_limits_per_plan() -> None:
+    spec = load_catalog(ROOT / "config" / "plans.yaml")
+    by = {b.key: b.limits.think_longer_per_day for b in blocks(spec)}
+    assert by[("free", None)] == 0 and by[("pro", None)] == 10 and by[("max", None)] == 30
+    assert by[("org_pro", OrgVariant.COLLEGE)] == by[("org_pro", OrgVariant.COMPANY)] == 0
+    assert by[("org_max", OrgVariant.COLLEGE)] == by[("org_max", OrgVariant.COMPANY)] == 20
+    assert by[("payg", None)] == 0
+
+
+def test_a_catalog_published_before_the_think_limit_still_loads_with_zero() -> None:
+    old = re.sub(r"\n +think_longer_per_day: [^\n]*", "", TEXT)
+    old = re.sub(r", think_longer_per_day: [0-9]+", "", old)
+    assert "think_longer_per_day" not in old
+    assert {b.limits.think_longer_per_day for b in blocks(parse(old))} == {0}
+
+
+def test_think_limit_must_still_be_valid_when_present() -> None:
+    with pytest.raises(CatalogError, match="think_longer_per_day"):
+        parse(TEXT.replace("think_longer_per_day: 10", "think_longer_per_day: -2", 1))
+
+
+def test_think_limit_joins_the_checksum() -> None:
+    base = checksums(TEXT)
+    moved = checksums(TEXT.replace("think_longer_per_day: 10", "think_longer_per_day: 11"))
+    assert moved[("pro", None)] != base[("pro", None)]
+
+
+def test_model_think_flag_is_read_and_defaults_to_false() -> None:
+    entries = {e.id: e for e in parse(TEXT).model_entries()}
+    assert entries["openai/gpt-oss-120b"].think is True
+    bare = TEXT.replace("provider: groq, think: true}", "provider: groq}", 1)
+    assert parse(bare).model_entries()[0].think is False
+
+
+def test_model_think_flag_must_be_a_boolean() -> None:
+    with pytest.raises(CatalogError, match="think"):
+        parse(TEXT.replace("provider: groq, think: true}", "provider: groq, think: 1}", 1))
+
+
+# --- plan versions stored before the think limit existed ------------------------------------
+
+
+def test_a_stored_plan_row_without_the_think_limit_reads_as_zero() -> None:
+    from dataclasses import asdict
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from billing.adapters.db.repos.plans import _record
+    from tests.support import plans
+
+    old = {k: v for k, v in asdict(plans.PRO.limits).items() if k != "think_longer_per_day"}
+    row = SimpleNamespace(
+        id=uuid4(), plan_code="pro", version=1, rank=1, variant=None, price_month_paise=49900,
+        price_year_paise=499000, limits=old, allowed_models=["group:fast"], default_group="fast",
+        min_seats=None,
+    )
+    for name in ("effective_from", "retired_at", "checksum", "razorpay_plan_month", "razorpay_plan_year", "gateway_kind"):
+        setattr(row, name, None)
+    rec = _record(row)
+    assert rec.plan.limits.think_longer_per_day == 0
+    assert rec.plan.limits.messages_per_day == plans.PRO.limits.messages_per_day
+
+
+def test_an_old_cache_entry_without_the_think_limit_reads_as_zero() -> None:
+    import json
+    from billing.adapters.valkey.entitlement_cache import decode, encode
+    from billing.domain.entitlements import Entitlement, Grant, GrantSource
+    from tests.support import plans
+
+    raw = json.loads(encode(Entitlement.of(Grant(GrantSource.FREE, plans.PRO))))
+    assert raw["plan"]["limits"]["think_longer_per_day"] == 10
+    del raw["plan"]["limits"]["think_longer_per_day"]
+    assert decode(json.dumps(raw)).limits.think_longer_per_day == 0

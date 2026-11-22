@@ -74,7 +74,9 @@ def spec_to_raw(spec: CatalogSpec) -> dict[str, Any]:
         "currency": spec.currency,
         "gst_inclusive": spec.gst_inclusive,
         "model_groups": {
-            g.value: [{"id": e.id, "label": e.label, "provider": e.provider} for e in entries]
+            g.value: [
+                {"id": e.id, "label": e.label, "provider": e.provider, "think": e.think} for e in entries
+            ]
             for g, entries in spec.model_groups.items()
         },
         "base_limits": _limits(spec.base_limits),

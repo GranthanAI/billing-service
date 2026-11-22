@@ -19,6 +19,7 @@ class ModelEntry:
     provider: str
     group: ModelGroup
     sort_order: int
+    think: bool = False  # the model has a reasoning control llm-service can turn up
 
 
 @dataclass(frozen=True, slots=True)

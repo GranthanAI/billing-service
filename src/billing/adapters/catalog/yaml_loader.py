@@ -14,6 +14,8 @@ from billing.app.catalog_spec import CatalogSpec, ModelEntry, PaygSpec, PlanSpec
 from billing.domain.catalog import UNLIMITED, Limits, ModelGroup, OrgVariant
 
 LIMIT_FIELDS = tuple(f.name for f in fields(Limits))
+# Limits added after catalogs were published: a catalog stored without them (active_catalog, drafts) still loads, as 0.
+OPTIONAL_LIMITS = frozenset({"think_longer_per_day"})
 PAYG_PRICE_KEYS = ("fast", "smart", "best", "ultra", "youtube_video", "manim_video")
 
 
@@ -45,6 +47,7 @@ class _ModelItem(_Strict):
     id: str
     label: str
     provider: str
+    think: StrictBool = False
 
 
 class _Plan(_Strict):
@@ -90,6 +93,9 @@ def _limits(raw: Mapping[str, Any], where: str) -> Limits:
         raise CatalogError(f"{where}: unknown limit '{unknown[0]}'")
     values: dict[str, int] = {}
     for name in LIMIT_FIELDS:
+        if name not in raw and name in OPTIONAL_LIMITS:
+            values[name] = 0
+            continue
         if name not in raw:
             raise CatalogError(f"{where}: limit '{name}' is missing")
         v = raw[name]
@@ -157,7 +163,7 @@ def parse_catalog(raw: object) -> CatalogSpec:
             if not m.label.strip() or not m.provider.strip():
                 raise CatalogError(f"model_groups: model '{m.id}' needs a label and a provider")
             seen[m.id] = group.value
-            entries.append(ModelEntry(m.id, m.label, m.provider, group, order))
+            entries.append(ModelEntry(m.id, m.label, m.provider, group, order, m.think))
             order += 1
         model_groups[group] = tuple(entries)
     for gname in raw["model_groups"]:

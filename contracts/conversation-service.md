@@ -128,8 +128,13 @@ Chat message and regenerate: the reserve `idempotency_key` and the usage `source
 Service-owned limits first (no side effects), then `CheckAndReserve` (spends a count), then the work.
 A failure after the reserve is compensated with `Release`. Service-owned limits (plan 4.8):
 `messages_per_conversation`, `branches_per_tree`, `documents_per_tree`, `custom_modes`,
-`mode_instruction_chars`; a breach is `403` with `reason: plan_limit`
+`mode_instruction_chars`, `think_longer_per_day`; a breach is `403` with `reason: plan_limit`
 and `message_key: limit.<name>` (for example `limit.branches_per_tree`), and nothing is reserved.
+
+`think_longer_per_day` (0 = not in the plan, `-1` = unlimited) is counted per IST day by conversation-service itself,
+not by billing: billing only carries the number in the plan limits (and in the `GetEntitlements` limits map).
+A plan version stored before the key existed reads as `0`. Starting values: free 0, pro 10, max 30, org_pro 0,
+org_max 20, payg 0 (a think message has no credit price yet).
 
 ### Deny error shape
 
@@ -184,8 +189,8 @@ value they computed; the event itself is the signal to drop the cache entry.
 
 ### Usage topics billing reads
 
-`chat.response.generated` 2.2 and `chat.response.cancelled` are produced by llm-service (see
-`contracts/llm-service.md`); conversation-service only stores `model` and `model_group` from them.
+`chat.response.generated` 2.3 and `chat.response.cancelled` are produced by llm-service (see
+`contracts/llm-service.md`); conversation-service only stores `model`, `model_group` and (2.3) `think` from them.
 
 ### `usage.threshold_reached`
 

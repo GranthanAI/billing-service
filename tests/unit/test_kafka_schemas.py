@@ -121,3 +121,10 @@ def test_malformed_consumed_events_are_rejected(body: bytes) -> None:
 def test_unknown_topic() -> None:
     with pytest.raises(KeyError):
         decode_consumed("nope", b"{}")
+
+
+def test_chat_event_think_flag_is_explicit_and_defaults_false() -> None:
+    old = decode_consumed("chat.response.generated", json.dumps(CHAT).encode())
+    assert isinstance(old, schemas.ChatResponseGenerated) and old.think is False
+    new = decode_consumed("chat.response.generated", json.dumps({**CHAT, "think": True}).encode())
+    assert isinstance(new, schemas.ChatResponseGenerated) and new.think is True

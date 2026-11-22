@@ -66,6 +66,7 @@ models = sa.Table(
     sa.Column("provider", sa.Text, nullable=False),
     sa.Column("model_group", model_group, nullable=False),
     sa.Column("sort_order", sa.Integer, nullable=False),
+    sa.Column("think", sa.Boolean, nullable=False, server_default=sa.false()),
 )
 
 model_prices = sa.Table(

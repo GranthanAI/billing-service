@@ -32,7 +32,10 @@ Answers `{"models":[{"id","available","reason"}],"checked_at"}` for every regist
 credentials present AND an adapter AND the breaker not open; `reason` is `disabled | no_credentials | no_adapter |
 breaker_open` (empty when available). billing-service polls it every 5 minutes (plan 4.6.1).
 
-## Out: `chat.response.generated` 2.2 and `chat.response.cancelled`
+## Out: `chat.response.generated` 2.3 and `chat.response.cancelled`
+
+2.3 adds `"think": bool`: the answer call used provider reasoning. billing reads it and stores nothing; a think answer is
+rated on its real tokens like any other.
 
 Added fields (all optional for old consumers):
 
@@ -91,3 +94,8 @@ adapter or credentials, and registry models that are not in the catalog. Never b
 Note (same rules as in `contracts/conversation-service.md`): `entitlements.changed` is not emitted for
 Free users on catalog limit changes, so rely on the 60 s cache TTL for those; `version_hash` is an
 opaque change marker, not a hash, and must not be compared with anything.
+
+`GET /billing/v1/models` and `GET /billing/v1/me/models` carry `"think": bool` on every model: the model has a reasoning
+control llm-service can turn up (Groq gpt-oss `reasoning_effort`, Claude extended thinking, GPT-6 reasoning effort, Gemini
+thinking config). It is billing's claim; llm-service decides what it actually sends, and its catalog check fails when
+billing says `think: true` for a model whose own `think.kind` is `none`.

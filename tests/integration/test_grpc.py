@@ -81,7 +81,8 @@ async def test_response_matches_the_proto_contract(server: tuple[Stack, str], ho
         target, "GetEntitlements", billing_pb2.GetEntitlementsRequest(user_id=uid), metadata=auth()
     )
     assert (ent.plan_code, ent.plan_version, ent.source) == ("pro", 1, "override")
-    assert len(ent.limits) == 12 and ent.limits["messages_per_day"] == 60
+    assert len(ent.limits) == 13 and ent.limits["messages_per_day"] == 60
+    assert ent.limits["think_longer_per_day"] == 10  # the generic limits map carries the new limit
     assert "claude-haiku-5-5" in ent.allowed_models and ent.version_hash
 
     denied = await _call(

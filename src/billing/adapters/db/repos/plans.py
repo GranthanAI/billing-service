@@ -121,7 +121,7 @@ class SqlPlanRepo:
     async def list_models(self) -> list[ModelEntry]:
         q = sa.select(models_t).order_by(models_t.c.sort_order)
         return [
-            ModelEntry(r.id, r.label, r.provider, ModelGroup(r.model_group), r.sort_order)
+            ModelEntry(r.id, r.label, r.provider, ModelGroup(r.model_group), r.sort_order, r.think)
             for r in (await self._c.execute(q)).all()
         ]
 
@@ -138,6 +138,7 @@ class SqlPlanRepo:
                 provider=e.provider,
                 model_group=e.group.value,
                 sort_order=e.sort_order,
+                think=e.think,
             )
             if e.id in have:
                 await self._c.execute(
